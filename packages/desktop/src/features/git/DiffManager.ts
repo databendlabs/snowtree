@@ -29,9 +29,9 @@ export interface GitCommit {
 export type WorkingTreeScope = 'all' | 'staged' | 'unstaged' | 'untracked';
 
 export type WorkingTreeGroups = {
-  staged: Array<{ path: string; additions: number; deletions: number; type: 'added' | 'deleted' | 'modified' | 'renamed' }>;
-  unstaged: Array<{ path: string; additions: number; deletions: number; type: 'added' | 'deleted' | 'modified' | 'renamed' }>;
-  untracked: Array<{ path: string; additions: number; deletions: number; type: 'added' | 'deleted' | 'modified' | 'renamed' }>;
+  staged: Array<{ path: string; additions: number; deletions: number; type: 'added' | 'deleted' | 'modified' | 'renamed'; isNew?: boolean }>;
+  unstaged: Array<{ path: string; additions: number; deletions: number; type: 'added' | 'deleted' | 'modified' | 'renamed'; isNew?: boolean }>;
+  untracked: Array<{ path: string; additions: number; deletions: number; type: 'added' | 'deleted' | 'modified' | 'renamed'; isNew?: boolean }>;
 };
 
 const MAX_UNTRACKED_FILE_BYTES = 1024 * 1024; // 1MB
@@ -324,6 +324,20 @@ export class GitDiffManager {
     return input;
   }
 
+  private async headPathExists(worktreePath: string, filePath: string, sessionId?: string | null): Promise<boolean> {
+    const object = `HEAD:${filePath}`;
+    const res = await this.gitExecutor.run({
+      sessionId: sessionId ?? undefined,
+      cwd: worktreePath,
+      argv: ['git', 'cat-file', '-e', object],
+      op: 'read',
+      recordTimeline: false,
+      meta: { source: 'gitDiff', operation: 'cat-file-exists', object },
+      timeoutMs: 15_000,
+    });
+    return res.exitCode === 0;
+  }
+
   private statusType(code: string): 'added' | 'deleted' | 'modified' | 'renamed' {
     if (code === 'A') return 'added';
     if (code === 'D') return 'deleted';
@@ -404,9 +418,17 @@ export class GitDiffManager {
       ).stdout
     );
 
+    const stagedNewFlags = new Map<string, boolean>();
+    const stagedAdded = stagedPaths.filter((p) => p.type === 'added').map((p) => p.path);
+    for (const p of stagedAdded) {
+      const exists = await this.headPathExists(worktreePath, p, sessionId);
+      stagedNewFlags.set(p, !exists);
+    }
+
     for (const item of stagedPaths) {
       const stats = stagedStats.get(item.path) || { additions: 0, deletions: 0 };
-      groups.staged.push({ path: item.path, additions: stats.additions, deletions: stats.deletions, type: item.type });
+      const isNew = item.type === 'added' ? stagedNewFlags.get(item.path) : undefined;
+      groups.staged.push({ path: item.path, additions: stats.additions, deletions: stats.deletions, type: item.type, isNew });
     }
     for (const item of unstagedPaths) {
       const stats = unstagedStats.get(item.path) || { additions: 0, deletions: 0 };
@@ -424,7 +446,7 @@ export class GitDiffManager {
         } catch {
           // ignore
         }
-        groups.untracked.push({ path: p, additions, deletions: 0, type: 'added' });
+        groups.untracked.push({ path: p, additions, deletions: 0, type: 'added', isNew: true });
       }
     }
 

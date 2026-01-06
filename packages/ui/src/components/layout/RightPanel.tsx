@@ -743,7 +743,8 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
       if (e.kind !== 'git.command') return;
       if (e.status !== 'finished' && e.status !== 'failed') return;
       const meta = (e.meta || {}) as Record<string, unknown>;
-      if (meta.source !== 'agent') return;
+      const source = typeof meta.source === 'string' ? meta.source : '';
+      if (source !== 'agent' && source !== 'gitStaging') return;
       const cmd = typeof e.command === 'string' ? e.command.trim() : '';
       if (!cmd) return;
       if (!/^(git|gh)\b/.test(cmd)) return;
@@ -838,19 +839,30 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
       const additions = (staged?.additions || 0) + (unstaged?.additions || 0);
       const deletions = (staged?.deletions || 0) + (unstaged?.deletions || 0);
       const stageState: TriState = staged && unstaged ? 'indeterminate' : staged ? 'checked' : 'unchecked';
-      merged.push({ file: { path, type, additions, deletions }, stageState });
+      const isNew = Boolean(staged?.isNew);
+      merged.push({ file: { path, type, additions, deletions, isNew }, stageState });
     }
 
     merged.sort((a, b) => a.file.path.localeCompare(b.file.path));
     return merged;
   }, [workingTree]);
 
-  const untrackedFiles = useMemo(() => {
+  const trackedList = useMemo(() => trackedFiles.filter((x) => !x.file.isNew), [trackedFiles]);
+
+  const untrackedList = useMemo(() => {
     if (!workingTree) return [];
-    const list = [...workingTree.untracked];
-    list.sort((a, b) => a.path.localeCompare(b.path));
-    return list;
-  }, [workingTree]);
+
+    const fromMap = trackedFiles.filter((x) => x.file.isNew);
+    const fromStatus = workingTree.untracked.map((f) => ({ file: f, stageState: 'unchecked' as TriState }));
+
+    const byPath = new Map<string, { file: FileChange; stageState: TriState }>();
+    for (const x of [...fromStatus, ...fromMap]) {
+      byPath.set(x.file.path, x);
+    }
+
+    const merged = Array.from(byPath.values()).sort((a, b) => a.file.path.localeCompare(b.file.path));
+    return merged;
+  }, [trackedFiles, workingTree]);
 
   const stageAllState: TriState = useMemo(() => {
     if (!workingTree) return 'unchecked';
@@ -1145,7 +1157,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
               </div>
             ) : (
               <div className="py-2">
-                {trackedFiles.length > 0 && (
+                {trackedList.length > 0 && (
                   <div className="mb-2">
                     <div
                       className="px-3 pb-1 text-[10px] font-semibold tracking-wider uppercase"
@@ -1154,7 +1166,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                       Tracked
                     </div>
                     <div>
-                      {trackedFiles.map(({ file, stageState }) => (
+                      {trackedList.map(({ file, stageState }) => (
                         <WorkingFileRow
                           key={`tracked:${file.path}`}
                           file={file}
@@ -1164,7 +1176,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                             const stage = stageState !== 'checked';
                             void handleChangeFileStage(file.path, stage);
                           }}
-                          onClick={() => handleWorkingFileClick('all', file, trackedFiles.map((x) => x.file))}
+                          onClick={() => handleWorkingFileClick('all', file, trackedList.map((x) => x.file))}
                           isSelected={selectedFile === file.path && selectedFileScope === 'all'}
                           testId={`right-panel-file-tracked-${file.path}`}
                         />
@@ -1173,7 +1185,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                   </div>
                 )}
 
-                {untrackedFiles.length > 0 && (
+                {untrackedList.length > 0 && (
                   <div className="mb-2">
                     <div
                       className="px-3 pb-1 text-[10px] font-semibold tracking-wider uppercase"
@@ -1182,14 +1194,17 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                       Untracked
                     </div>
                     <div>
-                      {untrackedFiles.map((file) => (
+                      {untrackedList.map(({ file, stageState }) => (
                         <WorkingFileRow
                           key={`untracked:${file.path}`}
                           file={file}
-                          stageState="unchecked"
+                          stageState={stageState}
                           disabled={isLoading || isStageChanging}
-                          onToggleStage={() => void handleChangeFileStage(file.path, true)}
-                          onClick={() => handleWorkingFileClick('untracked', file, untrackedFiles)}
+                          onToggleStage={() => {
+                            const stage = stageState !== 'checked';
+                            void handleChangeFileStage(file.path, stage);
+                          }}
+                          onClick={() => handleWorkingFileClick('untracked', file, untrackedList.map((x) => x.file))}
                           isSelected={selectedFile === file.path && selectedFileScope === 'untracked'}
                           testId={`right-panel-file-untracked-${file.path}`}
                         />

@@ -8,6 +8,11 @@ export interface FileChange {
   additions: number;
   deletions: number;
   type: 'added' | 'deleted' | 'modified' | 'renamed';
+  /**
+   * True when the file does not exist in HEAD (e.g. newly added but not committed).
+   * Used to keep "Untracked" stable across staging operations until commit.
+   */
+  isNew?: boolean;
 }
 
 export interface WorkspaceHeaderProps {
