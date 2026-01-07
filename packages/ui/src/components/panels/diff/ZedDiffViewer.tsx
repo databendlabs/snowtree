@@ -95,8 +95,9 @@ export const ZedDiffViewer: React.FC<{
   unstagedDiff?: string;
   fileSources?: Record<string, string>;
   scrollToFilePath?: string;
+  fileOrder?: string[];
   onChanged?: () => void;
-}> = ({ diff, className, sessionId, currentScope, stagedDiff, unstagedDiff, fileSources, scrollToFilePath, onChanged }) => {
+}> = ({ diff, className, sessionId, currentScope, stagedDiff, unstagedDiff, fileSources, scrollToFilePath, fileOrder, onChanged }) => {
   const fileHeaderRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const stagedHunkHeaderBySig = useMemo(() => {
@@ -136,8 +137,27 @@ export const ZedDiffViewer: React.FC<{
   const files = useMemo<FileModel[]>(() => {
     if (!diff || diff.trim() === '') return [];
     const parsed = parseDiff(diff, { nearbySequences: 'zip' });
+    const ordered = (() => {
+      const order = Array.isArray(fileOrder) ? fileOrder.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean) : [];
+      if (order.length === 0) return parsed;
+      const idx = new Map<string, number>();
+      order.forEach((p, i) => {
+        if (!idx.has(p)) idx.set(p, i);
+      });
+      return parsed
+        .map((f, originalIndex) => ({ f, originalIndex, path: toFilePath(f) }))
+        .sort((a, b) => {
+          const ai = idx.get(a.path);
+          const bi = idx.get(b.path);
+          if (ai != null && bi != null) return ai - bi;
+          if (ai != null) return -1;
+          if (bi != null) return 1;
+          return a.originalIndex - b.originalIndex;
+        })
+        .map((x) => x.f);
+    })();
 
-    return parsed.map((f) => {
+    return ordered.map((f) => {
       const path = toFilePath(f);
       const source = fileSources?.[path];
       const expandedHunks = source ? expandToFullFile(f.hunks || [], source) : normalizeHunks(f.hunks || []);

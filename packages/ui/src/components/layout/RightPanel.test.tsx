@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { RightPanel } from './RightPanel';
 import type { RightPanelProps } from './types';
 import { API } from '../../utils/api';
@@ -35,6 +35,11 @@ describe('RightPanel - Zed-style Changes list', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (window as any).electronAPI = {
+      events: {
+        onGitStatusUpdated: vi.fn(),
+      },
+    };
     (API.sessions.getExecutions as any).mockResolvedValue({
       success: true,
       data: [
@@ -143,6 +148,52 @@ describe('RightPanel - Zed-style Changes list', () => {
     await waitFor(() => {
       // Should still render without errors
       expect(screen.getByText(/Changes/i)).toBeInTheDocument();
+    });
+  });
+
+  it('queues a refresh when status updates during an in-flight fetch', async () => {
+    const onGitStatusUpdated = (window as any).electronAPI.events.onGitStatusUpdated as any;
+    let statusCb: ((data: any) => void) | null = null;
+    onGitStatusUpdated.mockImplementation((fn: any) => {
+      statusCb = fn;
+      return () => {};
+    });
+
+    let resolveDiff: ((value: any) => void) | null = null;
+    (API.sessions.getDiff as any).mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolveDiff = r;
+        })
+    );
+
+    render(<RightPanel {...mockProps} />);
+
+    await waitFor(() => {
+      expect(API.sessions.getDiff).toHaveBeenCalled();
+    });
+
+    await act(async () => {
+      statusCb?.({ sessionId: 'test-session', gitStatus: { state: 'modified' } });
+      await new Promise((r) => setTimeout(r, 120));
+    });
+
+    await act(async () => {
+      resolveDiff?.({
+        success: true,
+        data: {
+          workingTree: {
+            staged: [{ path: 'staged1.ts', type: 'modified', additions: 5, deletions: 2 }],
+            unstaged: [{ path: 'unstaged1.ts', type: 'modified', additions: 3, deletions: 1 }],
+            untracked: [{ path: 'new.ts', type: 'added', additions: 10, deletions: 0 }],
+          },
+        },
+      });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    await waitFor(() => {
+      expect((API.sessions.getDiff as any).mock.calls.length).toBeGreaterThan(1);
     });
   });
 });

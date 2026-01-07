@@ -26,6 +26,21 @@ index 1234567..abcdefg 100644
 +b
  c`;
 
+const SAMPLE_DIFF_TWO_FILES = `diff --git a/b.txt b/b.txt
+index 1234567..abcdefg 100644
+--- a/b.txt
++++ b/b.txt
+@@ -1,1 +1,1 @@
+-x
++y
+diff --git a/a.txt b/a.txt
+index 1234567..abcdefg 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-x
++y`;
+
 describe('ZedDiffViewer', () => {
   it('renders viewer', () => {
     render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_HUNKS} />);
@@ -116,5 +131,12 @@ describe('ZedDiffViewer', () => {
       />
     );
     expect(screen.getAllByTestId('diff-hunk-controls')).toHaveLength(2);
+  });
+
+  it('orders files based on fileOrder when provided', () => {
+    render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} fileOrder={['a.txt', 'b.txt']} />);
+    const headers = screen.getAllByTestId('diff-file-header').map((el) => el.textContent);
+    expect(headers[0]).toBe('a.txt');
+    expect(headers[1]).toBe('b.txt');
   });
 });

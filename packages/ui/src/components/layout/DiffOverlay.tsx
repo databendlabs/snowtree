@@ -470,6 +470,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
             stagedDiff={stagedDiff ?? undefined}
             unstagedDiff={unstagedDiff ?? undefined}
             fileSources={filePath && fileSource != null ? { [filePath]: fileSource } : undefined}
+            fileOrder={viewerFiles.length > 0 ? viewerFiles.map((f) => f.path) : undefined}
             onChanged={handleRefresh}
           />
         ) : (

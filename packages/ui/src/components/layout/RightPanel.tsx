@@ -447,6 +447,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
   const [isStageChanging, setIsStageChanging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadingRef = useRef(false);
+  const pendingFilesRefreshRef = useRef(false);
   const requestIdRef = useRef(0);
   const historyRequestIdRef = useRef(0);
   const refreshTimerRef = useRef<number | null>(null);
@@ -549,7 +550,14 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
 
   // Fetch files for the selected commit
   const fetchFiles = useCallback(async () => {
-    if (loadingRef.current || !session.id || !selectedTarget) return;
+    if (!session.id || !selectedTarget) return;
+
+    // If a refresh is requested while a previous fetch is in-flight (e.g. external IDE stages/unstages),
+    // queue one more fetch to run after the current request settles.
+    if (loadingRef.current) {
+      pendingFilesRefreshRef.current = true;
+      return;
+    }
 
     const requestId = ++requestIdRef.current;
     loadingRef.current = true;
@@ -646,6 +654,13 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
       if (requestId === requestIdRef.current) {
         setIsLoading(false);
         loadingRef.current = false;
+      }
+
+      if (!loadingRef.current && pendingFilesRefreshRef.current) {
+        pendingFilesRefreshRef.current = false;
+        window.setTimeout(() => {
+          void fetchFiles();
+        }, 0);
       }
     }
   }, [session.id, selectedTarget, fetchCommits]);
@@ -896,6 +911,12 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
     const merged = Array.from(byPath.values()).sort((a, b) => a.file.path.localeCompare(b.file.path));
     return merged;
   }, [trackedFiles, workingTree]);
+
+  const workingFilesForDiffOverlay = useMemo(() => {
+    const tracked = trackedList.map((x) => x.file);
+    const untracked = untrackedList.map((x) => x.file);
+    return [...tracked, ...untracked];
+  }, [trackedList, untrackedList]);
 
   const stageAllState: TriState = useMemo(() => {
     if (!workingTree) return 'unchecked';
@@ -1209,7 +1230,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                             const stage = stageState !== 'checked';
                             void handleChangeFileStage(file.path, stage);
                           }}
-                          onClick={() => handleWorkingFileClick('all', file, trackedList.map((x) => x.file))}
+                          onClick={() => handleWorkingFileClick('all', file, workingFilesForDiffOverlay)}
                           isSelected={selectedFile === file.path && selectedFileScope === 'all'}
                           testId={`right-panel-file-tracked-${file.path}`}
                         />
@@ -1237,7 +1258,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                             const stage = stageState !== 'checked';
                             void handleChangeFileStage(file.path, stage);
                           }}
-                          onClick={() => handleWorkingFileClick('untracked', file, untrackedList.map((x) => x.file))}
+                          onClick={() => handleWorkingFileClick('untracked', file, workingFilesForDiffOverlay)}
                           isSelected={selectedFile === file.path && selectedFileScope === 'untracked'}
                           testId={`right-panel-file-untracked-${file.path}`}
                         />
