@@ -14,7 +14,25 @@
 - Review & approve changes before commit
 - Session history & timeline
 
-## Quick Start
+## Installation
+
+### One-line Install (macOS & Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/BohuTANG/snowtree/main/install.sh | sh
+```
+
+### Manual Download
+
+Download from [GitHub Releases](https://github.com/BohuTANG/snowtree/releases):
+
+| Platform | File |
+|----------|------|
+| macOS (Intel & Apple Silicon) | `snowtree-*-macOS-universal.dmg` |
+| Linux (Debian/Ubuntu) | `snowtree-*-linux-x64.deb` |
+| Linux (Other) | `snowtree-*-linux-x64.AppImage` |
+
+### Build from Source
 
 ```bash
 make install
