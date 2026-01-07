@@ -846,16 +846,17 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
     async (stage: boolean) => {
       if (!session.id || isStageChanging) return;
       setIsStageChanging(true);
+      const prev = workingTree;
       try {
         await API.sessions.changeAllStage(session.id, { stage });
       } catch (err) {
+        if (prev) setWorkingTree(prev);
         console.error('[RightPanel] Failed to change stage state', err);
       } finally {
         setIsStageChanging(false);
-        scheduleChangesRefresh();
       }
     },
-    [isStageChanging, scheduleChangesRefresh, session.id]
+    [isStageChanging, session.id, workingTree]
   );
 
   const handleChangeFileStage = useCallback(
@@ -1158,58 +1159,65 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
           <div className="flex items-center gap-2">
             {selectedIsUncommitted && totalChanges > 0 && (
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="right-panel-stage-all"
-                  disabled={isLoading || isStageChanging || !canStageAll}
-                  onClick={() => {
-                    if (!canStageAll) return;
-                    if (workingTree) {
-                      setWorkingTree({
-                        staged: [...workingTree.staged, ...workingTree.unstaged, ...workingTree.untracked],
-                        unstaged: [],
-                        untracked: [],
-                      });
-                    }
-                    void handleChangeAllStage(true);
-                  }}
-                  className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                  style={{
-                    color: colors.text.primary,
-                    backgroundColor: colors.bg.hover,
-                    border: `1px solid ${colors.border}`,
-                  }}
-                  title="Stage all"
-                >
-                  Stage All
-                </button>
-                <button
-                  type="button"
-                  data-testid="right-panel-unstage-all"
-                  disabled={isLoading || isStageChanging || !canUnstageAll}
-                  onClick={() => {
-                    if (!canUnstageAll) return;
-                    if (workingTree) {
-                      const newFiles = workingTree.staged.filter((f) => Boolean(f.isNew));
-                      const others = workingTree.staged.filter((f) => !Boolean(f.isNew));
-                      setWorkingTree({
-                        staged: [],
-                        unstaged: [...workingTree.unstaged, ...others],
-                        untracked: [...workingTree.untracked, ...newFiles],
-                      });
-                    }
-                    void handleChangeAllStage(false);
-                  }}
-                  className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                  style={{
-                    color: colors.text.primary,
-                    backgroundColor: colors.bg.hover,
-                    border: `1px solid ${colors.border}`,
-                  }}
-                  title="Unstage all"
-                >
-                  Unstage All
-                </button>
+                {canStageAll ? (
+                  <button
+                    type="button"
+                    data-testid="right-panel-stage-all"
+                    disabled={isLoading || isStageChanging}
+                    onClick={() => {
+                      if (workingTree) {
+                        const staged = workingTree.staged;
+                        const unstaged = workingTree.unstaged;
+                        const untracked = workingTree.untracked.map((f) => ({ ...f, isNew: true }));
+                        setWorkingTree({
+                          staged: [...staged, ...unstaged, ...untracked],
+                          unstaged: [],
+                          untracked: [],
+                        });
+                      }
+                      void handleChangeAllStage(true);
+                    }}
+                    className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    style={{
+                      color: colors.text.primary,
+                      backgroundColor: colors.bg.hover,
+                      border: `1px solid ${colors.border}`,
+                    }}
+                    title="Stage all"
+                  >
+                    Stage All
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="right-panel-unstage-all"
+                    disabled={isLoading || isStageChanging || !canUnstageAll}
+                    onClick={() => {
+                      if (!canUnstageAll) return;
+                      if (workingTree) {
+                        const newFiles = workingTree.staged
+                          .filter((f) => Boolean(f.isNew))
+                          .map(({ isNew, ...rest }) => rest);
+                        const others = workingTree.staged.filter((f) => !Boolean(f.isNew));
+                        setWorkingTree({
+                          staged: [],
+                          unstaged: [...workingTree.unstaged, ...others],
+                          untracked: [...workingTree.untracked, ...newFiles],
+                        });
+                      }
+                      void handleChangeAllStage(false);
+                    }}
+                    className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    style={{
+                      color: colors.text.primary,
+                      backgroundColor: colors.bg.hover,
+                      border: `1px solid ${colors.border}`,
+                    }}
+                    title="Unstage all"
+                  >
+                    Unstage All
+                  </button>
+                )}
               </div>
             )}
 

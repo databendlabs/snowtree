@@ -138,6 +138,17 @@ describe('RightPanel - Zed-style Changes list', () => {
   });
 
   it('unstages all via header controls', async () => {
+    (API.sessions.getDiff as any).mockResolvedValue({
+      success: true,
+      data: {
+        workingTree: {
+          staged: [{ path: 'staged1.ts', type: 'modified', additions: 5, deletions: 2 }],
+          unstaged: [],
+          untracked: [],
+        },
+      },
+    });
+
     render(<RightPanel {...mockProps} />);
 
     await waitFor(() => {
