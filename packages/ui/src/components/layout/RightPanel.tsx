@@ -995,9 +995,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
               </button>
             </div>
           </div>
-          <div className="px-3 pb-2 text-[10px]" style={{ color: colors.text.muted }}>
-            Hint: sync committed commits only
-          </div>
         </div>
 
         <div style={{ borderTop: `1px solid ${colors.border}` }} />
@@ -1131,9 +1128,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
               <GitCommit className="w-3 h-3" />
               AI Commit
             </button>
-          </div>
-          <div className="px-3 pb-2 text-[10px]" style={{ color: colors.text.muted }}>
-            Hint: commit staged only
           </div>
         </div>
 
