@@ -17,6 +17,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
     const baseCommit = commits.find((c) => c.id === -1) || null;
     const sessionCommits = commits.filter((c) => c.id > 0);
     const headHash = sessionCommits[0]?.after_commit_hash || null;
+    const hasSessionCommits = sessionCommits.length > 0;
 
     if (commits.length === 0) {
       return (
@@ -31,7 +32,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
 
     return (
       <div>
-        {uncommitted && (
+        {uncommitted && hasSessionCommits && (
           <div className="flex">
             <div className="w-5 flex flex-col items-center pt-3">
               <div
@@ -45,7 +46,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
                     : 'none',
                 }}
               />
-              {(sessionCommits.length > 0 || baseCommit) && (
+              {(hasSessionCommits || baseCommit) && (
                 <StackConnector accent={isWorkingTreeSelected} />
               )}
             </div>
@@ -85,7 +86,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
                 <CommitItem
                   commit={commit}
                   isSelected={isSelected}
-                  badge={isHead ? 'HEAD' : undefined}
+                  badge={isHead ? 'head' : undefined}
                   onClick={() => onCommitSelect(commit)}
                 />
               </div>
@@ -108,7 +109,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
               <CommitItem
                 commit={baseCommit}
                 isSelected={selectedCommitHash === baseCommit.after_commit_hash}
-                badge="BASE"
+                badge="base"
                 onClick={() => onCommitSelect(baseCommit)}
               />
             </div>
