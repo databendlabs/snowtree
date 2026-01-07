@@ -293,11 +293,10 @@ const AgentResponse: React.FC<{
     } catch { /* ignore */ }
   }, []);
 
-  const statusColor = status === 'running' ? colors.status.running 
-    : status === 'error' ? colors.status.error 
-    : status === 'interrupted' ? colors.status.running 
-    : colors.status.done;
   const totalDuration = commands.reduce((sum, c) => sum + (c.durationMs || 0), 0);
+  const runningCount = commands.filter(c => c.status === 'started').length;
+  const failedCount = commands.filter(c => c.status === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0)).length;
+  const doneCount = commands.length - runningCount - failedCount;
 
   return (
     <div className="space-y-2">
@@ -333,12 +332,22 @@ const AgentResponse: React.FC<{
             {showCommands ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <span className="font-mono">{commands.length} command{commands.length > 1 ? 's' : ''}</span>
             <span className="opacity-30">·</span>
-            {status === 'running' ? (
-              <Spinner className="text-amber-400" />
-            ) : (
-              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusColor }} />
+            {runningCount > 0 && (
+              <>
+                <Spinner />
+                <span style={{ color: colors.status.running }}>{runningCount} running</span>
+              </>
             )}
-            <span className="font-medium" style={{ color: statusColor }}>{status}</span>
+            {runningCount > 0 && doneCount > 0 && <span className="opacity-30">·</span>}
+            {doneCount > 0 && (
+              <span style={{ color: colors.status.done }}>{doneCount} done</span>
+            )}
+            {failedCount > 0 && (
+              <>
+                <span className="opacity-30">·</span>
+                <span style={{ color: colors.status.error }}>{failedCount} failed</span>
+              </>
+            )}
             {totalDuration > 0 && status !== 'running' && (
               <>
                 <span className="opacity-30">·</span>
@@ -359,24 +368,37 @@ const AgentResponse: React.FC<{
                 const commandCopy = typeof meta.commandCopy === 'string' ? meta.commandCopy : display;
                 const showStdout = c.kind === 'cli' && stdout.length > 0;
                 const showStderr = c.kind === 'cli' && stderr.length > 0;
+                const cmdStatus = c.status;
+                const isFailed = cmdStatus === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0);
 
                 return (
                   <div key={key} className="group rounded-sm hover:bg-white/[0.03] transition-colors -mx-1 px-1 py-0.5">
                     <div className="flex items-start justify-between gap-2">
-                      <pre className="text-xs font-mono whitespace-pre-wrap break-all flex-1 leading-relaxed" style={{ color: colors.text.secondary }}>
-                        <span className="opacity-50 select-none">$</span> {display}
-                      </pre>
+                      <div className="flex items-start gap-2 flex-1 min-w-0">
+                        <span className="flex-shrink-0 mt-0.5">
+                          {cmdStatus === 'started' ? (
+                            <Loader2 className="w-3 h-3 animate-spin" style={{ color: colors.status.running }} />
+                          ) : isFailed ? (
+                            <XCircle className="w-3 h-3" style={{ color: colors.status.error }} />
+                          ) : (
+                            <Check className="w-3 h-3" style={{ color: colors.status.done }} />
+                          )}
+                        </span>
+                        <pre className="text-xs font-mono whitespace-pre-wrap break-all flex-1 leading-relaxed" style={{ color: colors.text.secondary }}>
+                          {display}
+                        </pre>
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleCopy(commandCopy, key)}
-                        className="p-0.5 rounded opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
+                        className="p-0.5 rounded opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity flex-shrink-0"
                         title={copiedKey === key ? 'Copied' : 'Copy'}
                       >
                         {copiedKey === key ? <Check className="w-3 h-3" style={{ color: colors.status.done }} /> : <Copy className="w-3 h-3" style={{ color: colors.text.faint }} />}
                       </button>
                     </div>
                     {(showStdout || showStderr) && (
-                      <div className="mt-1.5 ml-3 rounded text-xs font-mono overflow-hidden" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
+                      <div className="mt-1.5 ml-5 rounded text-xs font-mono overflow-hidden" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
                         {showStdout && <div className="px-2 py-1.5"><pre className="whitespace-pre-wrap break-all leading-relaxed" style={{ color: colors.text.muted }}>{stdout}</pre></div>}
                         {showStderr && <div className="px-2 py-1.5"><pre className="whitespace-pre-wrap break-all leading-relaxed" style={{ color: colors.status.error }}>{stderr}</pre></div>}
                       </div>
