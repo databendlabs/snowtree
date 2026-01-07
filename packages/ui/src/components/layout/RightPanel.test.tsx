@@ -301,7 +301,7 @@ describe('RightPanel - Zed-style Changes list', () => {
     const { container } = render(<RightPanel {...mockProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Commits/i)).toBeInTheDocument();
+      expect(screen.getByText(/^Commits$/i)).toBeInTheDocument();
       expect(screen.getByLabelText('Select commit uncommitted changes')).toBeInTheDocument();
     });
 

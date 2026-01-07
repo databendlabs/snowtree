@@ -320,8 +320,6 @@ interface CommitItemProps {
   isSelected: boolean;
   badge?: string;
   onClick: () => void;
-  onCommitUncommittedChanges?: () => void;
-  isCommitDisabled?: boolean;
 }
 
 const CommitItem: React.FC<CommitItemProps> = React.memo(({
@@ -329,8 +327,6 @@ const CommitItem: React.FC<CommitItemProps> = React.memo(({
   isSelected,
   badge,
   onClick,
-  onCommitUncommittedChanges,
-  isCommitDisabled
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const isUncommitted = commit.id === 0;
@@ -356,11 +352,6 @@ const CommitItem: React.FC<CommitItemProps> = React.memo(({
       console.error('Failed to copy hash:', err);
     }
   }, [commit.after_commit_hash]);
-
-  const handleCommitClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    onCommitUncommittedChanges?.();
-  }, [onCommitUncommittedChanges]);
 
   const getBgColor = () => {
     if (isSelected) return colors.bg.selected;
@@ -427,20 +418,6 @@ const CommitItem: React.FC<CommitItemProps> = React.memo(({
           title="Copy commit hash"
         >
           <Copy className="w-3.5 h-3.5" style={{ color: colors.text.muted }} />
-        </button>
-      )}
-
-      {isUncommitted && onCommitUncommittedChanges && (
-        <button
-          type="button"
-          onClick={handleCommitClick}
-          disabled={isCommitDisabled}
-          className="flex-shrink-0 self-start flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-          style={{ color: colors.accent }}
-          title="Ask the session CLI to create a git commit"
-        >
-          <GitCommit className="w-3 h-3" />
-          Commit
         </button>
       )}
     </div>
@@ -970,6 +947,8 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
       ? commits.find((c) => c.id !== 0 && c.after_commit_hash === selectedCommitHash)
       : null;
 
+  const stagedFileCount = workingTree?.staged.length || 0;
+
   return (
     <div
       className="h-full flex flex-col"
@@ -983,6 +962,46 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
         className="flex-shrink-0"
         style={{ borderBottom: `1px solid ${colors.border}` }}
       >
+        <div style={{ backgroundColor: colors.bg.secondary }}>
+          <div className="flex items-center justify-between px-3 py-2">
+            <div className="text-xs font-medium" style={{ color: colors.text.secondary }}>
+              Sync commits to Remote PR
+            </div>
+            <div className="flex items-center gap-1">
+              {onPushPR && (
+                <button
+                  type="button"
+                  onClick={onPushPR}
+                  disabled={isPushPRDisabled || isLoading || isRefreshingHistory}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                  style={{ color: colors.accent }}
+                  title="Sync committed commits to remote PR"
+                >
+                  <GitPullRequest className="w-3 h-3" />
+                  Remote PR
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={isLoading || isRefreshingHistory}
+                className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                title="Refresh"
+              >
+                <RefreshCw
+                  className={`w-3 h-3 ${isLoading || isRefreshingHistory ? 'animate-spin' : ''}`}
+                  style={{ color: colors.text.muted }}
+                />
+              </button>
+            </div>
+          </div>
+          <div className="px-3 pb-2 text-[10px]" style={{ color: colors.text.muted }}>
+            Hint: sync committed commits only
+          </div>
+        </div>
+
+        <div style={{ borderTop: `1px solid ${colors.border}` }} />
+
         <div
           className="flex items-center justify-between px-3 py-2"
           style={{ backgroundColor: colors.bg.secondary }}
@@ -998,42 +1017,10 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
               style={{ color: colors.text.muted }}
             />
             <span>Commits</span>
-            {uncommitted && (
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ backgroundColor: colors.text.modified }}
-                title="Working tree has changes"
-              />
-            )}
           </button>
-          <div className="flex items-center gap-1">
-            {onPushPR && (
-              <button
-                type="button"
-                onClick={onPushPR}
-                disabled={isPushPRDisabled || isLoading || isRefreshingHistory}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                style={{ color: colors.accent }}
-                title="Push to remote PR (create PR if missing)"
-              >
-                <GitPullRequest className="w-3 h-3" />
-                Remote PR
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={isLoading || isRefreshingHistory}
-              className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-              title="Refresh"
-            >
-              <RefreshCw
-                className={`w-3 h-3 ${isLoading || isRefreshingHistory ? 'animate-spin' : ''}`}
-                style={{ color: colors.text.muted }}
-              />
-            </button>
-          </div>
         </div>
+
+        <div style={{ borderTop: `1px solid ${colors.border}` }} />
 
         {isCommitsExpanded && (
           <div className="max-h-48 overflow-y-auto">
@@ -1065,8 +1052,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                         commit={uncommitted}
                         isSelected={selectedIsUncommitted}
                         onClick={() => handleCommitSelect(uncommitted)}
-                        onCommitUncommittedChanges={onCommitUncommittedChanges}
-                        isCommitDisabled={isCommitDisabled}
                       />
                     </div>
                   </div>
@@ -1127,6 +1112,32 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
             )}
           </div>
         )}
+
+        <div style={{ borderTop: `1px solid ${colors.border}` }} />
+
+        <div style={{ backgroundColor: colors.bg.secondary }}>
+          <div className="flex items-center justify-between px-3 py-2">
+            <div className="text-xs font-medium" style={{ color: colors.text.secondary }}>
+              Commit staged
+            </div>
+            <button
+              type="button"
+              onClick={() => onCommitUncommittedChanges?.()}
+              disabled={Boolean(isCommitDisabled) || stagedFileCount === 0}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+              style={{ color: colors.accent }}
+              title="Commit staged only"
+            >
+              <GitCommit className="w-3 h-3" />
+              AI Commit
+            </button>
+          </div>
+          <div className="px-3 pb-2 text-[10px]" style={{ color: colors.text.muted }}>
+            Hint: commit staged only
+          </div>
+        </div>
+
+        <div style={{ borderTop: `1px solid ${colors.border}` }} />
       </div>
 
       {/* Changes section */}
