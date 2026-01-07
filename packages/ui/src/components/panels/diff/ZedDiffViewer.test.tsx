@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ZedDiffViewer } from './ZedDiffViewer';
 import { API } from '../../../utils/api';
 
@@ -59,9 +59,13 @@ describe('ZedDiffViewer', () => {
     );
 
     const stage = screen.getAllByTestId('diff-hunk-stage')[0] as HTMLButtonElement;
-    fireEvent.click(stage);
+    await act(async () => {
+      fireEvent.click(stage);
+    });
 
-    expect(API.sessions.stageHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ isStaging: true }));
+    await waitFor(() => {
+      expect(API.sessions.stageHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ isStaging: true }));
+    });
   });
 
   it('unstages a hunk when scope is staged', async () => {
@@ -76,9 +80,13 @@ describe('ZedDiffViewer', () => {
     );
 
     const stage = screen.getAllByTestId('diff-hunk-stage')[0] as HTMLButtonElement;
-    fireEvent.click(stage);
+    await act(async () => {
+      fireEvent.click(stage);
+    });
 
-    expect(API.sessions.stageHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ isStaging: false }));
+    await waitFor(() => {
+      expect(API.sessions.stageHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ isStaging: false }));
+    });
   });
 
   it('restores a hunk using the current scope', async () => {
@@ -93,9 +101,13 @@ describe('ZedDiffViewer', () => {
     );
 
     const restore = screen.getAllByTestId('diff-hunk-restore')[0] as HTMLButtonElement;
-    fireEvent.click(restore);
+    await act(async () => {
+      fireEvent.click(restore);
+    });
 
-    expect(API.sessions.restoreHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ scope: 'unstaged' }));
+    await waitFor(() => {
+      expect(API.sessions.restoreHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ scope: 'unstaged' }));
+    });
   });
 
   it('scrolls to a file header when scrollToFilePath changes', () => {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Diff, Hunk, getChangeKey, parseDiff, textLinesToHunk, type ChangeData, type DiffType, type HunkData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import { API } from '../../../utils/api';
@@ -15,6 +15,8 @@ type FileModel = {
     }
   >;
 };
+
+type HunkKind = 'added' | 'deleted' | 'modified';
 
 function toFilePath(raw: { newPath: string; oldPath: string }) {
   return (raw.newPath || raw.oldPath || '(unknown)').trim() || '(unknown)';
@@ -38,6 +40,19 @@ function hunkSignature(hunk: HunkData): string {
     else if ((change as any).isDelete) parts.push(`-${change.content}`);
   }
   return parts.join('\n');
+}
+
+function hunkKind(hunk: HunkData): HunkKind | null {
+  const changes = hunk.changes as ChangeData[];
+  let hasInsert = false;
+  let hasDelete = false;
+  for (const change of changes) {
+    if ((change as any).isInsert) hasInsert = true;
+    else if ((change as any).isDelete) hasDelete = true;
+  }
+  if (!hasInsert && !hasDelete) return null;
+  if (hasInsert && hasDelete) return 'modified';
+  return hasInsert ? 'added' : 'deleted';
 }
 
 function normalizeHunks(hunks: HunkData[]): HunkData[] {
@@ -99,6 +114,16 @@ export const ZedDiffViewer: React.FC<{
   onChanged?: () => void;
 }> = ({ diff, className, sessionId, currentScope, stagedDiff, unstagedDiff, fileSources, scrollToFilePath, fileOrder, onChanged }) => {
   const fileHeaderRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const [pendingHunkKeys, setPendingHunkKeys] = useState<Set<string>>(() => new Set());
+
+  const setPending = useCallback((key: string, next: boolean) => {
+    setPendingHunkKeys((prev) => {
+      const copy = new Set(prev);
+      if (next) copy.add(key);
+      else copy.delete(key);
+      return copy;
+    });
+  }, []);
 
   const stagedHunkHeaderBySig = useMemo(() => {
     if (!stagedDiff || stagedDiff.trim() === '') return new Map<string, Map<string, string>>();
@@ -192,29 +217,42 @@ export const ZedDiffViewer: React.FC<{
   }, [scrollToFilePath, scrollToFile]);
 
   const stageOrUnstageHunk = useCallback(
-    async (filePath: string, isStaging: boolean, hunkHeader: string) => {
+    async (filePath: string, isStaging: boolean, hunkHeader: string, hunkKey: string) => {
       if (!sessionId) return;
       try {
+        setPending(hunkKey, true);
         await API.sessions.stageHunk(sessionId, { filePath, isStaging, hunkHeader });
         onChanged?.();
       } catch (err) {
         console.error(`[Diff] Failed to ${isStaging ? 'stage' : 'unstage'} hunk`, { filePath, hunkHeader, err });
+      } finally {
+        setPending(hunkKey, false);
+        // Prevent focus from sticking to the old hunk after staging (avoids "hover controls" lingering).
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
       }
     },
-    [sessionId, onChanged]
+    [sessionId, onChanged, setPending]
   );
 
   const restoreHunk = useCallback(
-    async (filePath: string, scope: 'staged' | 'unstaged', hunkHeader: string) => {
+    async (filePath: string, scope: 'staged' | 'unstaged', hunkHeader: string, hunkKey: string) => {
       if (!sessionId) return;
       try {
+        setPending(hunkKey, true);
         await API.sessions.restoreHunk(sessionId, { filePath, scope, hunkHeader });
         onChanged?.();
       } catch (err) {
         console.error('[Diff] Failed to restore hunk', { filePath, hunkHeader, err });
+      } finally {
+        setPending(hunkKey, false);
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
       }
     },
-    [sessionId, onChanged]
+    [sessionId, onChanged, setPending]
   );
 
   if (!diff || diff.trim() === '' || files.length === 0) {
@@ -304,30 +342,38 @@ export const ZedDiffViewer: React.FC<{
                           ? 'st-hunk-status--unstaged'
                           : 'st-hunk-status--unknown';
 
+                    const kind = hunkKind(hunk);
+                    const kindClass =
+                      kind === 'added' ? 'st-hunk-kind--added' : kind === 'deleted' ? 'st-hunk-kind--deleted' : 'st-hunk-kind--modified';
+                    const hunkKey = (hunk as any).__st_hunkKey as string;
+                    const isPending = pendingHunkKeys.has(hunkKey);
+
                     const changeKey = getChangeKey(first);
 
                     const element = (
-                      <div data-testid="diff-hunk-controls" className={`st-diff-hunk-actions-anchor ${statusClass}`}>
+                      <div data-testid="diff-hunk-controls" className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass}`}>
                         <div className="st-diff-hunk-actions">
                           <button
                             type="button"
                             data-testid="diff-hunk-stage"
-                            disabled={!canStageOrUnstage}
-                            onClick={() => stageOrUnstageHunk(file.path, stageLabel === 'Stage', stageHeader)}
+                            disabled={!canStageOrUnstage || isPending}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => stageOrUnstageHunk(file.path, stageLabel === 'Stage', stageHeader, hunkKey)}
                             className="st-diff-hunk-btn"
                             title={canStageOrUnstage ? `${stageLabel} hunk` : 'Unavailable'}
                           >
-                            {stageLabel}
+                            {isPending ? '…' : stageLabel}
                           </button>
                           <button
                             type="button"
                             data-testid="diff-hunk-restore"
-                            disabled={!canRestore}
-                            onClick={() => restoreHunk(file.path, restoreScope, stageHeader)}
+                            disabled={!canRestore || isPending}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => restoreHunk(file.path, restoreScope, stageHeader, hunkKey)}
                             className="st-diff-hunk-btn"
                             title={canRestore ? 'Restore hunk' : 'Unavailable'}
                           >
-                            Restore
+                            {isPending ? '…' : 'Restore'}
                           </button>
                         </div>
                       </div>
@@ -350,6 +396,8 @@ export const ZedDiffViewer: React.FC<{
             --st-diff-line-height: 20px;
             /* Zed-like hunk padding (blank line feel). */
             --st-diff-hunk-pad-y: 30px;
+            /* Zed-like hunk rounding. */
+            --st-diff-hunk-radius: 16px;
           }
 
           .st-diff-table.diff { table-layout: fixed; width: 100%; }
@@ -362,19 +410,25 @@ export const ZedDiffViewer: React.FC<{
           /* Zed-like: only "edit hunks" are treated as blocks. */
           .st-diff-table .diff-hunk { position: relative; }
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) {
-            --st-hunk-marker-color: var(--st-diff-modified-marker);
-            --st-hunk-bg: var(--st-diff-hunk-bg);
-            --st-hunk-frame-color: var(--st-accent);
+            --st-hunk-color: var(--st-diff-modified-marker);
+            --st-hunk-marker-color: var(--st-hunk-color);
+            --st-hunk-solid-bg: color-mix(in srgb, var(--st-hunk-color) 12%, transparent);
+            --st-hunk-hollow-bg: color-mix(in srgb, var(--st-hunk-color) 7%, transparent);
+            --st-hunk-bg: var(--st-hunk-solid-bg);
+            --st-hunk-frame-color: var(--st-hunk-color);
           }
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged) {
-            --st-hunk-marker-color: var(--st-diff-added-marker);
-            --st-hunk-bg: color-mix(in srgb, var(--st-success) 12%, transparent);
-            --st-hunk-frame-color: var(--st-diff-added-marker);
+          .st-diff-table .diff-hunk:has(.st-hunk-kind--added):has(.diff-code-insert, .diff-code-delete) {
+            --st-hunk-color: var(--st-diff-added-marker);
           }
-          .st-diff-table .diff-hunk:has(.st-hunk-status--unstaged) {
-            --st-hunk-marker-color: var(--st-diff-modified-marker);
-            --st-hunk-bg: var(--st-diff-hunk-bg);
-            --st-hunk-frame-color: var(--st-accent);
+          .st-diff-table .diff-hunk:has(.st-hunk-kind--deleted):has(.diff-code-insert, .diff-code-delete) {
+            --st-hunk-color: var(--st-diff-deleted-marker);
+          }
+          .st-diff-table .diff-hunk:has(.st-hunk-kind--modified):has(.diff-code-insert, .diff-code-delete) {
+            --st-hunk-color: var(--st-diff-modified-marker);
+          }
+          /* Zed-like hunk_style: staged is hollow by default (bordered, faded). */
+          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete) {
+            --st-hunk-bg: var(--st-hunk-hollow-bg);
           }
           .st-diff-table .diff-hunk:has(.st-hunk-status--unknown) {
             --st-hunk-marker-color: var(--st-text-faint);
@@ -406,8 +460,8 @@ export const ZedDiffViewer: React.FC<{
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete)::after {
             content: '';
             position: absolute;
-            inset: 0;
-            border-radius: 10px;
+            inset: 2px;
+            border-radius: var(--st-diff-hunk-radius);
             pointer-events: none;
             opacity: 0;
             z-index: 1;
@@ -420,8 +474,7 @@ export const ZedDiffViewer: React.FC<{
           .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete)::after {
             opacity: 0.55;
           }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover::after,
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):focus-within::after {
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover::after {
             opacity: 1;
           }
 
@@ -437,26 +490,21 @@ export const ZedDiffViewer: React.FC<{
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:last-child td { border-bottom: 1px solid transparent; }
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr td:first-child { border-left: 1px solid transparent; }
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr td:last-child { border-right: 1px solid transparent; }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:first-child td:first-child { border-top-left-radius: 10px; }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:first-child td:last-child { border-top-right-radius: 10px; }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:last-child td:first-child { border-bottom-left-radius: 10px; }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:last-child td:last-child { border-bottom-right-radius: 10px; }
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:first-child td:first-child { border-top-left-radius: var(--st-diff-hunk-radius); }
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:first-child td:last-child { border-top-right-radius: var(--st-diff-hunk-radius); }
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:last-child td:first-child { border-bottom-left-radius: var(--st-diff-hunk-radius); }
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:last-child td:last-child { border-bottom-right-radius: var(--st-diff-hunk-radius); }
 
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr td,
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):focus-within tr td {
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr td {
             background-image: linear-gradient(
               color-mix(in srgb, var(--st-hunk-bg) 90%, transparent),
               color-mix(in srgb, var(--st-hunk-bg) 90%, transparent)
             );
           }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr:first-child td,
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):focus-within tr:first-child td { border-top-color: color-mix(in srgb, var(--st-hunk-frame-color) 45%, transparent); }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr:last-child td,
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):focus-within tr:last-child td { border-bottom-color: color-mix(in srgb, var(--st-hunk-frame-color) 45%, transparent); }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr td:first-child,
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):focus-within tr td:first-child { border-left-color: color-mix(in srgb, var(--st-hunk-frame-color) 45%, transparent); }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr td:last-child,
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):focus-within tr td:last-child { border-right-color: color-mix(in srgb, var(--st-hunk-frame-color) 45%, transparent); }
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr:first-child td { border-top-color: color-mix(in srgb, var(--st-hunk-frame-color) 45%, transparent); }
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr:last-child td { border-bottom-color: color-mix(in srgb, var(--st-hunk-frame-color) 45%, transparent); }
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr td:first-child { border-left-color: color-mix(in srgb, var(--st-hunk-frame-color) 45%, transparent); }
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr td:last-child { border-right-color: color-mix(in srgb, var(--st-hunk-frame-color) 45%, transparent); }
 
           /* Extra contrast on hover (more Zed-like). */
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover {
@@ -489,8 +537,7 @@ export const ZedDiffViewer: React.FC<{
             transition: opacity 120ms ease;
             z-index: 5;
           }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover .st-diff-hunk-actions,
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):focus-within .st-diff-hunk-actions {
+          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover .st-diff-hunk-actions {
             opacity: 1;
             pointer-events: auto;
           }
