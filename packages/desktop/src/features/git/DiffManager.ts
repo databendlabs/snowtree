@@ -37,6 +37,7 @@ export type WorkingTreeGroups = {
 const MAX_UNTRACKED_FILE_BYTES = 1024 * 1024; // 1MB
 
 export class GitDiffManager {
+  private readonly WORKING_DIFF_CONTEXT_LINES = 3; // Zed/Git default context
   constructor(
     private gitExecutor: GitExecutor,
     private logger?: Logger,
@@ -190,7 +191,7 @@ export class GitDiffManager {
     const { stdout: trackedDiff } = await this.runGit({
       sessionId,
       cwd: worktreePath,
-      argv: ['git', 'diff', '--color=never', '--unified=0', '--src-prefix=a/', '--dst-prefix=b/', 'HEAD'],
+      argv: ['git', 'diff', '--color=never', `--unified=${this.WORKING_DIFF_CONTEXT_LINES}`, '--src-prefix=a/', '--dst-prefix=b/', 'HEAD'],
       timeoutMs: 120_000,
       meta: { source: 'gitDiff', operation: 'diff-working' },
     });
@@ -238,7 +239,7 @@ export class GitDiffManager {
       const { stdout: diff } = await this.runGit({
         sessionId,
         cwd: worktreePath,
-        argv: ['git', 'diff', '--cached', '--color=never', '--unified=0', '--src-prefix=a/', '--dst-prefix=b/', 'HEAD'],
+        argv: ['git', 'diff', '--cached', '--color=never', `--unified=${this.WORKING_DIFF_CONTEXT_LINES}`, '--src-prefix=a/', '--dst-prefix=b/', 'HEAD'],
         timeoutMs: 120_000,
         meta: { source: 'gitDiff', operation: 'diff-working-staged' },
       });
@@ -270,7 +271,7 @@ export class GitDiffManager {
       const { stdout: diff } = await this.runGit({
         sessionId,
         cwd: worktreePath,
-        argv: ['git', 'diff', '--color=never', '--unified=0', '--src-prefix=a/', '--dst-prefix=b/'],
+        argv: ['git', 'diff', '--color=never', `--unified=${this.WORKING_DIFF_CONTEXT_LINES}`, '--src-prefix=a/', '--dst-prefix=b/'],
         timeoutMs: 120_000,
         meta: { source: 'gitDiff', operation: 'diff-working-unstaged' },
       });

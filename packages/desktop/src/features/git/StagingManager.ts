@@ -310,10 +310,11 @@ export class GitStagingManager {
     scope: 'staged' | 'unstaged',
     sessionId: string
   ): Promise<string> {
+    const unified = '--unified=3';
     const argv =
       scope === 'staged'
-        ? ['git', 'diff', '--cached', '--color=never', '--unified=0', '--src-prefix=a/', '--dst-prefix=b/', 'HEAD', '--', filePath]
-        : ['git', 'diff', '--color=never', '--unified=0', '--src-prefix=a/', '--dst-prefix=b/', '--', filePath];
+        ? ['git', 'diff', '--cached', '--color=never', unified, '--src-prefix=a/', '--dst-prefix=b/', 'HEAD', '--', filePath]
+        : ['git', 'diff', '--color=never', unified, '--src-prefix=a/', '--dst-prefix=b/', '--', filePath];
 
     const result = await this.gitExecutor.run({
       sessionId,

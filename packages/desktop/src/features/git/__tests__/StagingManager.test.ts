@@ -334,7 +334,7 @@ describe('GitStagingManager', () => {
 
       // Verify git diff was called
       expect(mockGitExecutor.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
-        argv: expect.arrayContaining(['git', 'diff', '--unified=0']),
+        argv: expect.arrayContaining(['git', 'diff', '--unified=3']),
       }));
 
       // Verify git apply was called with --cached
@@ -683,7 +683,7 @@ Binary files differ`;
       expect(mockGitExecutor.run).toHaveBeenCalledTimes(2);
 
       expect(mockGitExecutor.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
-        argv: expect.arrayContaining(['git', 'diff', '--cached', '--unified=0']),
+        argv: expect.arrayContaining(['git', 'diff', '--cached', '--unified=3']),
       }));
 
       expect(mockGitExecutor.run).toHaveBeenNthCalledWith(2, expect.objectContaining({
@@ -728,7 +728,7 @@ Binary files differ`;
       expect(result.success).toBe(true);
       expect(mockGitExecutor.run).toHaveBeenCalledTimes(2);
       expect(mockGitExecutor.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
-        argv: expect.arrayContaining(['git', 'diff', '--unified=0']),
+        argv: expect.arrayContaining(['git', 'diff', '--unified=3']),
       }));
       expect(mockGitExecutor.run).toHaveBeenNthCalledWith(2, expect.objectContaining({
         argv: expect.arrayContaining(['git', 'apply', '-R']),
@@ -779,7 +779,7 @@ Binary files differ`;
       expect(result.success).toBe(true);
       expect(mockGitExecutor.run).toHaveBeenCalledTimes(3);
       expect(mockGitExecutor.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
-        argv: expect.arrayContaining(['git', 'diff', '--cached', '--unified=0']),
+        argv: expect.arrayContaining(['git', 'diff', '--cached', '--unified=3']),
       }));
       expect(mockGitExecutor.run).toHaveBeenNthCalledWith(2, expect.objectContaining({
         argv: expect.arrayContaining(['git', 'apply', '--cached', '-R']),
