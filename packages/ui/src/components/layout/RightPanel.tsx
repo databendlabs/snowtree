@@ -387,7 +387,7 @@ const CommitItem: React.FC<CommitItemProps> = React.memo(({
               className="flex-1 min-w-0 truncate font-medium"
               style={{ color: isUncommitted ? colors.text.modified : (isSelected || isHovered ? colors.text.primary : colors.text.secondary) }}
             >
-              {isUncommitted ? 'Working Tree' : commit.commit_message}
+              {isUncommitted ? '' : commit.commit_message}
             </span>
             {badge && (
               <span
@@ -1202,7 +1202,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                 style={{ color: selectedCommit.id === 0 ? colors.text.modified : colors.accent }}
                 title={selectedCommit.commit_message}
               >
-                {selectedCommit.id === 0 ? 'Working Tree' : selectedCommit.after_commit_hash.substring(0, 7)}
+                {selectedCommit.id === 0 ? '' : selectedCommit.after_commit_hash.substring(0, 7)}
               </span>
             )}
           </div>
