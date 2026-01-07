@@ -412,8 +412,11 @@ export const ZedDiffViewer: React.FC<{
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) {
             --st-hunk-color: var(--st-diff-modified-marker);
             --st-hunk-marker-color: var(--st-hunk-color);
-            --st-hunk-solid-bg: color-mix(in srgb, var(--st-hunk-color) 18%, transparent);
-            --st-hunk-hollow-bg: color-mix(in srgb, var(--st-hunk-color) 7%, transparent);
+            /* Zed-like opacities on dark themes:
+               - filled: ~0.12
+               - hollow:  ~0.06 + border */
+            --st-hunk-solid-bg: color-mix(in srgb, var(--st-hunk-color) 12%, transparent);
+            --st-hunk-hollow-bg: color-mix(in srgb, var(--st-hunk-color) 6%, transparent);
             --st-hunk-bg: var(--st-hunk-solid-bg);
             --st-hunk-frame-color: var(--st-hunk-color);
           }
@@ -429,9 +432,6 @@ export const ZedDiffViewer: React.FC<{
           /* Zed-like hunk_style: staged is hollow by default (bordered, faded). */
           .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete) {
             --st-hunk-bg: var(--st-hunk-hollow-bg);
-          }
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete) tr td {
-            filter: saturate(0.95) brightness(0.98);
           }
           .st-diff-table .diff-hunk:has(.st-hunk-status--unknown) {
             --st-hunk-marker-color: var(--st-text-faint);
@@ -468,13 +468,14 @@ export const ZedDiffViewer: React.FC<{
             pointer-events: none;
             opacity: 0;
             z-index: 1;
-            box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-hunk-frame-color) 72%, transparent);
+            box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-hunk-frame-color) 36%, transparent);
             transition: opacity 110ms ease;
           }
           /* Zed-like: staged hunks have a persistent frame to distinguish them from unstaged hunks. */
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete)::after { opacity: 0.6; }
+          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete)::after { opacity: 1; }
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover::after {
             opacity: 1;
+            box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-hunk-frame-color) 48%, transparent);
           }
 
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr td {
