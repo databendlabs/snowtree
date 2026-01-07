@@ -162,6 +162,35 @@ describe('RightPanel - Zed-style Changes list', () => {
     });
   });
 
+  it('shows only one of Stage All/Unstage All and toggles immediately on click', async () => {
+    let resolveStage: ((v: any) => void) | null = null;
+    (API.sessions.changeAllStage as any).mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolveStage = r;
+        })
+    );
+
+    render(<RightPanel {...mockProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('right-panel-stage-all')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('right-panel-unstage-all')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('right-panel-stage-all'));
+
+    // Optimistic UI: button toggles without waiting for git refresh.
+    await waitFor(() => {
+      expect(screen.getByTestId('right-panel-unstage-all')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('right-panel-stage-all')).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveStage?.({ success: true });
+    });
+  });
+
   it('handles empty groups gracefully', async () => {
     (API.sessions.getDiff as any).mockResolvedValue({
       success: true,

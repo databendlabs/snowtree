@@ -761,11 +761,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
     String(session.gitStatus?.state ?? ''),
     String(Number(session.gitStatus?.ahead ?? 0)),
     String(Number(session.gitStatus?.behind ?? 0)),
-    String(Number(session.gitStatus?.filesChanged ?? 0)),
-    String(Number(session.gitStatus?.additions ?? 0)),
-    String(Number(session.gitStatus?.deletions ?? 0)),
-    String(Boolean(session.gitStatus?.hasUncommittedChanges)),
-    String(Boolean(session.gitStatus?.hasUntrackedFiles)),
   ].join('|');
   const prevGitSigRef = useRef(gitSig);
   useEffect(() => {
