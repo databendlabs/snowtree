@@ -2,6 +2,7 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo
 import { Diff, Hunk, getChangeKey, parseDiff, textLinesToHunk, type ChangeData, type DiffType, type HunkData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import { API } from '../../../utils/api';
+import { useVisibleHunkTracker } from './useVisibleHunkTracker';
 
 export interface ZedDiffViewerHandle {
   navigateToHunk: (direction: 'prev' | 'next') => void;
@@ -319,6 +320,12 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
     return result;
   }, [files, stagedHunkHeaderBySig, unstagedHunkHeaderBySig]);
 
+  useVisibleHunkTracker({
+    hunks: allHunks,
+    containerRef,
+    onVisibleHunkChange: setCurrentHunkIdx,
+  });
+
   useEffect(() => {
     onHunkInfo?.(currentHunkIdx + 1, allHunks.length);
   }, [currentHunkIdx, allHunks.length, onHunkInfo]);
@@ -379,42 +386,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
     fileHeaders.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, [files, onVisibleFileChange]);
-
-  useEffect(() => {
-    if (!containerRef.current || allHunks.length === 0) return;
-
-    const hunkKeyToIdx = new Map(allHunks.map((h, i) => [h.hunkKey, i]));
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let topMostIdx = -1;
-        let topMostY = Infinity;
-
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const key = (entry.target as HTMLElement).dataset.hunkKey;
-            if (!key) continue;
-            const idx = hunkKeyToIdx.get(key);
-            if (idx === undefined) continue;
-            const rect = entry.boundingClientRect;
-            if (rect.top < topMostY) {
-              topMostY = rect.top;
-              topMostIdx = idx;
-            }
-          }
-        }
-
-        if (topMostIdx >= 0) {
-          setCurrentHunkIdx(topMostIdx);
-        }
-      },
-      { root: containerRef.current, threshold: 0.1 }
-    );
-
-    const hunkEls = containerRef.current.querySelectorAll('[data-hunk-key]');
-    hunkEls.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, [allHunks]);
 
   if (!diff || diff.trim() === '' || files.length === 0) {
     return <div className={`h-full flex items-center justify-center text-sm ${className ?? ''}`}>No changes</div>;
