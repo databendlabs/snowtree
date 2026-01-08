@@ -82,7 +82,8 @@
       {
         "provider": "github",
         "owner": "bohutang",
-        "repo": "snowtree"
+        "repo": "snowtree",
+        "releaseType": "release"
       }
     ],
     "mac": {
