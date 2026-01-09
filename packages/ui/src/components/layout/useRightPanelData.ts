@@ -241,7 +241,7 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     refreshTimerRef.current = window.setTimeout(() => {
       refreshTimerRef.current = null;
       refreshRef.current();
-    }, 500); // Increased debounce to reduce flicker
+    }, 150); // Fast refresh with smart loading to avoid UI flicker
   }, []); // No dependencies - scheduleRefresh identity is now stable
 
   useEffect(() => {

@@ -1105,14 +1105,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                   color="var(--st-text)"
                   opacity={isFocused ? 0.7 : 0.3}
                 />
-                {isEmpty && !isRunning && (
-                  <div
-                    className="absolute top-0 left-0 text-[13px] pointer-events-none"
-                    style={{ color: 'var(--st-text-faint)', opacity: 0.6 }}
-                  >
-                    {placeholder}
-                  </div>
-                )}
               </div>
 
               <div className="flex items-center gap-2 mt-2 text-[12px]">
