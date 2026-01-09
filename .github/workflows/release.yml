@@ -54,9 +54,9 @@ jobs:
           pnpm install -P --frozen-lockfile --ignore-scripts
 
           mkdir -p node_modules/@snowtree/core
-          cp ../packages/core/package.json node_modules/@snowtree/core/package.json
-          cp -R ../packages/core/dist node_modules/@snowtree/core/dist
-          cp -R ../packages/core/dist-cjs node_modules/@snowtree/core/dist-cjs
+          cp "${GITHUB_WORKSPACE}/packages/core/package.json" node_modules/@snowtree/core/package.json
+          cp -R "${GITHUB_WORKSPACE}/packages/core/dist" node_modules/@snowtree/core/dist
+          cp -R "${GITHUB_WORKSPACE}/packages/core/dist-cjs" node_modules/@snowtree/core/dist-cjs
           popd
 
       - name: Rebuild native dependencies (Electron)
