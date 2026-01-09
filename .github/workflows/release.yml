@@ -30,7 +30,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build application
         run: pnpm --filter @snowtree/core build && pnpm --filter @snowtree/desktop build && pnpm --filter @snowtree/ui build
@@ -39,15 +39,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf release-app
-          mkdir -p release-app/packages/desktop release-app/packages/ui
+          RELEASE_APP_DIR="${RUNNER_TEMP}/release-app"
+          echo "RELEASE_APP_DIR=${RELEASE_APP_DIR}" >> "${GITHUB_ENV}"
 
-          cp package.json pnpm-lock.yaml .npmrc LICENSE release-app/
-          cp -R packages/desktop/dist release-app/packages/desktop/dist
-          cp -R packages/desktop/assets release-app/packages/desktop/assets
-          cp -R packages/ui/dist release-app/packages/ui/dist
+          rm -rf "${RELEASE_APP_DIR}"
+          mkdir -p "${RELEASE_APP_DIR}/packages/desktop" "${RELEASE_APP_DIR}/packages/ui"
 
-          pushd release-app
+          cp package.json pnpm-lock.yaml .npmrc LICENSE "${RELEASE_APP_DIR}/"
+          cp -R packages/desktop/dist "${RELEASE_APP_DIR}/packages/desktop/dist"
+          cp -R packages/desktop/assets "${RELEASE_APP_DIR}/packages/desktop/assets"
+          cp -R packages/ui/dist "${RELEASE_APP_DIR}/packages/ui/dist"
+
+          pushd "${RELEASE_APP_DIR}"
           pnpm install -P --frozen-lockfile --ignore-scripts
 
           mkdir -p node_modules/@snowtree/core
@@ -60,12 +63,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./node_modules/.bin/electron-builder install-app-deps --projectDir "${{ github.workspace }}/release-app"
+          pnpm -w exec -- electron-builder install-app-deps --projectDir "${RELEASE_APP_DIR}"
 
       - name: Publish to GitHub Releases
         shell: bash
         run: |
           set -euo pipefail
-          ./node_modules/.bin/electron-builder --projectDir "${{ github.workspace }}/release-app" --publish always
+          pnpm -w exec -- electron-builder --projectDir "${RELEASE_APP_DIR}" --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
