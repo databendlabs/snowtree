@@ -51,6 +51,8 @@ export abstract class AbstractExecutor extends EventEmitter {
   private pendingToolOpByPanel = new Map<string, Array<{ operationId: string; startMs: number; kind: 'git.command' | 'cli.command' }>>();
   private pendingToolOpByPanelId = new Map<string, Map<string, { startMs: number; kind: 'git.command' | 'cli.command' }>>();
   protected runtimeMetaByPanel = new Map<string, { cliModel?: string; cliReasoningEffort?: string; cliSandbox?: string; cliAskForApproval?: string }>();
+  private pendingQuestions = new Map<string, { toolUseId: string; questions: unknown }>();
+  private activeThinkingByPanel = new Map<string, { seq: number; thinkingId: string }>();
 
   constructor(
     protected sessionManager: SessionManager,
@@ -475,6 +477,36 @@ export abstract class AbstractExecutor extends EventEmitter {
       return;
     }
 
+    // Handle thinking events
+    if (enriched.entryType === 'thinking') {
+      this.recordTimelineThinking({
+        sessionId,
+        panelId,
+        thinkingId: enriched.id,  // Use entry ID as thinking_id for streaming updates
+        content: enriched.content || '',
+        isStreaming: Boolean(enriched.metadata?.streaming),
+      });
+      return;
+    }
+
+    // Handle user_question events (AskUserQuestion tool)
+    if (enriched.entryType === 'user_question') {
+      this.recordTimelineUserQuestion({
+        sessionId,
+        panelId,
+        toolUseId: (enriched.metadata?.tool_use_id as string) || '',
+        questions: enriched.metadata?.questions,
+      });
+
+      // Store pending question for later answer
+      this.pendingQuestions.set(panelId, {
+        toolUseId: (enriched.metadata?.tool_use_id as string) || '',
+        questions: enriched.metadata?.questions,
+      });
+      return;
+    }
+
+    // Handle tool_result for non-command tools (Read, Edit, Grep, etc.)
     if (enriched.entryType === 'tool_result' && enriched.toolStatus && enriched.toolStatus !== 'pending') {
       const byId = this.pendingToolOpByPanelId.get(panelId);
       const opFromId = enriched.id && byId ? byId.get(enriched.id) : undefined;
@@ -489,7 +521,20 @@ export abstract class AbstractExecutor extends EventEmitter {
         const stack = this.pendingToolOpByPanel.get(panelId);
         const last = stack?.pop();
         if (stack && stack.length === 0) this.pendingToolOpByPanel.delete(panelId);
-        if (!last) return;
+        if (!last) {
+          // This is a non-command tool result (Read, Edit, Grep, etc.)
+          // Record it as a tool_result event instead of command
+          this.recordTimelineToolResult({
+            sessionId,
+            panelId,
+            toolUseId: enriched.id,
+            toolName: enriched.toolName,
+            content: enriched.content,
+            isError: enriched.toolStatus === 'failed',
+            exitCode: undefined,
+          });
+          return;
+        }
         kind = last.kind;
         startMs = last.startMs;
         operationId = last.operationId;
@@ -543,6 +588,72 @@ export abstract class AbstractExecutor extends EventEmitter {
         exit_code: args.exitCode,
         tool: args.tool,
         meta: args.meta,
+      });
+    } catch {
+      // Best-effort audit log; never break execution.
+    }
+  }
+
+  private recordTimelineThinking(args: {
+    sessionId: string;
+    panelId?: string;
+    thinkingId: string;
+    content: string;
+    isStreaming: boolean;
+  }): void {
+    try {
+      this.sessionManager.addTimelineEvent({
+        session_id: args.sessionId,
+        panel_id: args.panelId,
+        kind: 'thinking',
+        thinking_id: args.thinkingId,  // Use this for UPSERT
+        content: args.content,
+        is_streaming: args.isStreaming ? 1 : 0,
+      });
+    } catch {
+      // Best-effort audit log; never break execution.
+    }
+  }
+
+  private recordTimelineUserQuestion(args: {
+    sessionId: string;
+    panelId?: string;
+    toolUseId: string;
+    questions: unknown;
+  }): void {
+    try {
+      this.sessionManager.addTimelineEvent({
+        session_id: args.sessionId,
+        panel_id: args.panelId,
+        kind: 'user_question',
+        tool_use_id: args.toolUseId,
+        questions: typeof args.questions === 'string' ? args.questions : JSON.stringify(args.questions),
+        status: 'pending',
+      });
+    } catch {
+      // Best-effort audit log; never break execution.
+    }
+  }
+
+  private recordTimelineToolResult(args: {
+    sessionId: string;
+    panelId?: string;
+    toolUseId?: string;
+    toolName?: string;
+    content?: string;
+    isError: boolean;
+    exitCode?: number;
+  }): void {
+    try {
+      this.sessionManager.addTimelineEvent({
+        session_id: args.sessionId,
+        panel_id: args.panelId,
+        kind: 'tool_result',
+        tool_use_id: args.toolUseId,
+        tool_name: args.toolName,
+        content: args.content,
+        is_error: args.isError ? 1 : 0,
+        exit_code: args.exitCode,
       });
     } catch {
       // Best-effort audit log; never break execution.
@@ -607,6 +718,47 @@ export abstract class AbstractExecutor extends EventEmitter {
       throw new Error(`No process found for panel ${panelId}`);
     }
     process.pty.write(input);
+  }
+
+  /** Answer a pending user question (from AskUserQuestion tool) */
+  async answerQuestion(panelId: string, answers: Record<string, string | string[]>): Promise<void> {
+    const pending = this.pendingQuestions.get(panelId);
+    if (!pending) {
+      throw new Error(`No pending question for panel ${panelId}`);
+    }
+
+    const process = this.processes.get(panelId);
+    if (!process) {
+      throw new Error(`No process found for panel ${panelId}`);
+    }
+
+    // Construct tool_result message for the AskUserQuestion tool
+    const toolResult = JSON.stringify({
+      type: 'tool_result',
+      tool_use_id: pending.toolUseId,
+      content: JSON.stringify({ answers }),
+    });
+
+    // Write to CLI stdin
+    process.pty.write(toolResult + '\n');
+
+    // Update Timeline status to 'answered'
+    try {
+      this.sessionManager.addTimelineEvent({
+        session_id: process.sessionId,
+        panel_id: panelId,
+        kind: 'user_question',
+        tool_use_id: pending.toolUseId,
+        questions: typeof pending.questions === 'string' ? pending.questions : JSON.stringify(pending.questions),
+        status: 'answered',
+        answers: JSON.stringify(answers),
+      });
+    } catch {
+      // Best-effort audit log
+    }
+
+    // Clean up
+    this.pendingQuestions.delete(panelId);
   }
 
   /** Kill a process */

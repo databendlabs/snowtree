@@ -239,6 +239,7 @@ export type NormalizedEntryType =
   | 'thinking'
   | 'tool_use'
   | 'tool_result'
+  | 'user_question'
   | 'error_message'
   | 'user_feedback';
 

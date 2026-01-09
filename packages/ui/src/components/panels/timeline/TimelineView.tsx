@@ -1,9 +1,16 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { API } from '../../../utils/api';
 import { withTimeout } from '../../../utils/withTimeout';
 import type { TimelineEvent } from '../../../types/timeline';
+import type { Session } from '../../../types/session';
 import { formatDistanceToNow, parseTimestamp } from '../../../utils/timestampUtils';
+import { ThinkingMessage } from './ThinkingMessage';
+import { ToolCallMessage } from './ToolCallMessage';
+import { UserQuestionDialog, type Question } from './UserQuestionDialog';
+import './MessageStyles.css';
 
 const colors = {
   bg: 'var(--st-bg)',
@@ -67,7 +74,10 @@ type CommandInfo = {
 
 type TimelineItem =
   | { type: 'userMessage'; seq: number; timestamp: string; content: string }
-  | { type: 'agentResponse'; seq: number; timestamp: string; endTimestamp: string; status: 'running' | 'done' | 'error' | 'interrupted'; messages: Array<{ content: string; timestamp: string }>; commands: CommandInfo[] };
+  | { type: 'agentResponse'; seq: number; timestamp: string; endTimestamp: string; status: 'running' | 'done' | 'error' | 'interrupted'; messages: Array<{ content: string; timestamp: string }>; commands: CommandInfo[] }
+  | { type: 'thinking'; seq: number; timestamp: string; content: string; isStreaming?: boolean }
+  | { type: 'toolCall'; seq: number; timestamp: string; toolName: string; toolInput?: string; toolResult?: string; isError?: boolean; exitCode?: number }
+  | { type: 'userQuestion'; seq: number; timestamp: string; toolUseId: string; questions: Question[]; status: 'pending' | 'answered'; answers?: Record<string, string | string[]> };
 
 const getOperationId = (event: TimelineEvent) => {
   const id = event.meta?.operationId;
@@ -79,10 +89,14 @@ const buildItems = (events: TimelineEvent[]): TimelineItem[] => {
   type FlatItem =
     | { type: 'user'; seq: number; timestamp: string; content: string }
     | { type: 'assistant'; seq: number; timestamp: string; content: string }
-    | { type: 'command'; seq: number; timestamp: string; kind: 'cli' | 'git' | 'worktree'; status?: TimelineEvent['status']; command: string; cwd?: string; durationMs?: number; exitCode?: number; tool?: string; meta?: Record<string, unknown> };
+    | { type: 'command'; seq: number; timestamp: string; kind: 'cli' | 'git' | 'worktree'; status?: TimelineEvent['status']; command: string; cwd?: string; durationMs?: number; exitCode?: number; tool?: string; meta?: Record<string, unknown> }
+    | { type: 'thinking'; seq: number; timestamp: string; content: string; isStreaming?: boolean }
+    | { type: 'toolCall'; seq: number; timestamp: string; toolName: string; toolInput?: string; toolResult?: string; isError?: boolean; exitCode?: number }
+    | { type: 'userQuestion'; seq: number; timestamp: string; toolUseId: string; questions: Question[]; status: 'pending' | 'answered'; answers?: Record<string, string | string[]> };
 
   const flat: FlatItem[] = [];
   const byOperation: Record<string, TimelineEvent[]> = {};
+  const toolUsePairs = new Map<string, { useEvent?: TimelineEvent; resultEvent?: TimelineEvent }>();
 
   // First pass: collect events
   for (const event of events) {
@@ -96,6 +110,42 @@ const buildItems = (events: TimelineEvent[]): TimelineItem[] => {
       flat.push({ type: 'user', seq: event.seq, timestamp: event.timestamp, content: event.command || '' });
     } else if (event.kind === 'chat.assistant') {
       flat.push({ type: 'assistant', seq: event.seq, timestamp: event.timestamp, content: event.command || '' });
+    } else if (event.kind === 'thinking') {
+      flat.push({
+        type: 'thinking',
+        seq: event.seq,
+        timestamp: event.timestamp,
+        content: event.content || '',
+        isStreaming: Boolean(event.is_streaming)
+      });
+    } else if (event.kind === 'tool_use') {
+      // Pair tool_use with tool_result - use event.id as the pair key
+      const toolUseId = String(event.id);
+      const pair = toolUsePairs.get(toolUseId) || {};
+      pair.useEvent = event;
+      toolUsePairs.set(toolUseId, pair);
+    } else if (event.kind === 'tool_result') {
+      // Pair tool_result with tool_use - use tool_use_id if available
+      const toolUseId = event.tool_use_id || String(event.id);
+      const pair = toolUsePairs.get(toolUseId) || {};
+      pair.resultEvent = event;
+      toolUsePairs.set(toolUseId, pair);
+    } else if (event.kind === 'user_question') {
+      try {
+        const questions = event.questions ? JSON.parse(event.questions) : [];
+        const answers = event.answers ? JSON.parse(event.answers) : undefined;
+        flat.push({
+          type: 'userQuestion',
+          seq: event.seq,
+          timestamp: event.timestamp,
+          toolUseId: event.tool_use_id || '',
+          questions,
+          status: event.status === 'answered' ? 'answered' : 'pending',
+          answers
+        });
+      } catch {
+        // Ignore malformed user_question events
+      }
     } else if (event.kind === 'cli.command' || event.kind === 'git.command' || event.kind === 'worktree.command') {
       flat.push({
         type: 'command',
@@ -111,6 +161,23 @@ const buildItems = (events: TimelineEvent[]): TimelineItem[] => {
         meta: event.meta
       });
     }
+  }
+
+  // Merge tool_use and tool_result pairs into toolCall items
+  for (const pair of toolUsePairs.values()) {
+    const { useEvent, resultEvent } = pair;
+    if (!useEvent || useEvent.kind !== 'tool_use') continue; // Must have at least tool_use
+
+    flat.push({
+      type: 'toolCall',
+      seq: useEvent.seq,
+      timestamp: useEvent.timestamp,
+      toolName: useEvent.tool_name,
+      toolInput: useEvent.tool_input,
+      toolResult: resultEvent?.kind === 'tool_result' ? resultEvent.content : undefined,
+      isError: resultEvent?.kind === 'tool_result' ? Boolean(resultEvent.is_error) : false,
+      exitCode: resultEvent?.kind === 'tool_result' ? resultEvent.exit_code : undefined
+    });
   }
 
   // Process operation groups
@@ -161,6 +228,27 @@ const buildItems = (events: TimelineEvent[]): TimelineItem[] => {
       continue;
     }
 
+    // Thinking - standalone
+    if (current.type === 'thinking') {
+      items.push(current);
+      cursor++;
+      continue;
+    }
+
+    // Tool call - standalone
+    if (current.type === 'toolCall') {
+      items.push(current);
+      cursor++;
+      continue;
+    }
+
+    // User question - standalone
+    if (current.type === 'userQuestion') {
+      items.push(current);
+      cursor++;
+      continue;
+    }
+
     // Collect all non-user items into an agent response
     const startSeq = current.seq;
     const startTimestamp = current.timestamp;
@@ -170,7 +258,7 @@ const buildItems = (events: TimelineEvent[]): TimelineItem[] => {
     let hasRunning = false;
     let hasError = false;
 
-    while (cursor < flat.length && flat[cursor].type !== 'user') {
+    while (cursor < flat.length && flat[cursor].type !== 'user' && flat[cursor].type !== 'thinking' && flat[cursor].type !== 'toolCall' && flat[cursor].type !== 'userQuestion') {
       const item = flat[cursor];
       endTimestamp = item.timestamp;
 
@@ -233,35 +321,22 @@ const ImageTag: React.FC<{ index: number }> = ({ index }) => (
     className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono mx-0.5"
     style={{
       backgroundColor: 'color-mix(in srgb, var(--st-accent) 15%, transparent)',
-      border: '1px solid var(--st-accent)',
       color: 'var(--st-accent)',
     }}
   >
-    [Image {index}]
+    [img{index}]
   </span>
 );
 
 const UserMessage: React.FC<{ content: string; timestamp: string; images?: ImageAttachment[] }> = ({ content, timestamp, images }) => (
-  <div
-    className="rounded-lg px-4 py-3"
-    style={{
-      backgroundColor: colors.userCard.bg,
-      borderLeft: '3px solid var(--st-accent, #61afef)',
-    }}
-  >
-    <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
-      {images && images.length > 0 && (
-        <>
-          {images.map((img, idx) => (
-            <ImageTag key={img.id} index={idx + 1} />
-          ))}
-          {content && ' '}
-        </>
-      )}
-      {content}
-    </div>
-    <div className="mt-2 text-[11px]" style={{ color: colors.text.faint }}>
-      {formatDistanceToNow(parseTimestamp(timestamp))}
+  <div className="user-message-container">
+    <div className="user-message-content">
+      <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
+        {content}
+      </div>
+      <div className="message-timestamp">
+        {formatDistanceToNow(parseTimestamp(timestamp))}
+      </div>
     </div>
   </div>
 );
@@ -299,66 +374,66 @@ const AgentResponse: React.FC<{
   const doneCount = commands.length - runningCount - failedCount;
 
   return (
-    <div className="space-y-2">
+    <div className="agent-response-container">
       {messages.length > 0 && (
         <div className="space-y-2">
           {messages.map((msg, idx) => (
-            <div key={idx} className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
-              {msg.content}
+            <div key={idx} className="markdown-content text-sm leading-relaxed" style={{ color: colors.text.primary }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {msg.content}
+              </ReactMarkdown>
             </div>
           ))}
         </div>
       )}
 
-      {/* Commands section - clean collapsible panel */}
+      {/* Commands section */}
       {commands.length > 0 && (
-        <div 
-          className="rounded-lg overflow-hidden"
-          style={{ 
-            backgroundColor: colors.command.bg,
-            border: status === 'running' ? `1px solid ${colors.status.running}33` : '1px solid transparent',
-          }}
-        >
+        <div className="commands-section">
           {/* Header */}
-          <button
-            type="button"
+          <div
+            className="commands-header"
             onClick={() => {
               userToggledRef.current = true;
               setShowCommands(v => !v);
             }}
-            className="w-full flex items-center gap-2 px-3 py-2.5 text-xs hover:bg-white/[0.02] transition-colors"
-            style={{ color: colors.text.muted }}
           >
-            {showCommands ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-            <span className="font-mono">{commands.length} command{commands.length > 1 ? 's' : ''}</span>
-            <span className="opacity-30">·</span>
-            {runningCount > 0 && (
-              <>
-                <Spinner />
-                <span style={{ color: colors.status.running }}>{runningCount} running</span>
-              </>
-            )}
-            {runningCount > 0 && doneCount > 0 && <span className="opacity-30">·</span>}
-            {doneCount > 0 && (
-              <span style={{ color: colors.status.done }}>{doneCount} done</span>
-            )}
-            {failedCount > 0 && (
-              <>
-                <span className="opacity-30">·</span>
-                <span style={{ color: colors.status.error }}>{failedCount} failed</span>
-              </>
-            )}
-            {totalDuration > 0 && status !== 'running' && (
-              <>
-                <span className="opacity-30">·</span>
-                <span className="tabular-nums opacity-70">{Math.round(totalDuration)}ms</span>
-              </>
-            )}
-          </button>
+            <ChevronRight className={`commands-expand-icon ${showCommands ? 'expanded' : ''}`} size={14} />
+            <div className="commands-stats">
+              <span className="commands-stat-item">
+                <span className="commands-stat-value">{commands.length}</span>
+                <span> command{commands.length > 1 ? 's' : ''}</span>
+              </span>
+              {doneCount > 0 && (
+                <span className="commands-stat-item status-done">
+                  <span className="commands-stat-value">{doneCount}</span>
+                  <span> done</span>
+                </span>
+              )}
+              {runningCount > 0 && (
+                <span className="commands-stat-item status-running">
+                  <Spinner />
+                  <span className="commands-stat-value">{runningCount}</span>
+                  <span> running</span>
+                </span>
+              )}
+              {failedCount > 0 && (
+                <span className="commands-stat-item status-error">
+                  <span className="commands-stat-value">{failedCount}</span>
+                  <span> failed</span>
+                </span>
+              )}
+              {totalDuration > 0 && status !== 'running' && (
+                <span className="commands-duration">
+                  {Math.round(totalDuration)}ms
+                </span>
+              )}
+            </div>
+          </div>
 
           {/* Collapsible command list */}
           {showCommands && (
-            <div className="px-3 pb-3 space-y-2">
+            <div className="commands-body">
               {commands.map((c, idx) => {
                 const display = String(c.command ?? '');
                 const key = `${idx}-${display}`;
@@ -372,36 +447,37 @@ const AgentResponse: React.FC<{
                 const isFailed = cmdStatus === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0);
 
                 return (
-                  <div key={key} className="group rounded-sm hover:bg-white/[0.03] transition-colors -mx-1 px-1 py-0.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-start gap-2 flex-1 min-w-0">
-                        <span className="flex-shrink-0 mt-0.5">
-                          {cmdStatus === 'started' ? (
-                            <Loader2 className="w-3 h-3 animate-spin" style={{ color: colors.status.running }} />
-                          ) : isFailed ? (
-                            <XCircle className="w-3 h-3" style={{ color: colors.status.error }} />
+                  <div key={key}>
+                    <div className="command-item">
+                      <span className="command-status-icon">
+                        {cmdStatus === 'started' ? (
+                          <Loader2 className="status-running" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
+                        ) : isFailed ? (
+                          <XCircle className="status-error" style={{ width: 14, height: 14 }} />
+                        ) : (
+                          <Check className="status-done" style={{ width: 14, height: 14 }} />
+                        )}
+                      </span>
+                      <span className="command-text">{display}</span>
+                      <div className="command-actions">
+                        <button
+                          className="command-copy-btn"
+                          onClick={() => handleCopy(commandCopy, key)}
+                          title={copiedKey === key ? 'Copied' : 'Copy'}
+                        >
+                          {copiedKey === key ? (
+                            <Check style={{ width: 12, height: 12 }} className="status-done" />
                           ) : (
-                            <Check className="w-3 h-3" style={{ color: colors.status.done }} />
+                            <Copy style={{ width: 12, height: 12 }} />
                           )}
-                        </span>
-                        <pre className="text-xs font-mono whitespace-pre-wrap break-all flex-1 leading-relaxed" style={{ color: colors.text.secondary }}>
-                          {display}
-                        </pre>
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(commandCopy, key)}
-                        className="p-0.5 rounded opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity flex-shrink-0"
-                        title={copiedKey === key ? 'Copied' : 'Copy'}
-                      >
-                        {copiedKey === key ? <Check className="w-3 h-3" style={{ color: colors.status.done }} /> : <Copy className="w-3 h-3" style={{ color: colors.text.faint }} />}
-                      </button>
                     </div>
-                    {(showStdout || showStderr) && (
-                      <div className="mt-1.5 ml-5 rounded text-xs font-mono overflow-hidden" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
-                        {showStdout && <div className="px-2 py-1.5"><pre className="whitespace-pre-wrap break-all leading-relaxed" style={{ color: colors.text.muted }}>{stdout}</pre></div>}
-                        {showStderr && <div className="px-2 py-1.5"><pre className="whitespace-pre-wrap break-all leading-relaxed" style={{ color: colors.status.error }}>{stderr}</pre></div>}
-                      </div>
+                    {showStdout && (
+                      <pre className="command-output stdout">{stdout}</pre>
+                    )}
+                    {showStderr && (
+                      <pre className="command-output stderr">{stderr}</pre>
                     )}
                   </div>
                 );
@@ -411,7 +487,7 @@ const AgentResponse: React.FC<{
         </div>
       )}
 
-      <div className="text-xs" style={{ color: colors.text.faint }}>
+      <div className="message-timestamp">
         {formatDistanceToNow(parseTimestamp(endTimestamp))}
       </div>
     </div>
@@ -429,8 +505,9 @@ const TimeSeparator: React.FC<{ time: string }> = ({ time }) => (
 
 export const TimelineView: React.FC<{
   sessionId: string;
+  session: Session;
   pendingMessage?: { content: string; timestamp: string; images?: ImageAttachment[] } | null;
-}> = ({ sessionId, pendingMessage }) => {
+}> = ({ sessionId, session, pendingMessage }) => {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -640,6 +717,83 @@ export const TimelineView: React.FC<{
                 );
               }
 
+              if (timelineItem.type === 'thinking') {
+                return (
+                  <ThinkingMessage
+                    key={`thinking-${timelineItem.seq}`}
+                    content={timelineItem.content}
+                    timestamp={timelineItem.timestamp}
+                    isStreaming={timelineItem.isStreaming}
+                  />
+                );
+              }
+
+              if (timelineItem.type === 'toolCall') {
+                return (
+                  <ToolCallMessage
+                    key={`tool-${timelineItem.seq}`}
+                    toolName={timelineItem.toolName}
+                    toolInput={timelineItem.toolInput}
+                    toolResult={timelineItem.toolResult}
+                    isError={timelineItem.isError}
+                    timestamp={timelineItem.timestamp}
+                    exitCode={timelineItem.exitCode}
+                  />
+                );
+              }
+
+              if (timelineItem.type === 'userQuestion') {
+                if (timelineItem.status === 'pending') {
+                  return (
+                    <UserQuestionDialog
+                      key={`question-${timelineItem.seq}`}
+                      questions={timelineItem.questions}
+                      onSubmit={(answers) => {
+                        const panelId = session.id;
+                        const panelType = session.toolType === 'codex' ? 'codex' : 'claude';
+                        window.electronAPI.panels
+                          .answerQuestion(panelId, panelType, answers)
+                          .catch((error: unknown) => {
+                            console.error('Failed to answer question:', error);
+                          });
+                      }}
+                    />
+                  );
+                } else {
+                  // Answered question - display as historical record
+                  return (
+                    <div
+                      key={`question-answered-${timelineItem.seq}`}
+                      className="rounded-lg px-4 py-3 my-2"
+                      style={{
+                        backgroundColor: colors.userCard.bg,
+                        border: `1px solid ${colors.userCard.border}`,
+                      }}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span>✓</span>
+                        <span style={{ color: colors.text.primary, fontWeight: 500 }}>
+                          Question Answered
+                        </span>
+                        <span style={{ color: colors.text.muted, fontSize: '0.85em' }}>
+                          {new Date(timelineItem.timestamp).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false,
+                          })}
+                        </span>
+                      </div>
+                      {Object.entries(timelineItem.answers || {}).map(([qIdx, answer]) => (
+                        <div key={qIdx} style={{ color: colors.text.secondary, fontSize: '0.9em', marginLeft: '1.5rem' }}>
+                          Question {Number(qIdx) + 1}: {Array.isArray(answer) ? answer.join(', ') : answer}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+              }
+
               return (
                 <AgentResponse
                   key={`agent-${timelineItem.seq}`}
@@ -675,14 +829,6 @@ export const TimelineView: React.FC<{
                 }}
               >
                 <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
-                  {visiblePendingMessage.images && visiblePendingMessage.images.length > 0 && (
-                    <>
-                      {visiblePendingMessage.images.map((img, idx) => (
-                        <ImageTag key={img.id} index={idx + 1} />
-                      ))}
-                      {visiblePendingMessage.content && ' '}
-                    </>
-                  )}
                   {visiblePendingMessage.content}
                 </div>
                 <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: colors.text.muted }}>

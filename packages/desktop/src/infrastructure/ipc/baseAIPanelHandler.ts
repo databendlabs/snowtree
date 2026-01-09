@@ -299,6 +299,21 @@ export abstract class BaseAIPanelHandler {
         return { success: false, error: `Failed to list ${this.config.panelTypeName} panels` };
       }
     });
+
+    // Answer a user question (from AskUserQuestion tool)
+    this.ipcMain.handle(`${this.config.ipcPrefix}:answer-question`, async (_event, panelId: string, answers: Record<string, string | string[]>) => {
+      try {
+        logger?.info(`[IPC] ${this.config.ipcPrefix}:answer-question called for panelId: ${panelId}, answers:`, answers);
+
+        // Call the answerQuestion method on the panel manager
+        await this.panelManager.answerQuestion(panelId, answers);
+
+        return { success: true };
+      } catch (error) {
+        logger?.error(`Failed to answer question for ${this.config.panelTypeName} panel: ${error}`);
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to answer question' };
+      }
+    });
   }
 
   /**

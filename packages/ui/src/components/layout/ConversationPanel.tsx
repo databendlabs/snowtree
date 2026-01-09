@@ -9,6 +9,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = React.memo(({
   return (
     <TimelineView
       sessionId={session.id}
+      session={session}
       pendingMessage={pendingMessage}
     />
   );

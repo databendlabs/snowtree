@@ -83,6 +83,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('panels:list', sessionId),
     continue: (panelId: string, input: string, model?: string, options?: { skipCheckpointAutoCommit?: boolean }, images?: Array<{ id: string; filename: string; mime: string; dataUrl: string }>): Promise<IPCResponse> =>
       ipcRenderer.invoke('panels:continue', panelId, input, model, options, images),
+    answerQuestion: (panelId: string, panelType: 'claude' | 'codex', answers: Record<string, string | string[]>): Promise<IPCResponse> => {
+      const ipcPrefix = panelType === 'claude' ? 'claude-panels' : 'codexPanel';
+      return ipcRenderer.invoke(`${ipcPrefix}:answer-question`, panelId, answers);
+    },
   },
 
   updater: {

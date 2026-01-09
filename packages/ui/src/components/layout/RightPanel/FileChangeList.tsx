@@ -51,7 +51,11 @@ export const FileChangeList: React.FC<FileChangeListProps> = React.memo(
     onCommitFileClick,
     hasSelection,
   }) => {
-    if (isLoading && (isWorkingTreeSelected ? !workingTree : commitFiles.length === 0)) {
+    // Only show loading spinner on initial load, not on refresh
+    // This prevents flickering when data is being refreshed in the background
+    const showLoading = isLoading && !hasSelection && (isWorkingTreeSelected ? !workingTree : commitFiles.length === 0);
+
+    if (showLoading) {
       return (
         <div
           className="flex flex-col items-center justify-center py-8 gap-2"

@@ -23,7 +23,7 @@ export const CommitItem: React.FC<CommitItemProps> = React.memo(
 
     const bg = isSelected
       ? colors.bg.selected
-      : isHovered
+      : isHovered && !isBase
         ? colors.bg.hover
         : 'transparent';
 
@@ -36,13 +36,14 @@ export const CommitItem: React.FC<CommitItemProps> = React.memo(
             ? `2px solid ${colors.accent}`
             : '2px solid transparent',
         }}
-        onMouseEnter={() => setIsHovered(true)}
+        onMouseEnter={() => !isBase && setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
         <button
           type="button"
           onClick={onClick}
           className="flex-1 min-w-0 flex items-start gap-2 outline-none focus:ring-1 focus:ring-blue-500/40 rounded"
+          style={{ cursor: isBase ? 'default' : 'pointer' }}
           aria-label={`Select commit ${isUncommitted ? 'uncommitted changes' : shortHash}`}
         >
           <div

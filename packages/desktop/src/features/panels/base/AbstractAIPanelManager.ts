@@ -277,6 +277,19 @@ export abstract class AbstractAIPanelManager {
   }
 
   /**
+   * Answer a user question (from AskUserQuestion tool)
+   */
+  async answerQuestion(panelId: string, answers: Record<string, string | string[]>): Promise<void> {
+    const mapping = this.panelMappings.get(panelId);
+    if (!mapping) {
+      throw new Error(`Panel ${panelId} not registered`);
+    }
+
+    this.logger?.info(`[${this.getAgentName()}PanelManager] Answering question for panel ${panelId}`);
+    await this.executor.answerQuestion(panelId, answers);
+  }
+
+  /**
    * Check if panel is running
    */
   isPanelRunning(panelId: string): boolean {

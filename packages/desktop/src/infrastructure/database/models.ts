@@ -188,8 +188,8 @@ export interface TimelineEvent {
   session_id: string;
   seq: number;
   timestamp: string;
-  kind: 'chat.user' | 'chat.assistant' | 'cli.command' | 'git.command' | 'worktree.command';
-  status?: 'started' | 'finished' | 'failed';
+  kind: 'chat.user' | 'chat.assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'user_question' | 'cli.command' | 'git.command' | 'worktree.command';
+  status?: 'started' | 'finished' | 'failed' | 'pending' | 'answered';
   command?: string;
   cwd?: string;
   duration_ms?: number;
@@ -197,6 +197,18 @@ export interface TimelineEvent {
   panel_id?: string;
   tool?: string;
   meta?: Record<string, unknown>;
+  // New fields for extended event types
+  tool_name?: string;
+  tool_input?: string;
+  tool_result?: string;
+  is_error?: number;
+  content?: string;
+  is_streaming?: number;
+  tool_use_id?: string;
+  questions?: string;
+  answers?: string;
+  action_type?: string;
+  thinking_id?: string;  // Unique ID for streaming thinking updates
 }
 
 export interface CreateTimelineEventData {
@@ -211,4 +223,16 @@ export interface CreateTimelineEventData {
   panel_id?: string;
   tool?: TimelineEvent['tool'];
   meta?: Record<string, unknown>;
+  // New fields for extended event types
+  tool_name?: string;
+  tool_input?: string;
+  tool_result?: string;
+  is_error?: number;
+  content?: string;
+  is_streaming?: number;
+  tool_use_id?: string;
+  questions?: string;
+  answers?: string;
+  action_type?: string;
+  thinking_id?: string;  // Unique ID for streaming thinking updates
 }

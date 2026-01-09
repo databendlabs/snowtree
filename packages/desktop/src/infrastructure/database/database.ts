@@ -1354,6 +1354,9 @@ export class DatabaseService {
     // Repair early timeline entries that masked `-p <prompt>` while still retaining the full prompt
     // in meta_json (cliCommand/cliArgs). This keeps the audit log transparent without losing history.
     this.migrateTimelineMaskedPrompts();
+
+    // Add new columns to support thinking, tool_use, tool_result, and user_question events
+    this.migrateTimelineExtendedFields();
   }
 
   private migrateTimelineMaskedPrompts(): void {
@@ -1391,6 +1394,38 @@ export class DatabaseService {
       }
     } catch {
       // Best-effort migration; never block startup.
+    }
+  }
+
+  private migrateTimelineExtendedFields(): void {
+    try {
+      // Check if new columns already exist
+      const tableInfo = this.db.prepare("PRAGMA table_info(timeline_events)").all() as Array<{ name: string }>;
+      const existingColumns = new Set(tableInfo.map(col => col.name));
+
+      // Add new columns for thinking, tool_use, tool_result, user_question events
+      const columnsToAdd = [
+        { name: 'tool_name', type: 'TEXT' },
+        { name: 'tool_input', type: 'TEXT' },
+        { name: 'tool_result', type: 'TEXT' },
+        { name: 'is_error', type: 'INTEGER DEFAULT 0' },
+        { name: 'content', type: 'TEXT' },
+        { name: 'is_streaming', type: 'INTEGER DEFAULT 0' },
+        { name: 'tool_use_id', type: 'TEXT' },
+        { name: 'questions', type: 'TEXT' },
+        { name: 'answers', type: 'TEXT' },
+        { name: 'action_type', type: 'TEXT' },
+        { name: 'thinking_id', type: 'TEXT' }  // Unique ID for streaming thinking updates
+      ];
+
+      for (const column of columnsToAdd) {
+        if (!existingColumns.has(column.name)) {
+          this.db.prepare(`ALTER TABLE timeline_events ADD COLUMN ${column.name} ${column.type}`).run();
+        }
+      }
+    } catch (error) {
+      // Best-effort migration; log but never block startup
+      console.warn('[Database] Timeline extended fields migration warning:', error);
     }
   }
 
@@ -2131,10 +2166,24 @@ export class DatabaseService {
       WHERE session_id = ?
     `);
 
+    // Check if thinking_id exists (for streaming thinking updates)
+    const findByThinkingId = this.db.prepare(`
+      SELECT id, seq FROM timeline_events
+      WHERE session_id = ? AND thinking_id = ? AND kind = 'thinking'
+      LIMIT 1
+    `);
+
     const insert = this.db.prepare(`
       INSERT INTO timeline_events (
-        session_id, seq, timestamp, kind, status, command, cwd, duration_ms, exit_code, panel_id, tool, meta_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        session_id, seq, timestamp, kind, status, command, cwd, duration_ms, exit_code, panel_id, tool, meta_json,
+        tool_name, tool_input, tool_result, is_error, content, is_streaming, tool_use_id, questions, answers, action_type, thinking_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const updateThinking = this.db.prepare(`
+      UPDATE timeline_events
+      SET content = ?, is_streaming = ?, timestamp = ?
+      WHERE id = ?
     `);
 
     const select = this.db.prepare(`
@@ -2151,15 +2200,98 @@ export class DatabaseService {
         exit_code,
         panel_id,
         tool,
-        meta_json
+        meta_json,
+        tool_name,
+        tool_input,
+        tool_result,
+        is_error,
+        content,
+        is_streaming,
+        tool_use_id,
+        questions,
+        answers,
+        action_type,
+        thinking_id
       FROM timeline_events
       WHERE id = ?
     `);
 
     const tx = this.db.transaction(() => {
+      const metaJson = data.meta ? JSON.stringify(data.meta) : null;
+
+      // Handle streaming thinking updates (UPSERT)
+      if (data.thinking_id && data.kind === 'thinking') {
+        const existing = findByThinkingId.get(data.session_id, data.thinking_id) as { id: number; seq: number } | undefined;
+
+        if (existing) {
+          // Update existing thinking event
+          updateThinking.run(
+            data.content ?? null,
+            data.is_streaming ?? null,
+            data.timestamp,
+            existing.id
+          );
+
+          const updated = select.get(existing.id) as {
+            id: number;
+            session_id: string;
+            seq: number;
+            timestamp: string;
+            kind: string;
+            status: string | null;
+            command: string | null;
+            cwd: string | null;
+            duration_ms: number | null;
+            exit_code: number | null;
+            panel_id: string | null;
+            tool: string | null;
+            meta_json: string | null;
+            tool_name: string | null;
+            tool_input: string | null;
+            tool_result: string | null;
+            is_error: number | null;
+            content: string | null;
+            is_streaming: number | null;
+            tool_use_id: string | null;
+            questions: string | null;
+            answers: string | null;
+            action_type: string | null;
+            thinking_id: string | null;
+          };
+
+          return {
+            id: updated.id,
+            session_id: updated.session_id,
+            seq: updated.seq,
+            timestamp: updated.timestamp,
+            kind: updated.kind as TimelineEvent['kind'],
+            status: updated.status ? (updated.status as TimelineEvent['status']) : undefined,
+            command: updated.command ?? undefined,
+            cwd: updated.cwd ?? undefined,
+            duration_ms: updated.duration_ms ?? undefined,
+            exit_code: updated.exit_code ?? undefined,
+            panel_id: updated.panel_id ?? undefined,
+            tool: updated.tool ? (updated.tool as TimelineEvent['tool']) : undefined,
+            meta: updated.meta_json ? (JSON.parse(updated.meta_json) as Record<string, unknown>) : undefined,
+            tool_name: updated.tool_name ?? undefined,
+            tool_input: updated.tool_input ?? undefined,
+            tool_result: updated.tool_result ?? undefined,
+            is_error: updated.is_error ?? undefined,
+            content: updated.content ?? undefined,
+            is_streaming: updated.is_streaming ?? undefined,
+            tool_use_id: updated.tool_use_id ?? undefined,
+            questions: updated.questions ?? undefined,
+            answers: updated.answers ?? undefined,
+            action_type: updated.action_type ?? undefined,
+            thinking_id: updated.thinking_id ?? undefined
+          } satisfies TimelineEvent;
+        }
+        // Fall through to INSERT if not found
+      }
+
+      // Normal INSERT (or first INSERT for thinking)
       const row = getNextSeq.get(data.session_id) as { next_seq: number };
       const nextSeq = row?.next_seq || 1;
-      const metaJson = data.meta ? JSON.stringify(data.meta) : null;
 
       const res = insert.run(
         data.session_id,
@@ -2173,7 +2305,18 @@ export class DatabaseService {
         data.exit_code ?? null,
         data.panel_id ?? null,
         data.tool ?? null,
-        metaJson
+        metaJson,
+        data.tool_name ?? null,
+        data.tool_input ?? null,
+        data.tool_result ?? null,
+        data.is_error ?? null,
+        data.content ?? null,
+        data.is_streaming ?? null,
+        data.tool_use_id ?? null,
+        data.questions ?? null,
+        data.answers ?? null,
+        data.action_type ?? null,
+        data.thinking_id ?? null
       ) as { lastInsertRowid: number };
 
       const inserted = select.get(res.lastInsertRowid) as {
@@ -2190,6 +2333,17 @@ export class DatabaseService {
         panel_id: string | null;
         tool: string | null;
         meta_json: string | null;
+        tool_name: string | null;
+        tool_input: string | null;
+        tool_result: string | null;
+        is_error: number | null;
+        content: string | null;
+        is_streaming: number | null;
+        tool_use_id: string | null;
+        questions: string | null;
+        answers: string | null;
+        action_type: string | null;
+        thinking_id: string | null;
       };
 
       return {
@@ -2205,7 +2359,18 @@ export class DatabaseService {
         exit_code: inserted.exit_code ?? undefined,
         panel_id: inserted.panel_id ?? undefined,
         tool: inserted.tool ? (inserted.tool as TimelineEvent['tool']) : undefined,
-        meta: inserted.meta_json ? (JSON.parse(inserted.meta_json) as Record<string, unknown>) : undefined
+        meta: inserted.meta_json ? (JSON.parse(inserted.meta_json) as Record<string, unknown>) : undefined,
+        tool_name: inserted.tool_name ?? undefined,
+        tool_input: inserted.tool_input ?? undefined,
+        tool_result: inserted.tool_result ?? undefined,
+        is_error: inserted.is_error ?? undefined,
+        content: inserted.content ?? undefined,
+        is_streaming: inserted.is_streaming ?? undefined,
+        tool_use_id: inserted.tool_use_id ?? undefined,
+        questions: inserted.questions ?? undefined,
+        answers: inserted.answers ?? undefined,
+        action_type: inserted.action_type ?? undefined,
+        thinking_id: inserted.thinking_id ?? undefined
       } satisfies TimelineEvent;
     });
 
@@ -2227,7 +2392,17 @@ export class DatabaseService {
         exit_code,
         panel_id,
         tool,
-        meta_json
+        meta_json,
+        tool_name,
+        tool_input,
+        tool_result,
+        is_error,
+        content,
+        is_streaming,
+        tool_use_id,
+        questions,
+        answers,
+        action_type
       FROM timeline_events
       WHERE session_id = ?
       ORDER BY seq ASC
@@ -2245,6 +2420,16 @@ export class DatabaseService {
       panel_id: string | null;
       tool: string | null;
       meta_json: string | null;
+      tool_name: string | null;
+      tool_input: string | null;
+      tool_result: string | null;
+      is_error: number | null;
+      content: string | null;
+      is_streaming: number | null;
+      tool_use_id: string | null;
+      questions: string | null;
+      answers: string | null;
+      action_type: string | null;
     }>;
 
     return rows.map((row) => ({
@@ -2260,7 +2445,17 @@ export class DatabaseService {
       exit_code: row.exit_code ?? undefined,
       panel_id: row.panel_id ?? undefined,
       tool: row.tool ? (row.tool as TimelineEvent['tool']) : undefined,
-      meta: row.meta_json ? (JSON.parse(row.meta_json) as Record<string, unknown>) : undefined
+      meta: row.meta_json ? (JSON.parse(row.meta_json) as Record<string, unknown>) : undefined,
+      tool_name: row.tool_name ?? undefined,
+      tool_input: row.tool_input ?? undefined,
+      tool_result: row.tool_result ?? undefined,
+      is_error: row.is_error ?? undefined,
+      content: row.content ?? undefined,
+      is_streaming: row.is_streaming ?? undefined,
+      tool_use_id: row.tool_use_id ?? undefined,
+      questions: row.questions ?? undefined,
+      answers: row.answers ?? undefined,
+      action_type: row.action_type ?? undefined
     }));
   }
 

@@ -559,8 +559,13 @@ export function Sidebar() {
                                       </div>
                                       <div className="flex items-center gap-1 text-[11px] font-mono flex-shrink-0">
                                         {(worktree.additions > 0 || worktree.deletions > 0) && (
-                                          <span style={{ color: 'var(--st-accent)' }}>
-                                            +{worktree.additions || 0} -{worktree.deletions || 0}
+                                          <span className="flex items-center gap-0.5">
+                                            {worktree.additions > 0 && (
+                                              <span style={{ color: '#98c379' }}>+{worktree.additions}</span>
+                                            )}
+                                            {worktree.deletions > 0 && (
+                                              <span style={{ color: '#e06c75' }}> -{worktree.deletions}</span>
+                                            )}
                                           </span>
                                         )}
                                         {worktree.hasChanges && worktree.additions === 0 && worktree.deletions === 0 && (

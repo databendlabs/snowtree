@@ -105,9 +105,9 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
             <div className="flex-1 min-w-0">
               <CommitItem
                 commit={baseCommit}
-                isSelected={selectedCommitHash === baseCommit.after_commit_hash}
+                isSelected={false}
                 badge="base"
-                onClick={() => onCommitSelect(baseCommit)}
+                onClick={() => {}} // Base commit is not selectable
               />
             </div>
           </div>

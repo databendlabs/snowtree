@@ -198,12 +198,14 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
           setSelection({ kind: 'working' });
           setCommitFiles([]);
         } else {
-          const first = newCommits.find((c) => c.id > 0) || newCommits.find((c) => c.id === -1);
+          // Only select session commits (id > 0), never select base commit (id === -1)
+          const first = newCommits.find((c) => c.id > 0);
           if (first) {
             setSelection({ kind: 'commit', hash: first.after_commit_hash });
             const files = await fetchCommitFiles(first.after_commit_hash, controller.signal);
             if (!controller.signal.aborted) setCommitFiles(files);
           } else {
+            // If only base commit exists, don't select anything
             setSelection(null);
             setCommitFiles([]);
           }
@@ -239,7 +241,7 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     refreshTimerRef.current = window.setTimeout(() => {
       refreshTimerRef.current = null;
       refreshRef.current();
-    }, 100);
+    }, 500); // Increased debounce to reduce flicker
   }, []); // No dependencies - scheduleRefresh identity is now stable
 
   useEffect(() => {
