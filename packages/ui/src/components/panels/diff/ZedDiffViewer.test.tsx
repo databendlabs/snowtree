@@ -316,15 +316,19 @@ index 1234567..abcdefg 100644
     expect(screen.getAllByLabelText('Hunk staged').length).toBeGreaterThan(0);
   });
 
-  it('renders per-file horizontal scrollers and keeps the vertical scroller x-hidden', () => {
+  it('renders per-file horizontal scrollers with a global horizontal scrollbar', () => {
     render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} />);
     const root = screen.getByTestId('diff-scroll-container') as HTMLDivElement;
     expect(root).toBeInTheDocument();
+    expect(root.className).toContain('overflow-y-auto');
     expect(root.className).toContain('overflow-x-hidden');
     expect(screen.getAllByTestId('diff-hscroll-container').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('diff-x-scrollbar')).toBeInTheDocument();
+    expect(document.querySelector('.st-diff-x-scrollbar-track')).toBeTruthy();
+    expect(document.querySelector('.st-diff-x-scrollbar-thumb')).toBeTruthy();
   });
 
-  it('syncs horizontal scrolling across visible files', () => {
+  it('syncs global horizontal scroll to all visible file scrollers', () => {
     const callbacks = new Map<number, FrameRequestCallback>();
     let nextId = 1;
     const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
@@ -334,17 +338,66 @@ index 1234567..abcdefg 100644
     });
 
     render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} />);
+
+    const xbar = screen.getByTestId('diff-x-scrollbar') as HTMLDivElement;
     const scrollers = screen.getAllByTestId('diff-hscroll-container') as HTMLDivElement[];
     expect(scrollers.length).toBe(2);
 
-    scrollers[0]!.scrollLeft = 120;
-    fireEvent.scroll(scrollers[0]!);
+    xbar.scrollLeft = 120;
+    fireEvent.scroll(xbar);
 
-    // Flush scheduled rAF.
-    Array.from(callbacks.values()).forEach((cb) => cb(0));
-    callbacks.clear();
+    // Flush scheduled rAF (including the "unlock" frame).
+    while (callbacks.size > 0) {
+      const batch = Array.from(callbacks.values());
+      callbacks.clear();
+      batch.forEach((cb) => cb(0));
+    }
 
+    expect(scrollers[0]!.scrollLeft).toBe(120);
     expect(scrollers[1]!.scrollLeft).toBe(120);
+    rafSpy.mockRestore();
+  });
+
+  it('does not drop rapid scroll updates while syncing', () => {
+    const queue: FrameRequestCallback[] = [];
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      queue.push(cb);
+      return queue.length;
+    });
+
+    render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} />);
+    const scrollers = screen.getAllByTestId('diff-hscroll-container') as HTMLDivElement[];
+    expect(scrollers.length).toBe(2);
+
+    // First user scroll schedules a flush rAF.
+    scrollers[0]!.scrollLeft = 100;
+    fireEvent.scroll(scrollers[0]!);
+    expect(queue.length).toBeGreaterThanOrEqual(1);
+
+    // Run the flush, but not its unlock frame yet.
+    const flush1 = queue.shift()!;
+    flush1(0);
+    expect(queue.length).toBeGreaterThanOrEqual(1);
+
+    // Second user scroll arrives while we're still syncing (before unlock).
+    scrollers[0]!.scrollLeft = 200;
+    fireEvent.scroll(scrollers[0]!);
+    expect(queue.length).toBeGreaterThanOrEqual(2);
+
+    // Force the "second flush" to run before the unlock frame (this is the case that previously dropped updates).
+    const unlock1 = queue[0]!;
+    const flush2 = queue[1]!;
+    queue.splice(1, 1);
+    flush2(0);
+
+    // Now unlock, then run any queued follow-up flush.
+    queue.shift()!(0); // unlock1
+    while (queue.length > 0) {
+      const cb = queue.shift()!;
+      cb(0);
+    }
+
+    expect(scrollers[1]!.scrollLeft).toBe(200);
     rafSpy.mockRestore();
   });
 
@@ -398,7 +451,9 @@ index 1234567..abcdefg 100644
       const controls = screen.getAllByTestId('diff-hunk-controls')[0] as HTMLElement;
       expect(controls.classList.contains('st-hunk-hovered')).toBe(true);
     });
-    expect(screen.queryByTestId('diff-hunk-actions-overlay')).toBeNull();
+    const overlay = screen.getByTestId('diff-hunk-actions-overlay');
+    expect(overlay).toBeInTheDocument();
+    expect(overlay.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('keeps diff scroll container constrained to the panel', () => {
@@ -417,5 +472,6 @@ index 1234567..abcdefg 100644
     expect(css).toContain('pointer-events: none');
     expect(css).toContain('.st-diff-actions-overlay-inner .st-diff-hunk-btn');
     expect(css).toContain('pointer-events: auto');
+    expect(css).toContain('visibility: hidden');
   });
 });

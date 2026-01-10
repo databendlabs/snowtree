@@ -35,10 +35,11 @@ test.describe('Diff Panel and Stage Operations', () => {
 
     const scroller = page.getByTestId('diff-scroll-container');
     await expect(scroller).toBeVisible();
+    const xbar = page.getByTestId('diff-x-scrollbar');
+    await expect(xbar).toBeVisible();
 
     const fileRoot = page.locator('[data-testid="diff-file"][data-diff-file-path="src/components/Example.tsx"]');
     const header = fileRoot.getByTestId('diff-file-header');
-    const hscroll = fileRoot.getByTestId('diff-hscroll-container');
 
     const changedLine = fileRoot
       .locator('tr.diff-line')
@@ -53,6 +54,7 @@ test.describe('Diff Panel and Stage Operations', () => {
       const headerEl = root.querySelector('[data-testid="diff-file-header"]') as HTMLElement | null;
       const table = root.querySelector('table.diff') as HTMLElement | null;
       const scroller = root.closest('[data-testid="diff-scroll-container"]') as HTMLElement | null;
+      const xbar = document.querySelector('[data-testid="diff-x-scrollbar"]') as HTMLElement | null;
       const hscroll = root.querySelector('[data-testid="diff-hscroll-container"]') as HTMLElement | null;
       const changedRow = Array.from(root.querySelectorAll('tr.diff-line')).find((row) =>
         Boolean(row.querySelector('.diff-code-insert, .diff-code-delete'))
@@ -64,6 +66,7 @@ test.describe('Diff Panel and Stage Operations', () => {
         gutterPos: gutterCells.map((c) => getComputedStyle(c).position),
         scrollerOverflowX: scroller ? getComputedStyle(scroller).overflowX : null,
         scrollerOverflowY: scroller ? getComputedStyle(scroller).overflowY : null,
+        xbarOverflowX: xbar ? getComputedStyle(xbar).overflowX : null,
         hscrollOverflowX: hscroll ? getComputedStyle(hscroll).overflowX : null,
         scrollerTransform: scroller ? getComputedStyle(scroller).transform : null,
         rootTransform: getComputedStyle(root as HTMLElement).transform,
@@ -76,6 +79,7 @@ test.describe('Diff Panel and Stage Operations', () => {
     expect(diagnostics0.gutterPos[1]).toBe('sticky');
     expect(diagnostics0.scrollerOverflowX).toBe('hidden');
     expect(diagnostics0.scrollerOverflowY).toMatch(/auto|scroll/);
+    expect(diagnostics0.xbarOverflowX).toMatch(/auto|scroll/);
     expect(diagnostics0.hscrollOverflowX).toMatch(/auto|scroll/);
     expect(diagnostics0.scrollerTransform).toBe('none');
     expect(diagnostics0.rootTransform).toBe('none');
@@ -106,7 +110,7 @@ test.describe('Diff Panel and Stage Operations', () => {
     expect(positions0.b).toBe('sticky');
     expect(positions0.beforeWidth).toBe('4px');
 
-    await hscroll.evaluate((el) => {
+    await xbar.evaluate((el) => {
       (el as HTMLElement).scrollLeft = 300;
     });
     await page.waitForTimeout(50);
@@ -135,10 +139,11 @@ test.describe('Diff Panel and Stage Operations', () => {
     await expect(page.getByTestId('diff-overlay')).toBeVisible();
     const scroller = page.getByTestId('diff-scroll-container');
     await expect(scroller).toBeVisible();
+    const xbar = page.getByTestId('diff-x-scrollbar');
+    await expect(xbar).toBeVisible();
 
     const stagedFileRoot = page.locator('[data-testid="diff-file"][data-diff-file-path="src/components/Staged.tsx"]');
     await stagedFileRoot.scrollIntoViewIfNeeded();
-    const hscroll = stagedFileRoot.getByTestId('diff-hscroll-container');
 
     const badge = stagedFileRoot.locator('.st-hunk-staged-badge').first();
     await expect(badge).toBeVisible();
@@ -190,7 +195,7 @@ test.describe('Diff Panel and Stage Operations', () => {
     expect(badgeBox0).not.toBeNull();
     expect(gutterBox0).not.toBeNull();
 
-    await hscroll.evaluate((el) => { (el as HTMLElement).scrollLeft = 260; });
+    await xbar.evaluate((el) => { (el as HTMLElement).scrollLeft = 260; });
     await page.waitForTimeout(50);
 
     const badgeBox1 = await badge.boundingBox();
@@ -199,5 +204,33 @@ test.describe('Diff Panel and Stage Operations', () => {
     expect(gutterBox1).not.toBeNull();
     expect(Math.abs((badgeBox1!.x) - (badgeBox0!.x))).toBeLessThan(1);
     expect(Math.abs((gutterBox1!.x) - (gutterBox0!.x))).toBeLessThan(1);
+  });
+
+  test('keeps all files horizontally aligned (including short files)', async ({ page }) => {
+    const file = page.getByTestId('right-panel-file-tracked-src/components/Example.tsx');
+    await expect(file).toBeVisible({ timeout: 15000 });
+    await file.click();
+
+    await expect(page.getByTestId('diff-overlay')).toBeVisible();
+    const xbar = page.getByTestId('diff-x-scrollbar');
+    await expect(xbar).toBeVisible();
+
+    const helperRoot = page.locator('[data-testid="diff-file"][data-diff-file-path="src/utils/helper.ts"]');
+    await helperRoot.scrollIntoViewIfNeeded();
+
+    const helperCode = helperRoot.locator('td.diff-code').first();
+    await expect(helperCode).toBeVisible();
+
+    const box0 = await helperCode.boundingBox();
+    expect(box0).not.toBeNull();
+
+    await xbar.evaluate((el) => {
+      (el as HTMLElement).scrollLeft = 300;
+    });
+    await page.waitForTimeout(50);
+
+    const box1 = await helperCode.boundingBox();
+    expect(box1).not.toBeNull();
+    expect(Math.abs((box1!.x) - (box0!.x))).toBeGreaterThan(20);
   });
 });
