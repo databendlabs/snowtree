@@ -316,12 +316,36 @@ index 1234567..abcdefg 100644
     expect(screen.getAllByLabelText('Hunk staged').length).toBeGreaterThan(0);
   });
 
-  it('uses a single scroll container for horizontal scrolling', () => {
+  it('renders per-file horizontal scrollers and keeps the vertical scroller x-hidden', () => {
     render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} />);
     const root = screen.getByTestId('diff-scroll-container') as HTMLDivElement;
     expect(root).toBeInTheDocument();
-    // Regression guard: don’t create per-file horizontal scrollers (causes sync jank on large diffs).
-    expect(screen.queryByTestId('diff-hscroll-container')).toBeNull();
+    expect(root.className).toContain('overflow-x-hidden');
+    expect(screen.getAllByTestId('diff-hscroll-container').length).toBeGreaterThan(0);
+  });
+
+  it('syncs horizontal scrolling across visible files', () => {
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let nextId = 1;
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      const id = nextId++;
+      callbacks.set(id, cb);
+      return id;
+    });
+
+    render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} />);
+    const scrollers = screen.getAllByTestId('diff-hscroll-container') as HTMLDivElement[];
+    expect(scrollers.length).toBe(2);
+
+    scrollers[0]!.scrollLeft = 120;
+    fireEvent.scroll(scrollers[0]!);
+
+    // Flush scheduled rAF.
+    Array.from(callbacks.values()).forEach((cb) => cb(0));
+    callbacks.clear();
+
+    expect(scrollers[1]!.scrollLeft).toBe(120);
+    rafSpy.mockRestore();
   });
 
   it('pins hunk actions to the viewport right edge (overlay)', async () => {

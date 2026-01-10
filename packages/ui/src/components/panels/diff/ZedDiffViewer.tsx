@@ -386,6 +386,38 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
     return map;
   }, [files]);
 
+  const hscrollRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const visibleHScrollersRef = useRef<Set<string>>(new Set());
+  const hscrollLeftRef = useRef(0);
+  const hscrollSyncingRef = useRef(false);
+  const hscrollRafRef = useRef<number | null>(null);
+  const hscrollPendingRef = useRef<{ left: number; source?: string } | null>(null);
+
+  const scheduleHScrollSync = useCallback((left: number, source?: string) => {
+    hscrollLeftRef.current = left;
+    hscrollPendingRef.current = { left, source };
+    if (hscrollRafRef.current != null) return;
+    hscrollRafRef.current = requestAnimationFrame(() => {
+      hscrollRafRef.current = null;
+      const pending = hscrollPendingRef.current;
+      if (!pending) return;
+      if (hscrollSyncingRef.current) return;
+      hscrollSyncingRef.current = true;
+      try {
+        const visibleOnly = visibleHScrollersRef.current.size > 0;
+        for (const [path, el] of hscrollRefs.current.entries()) {
+          if (pending.source && path === pending.source) continue;
+          if (visibleOnly && !visibleHScrollersRef.current.has(path)) continue;
+          if (Math.abs(el.scrollLeft - pending.left) > 0.5) el.scrollLeft = pending.left;
+        }
+      } finally {
+        requestAnimationFrame(() => {
+          hscrollSyncingRef.current = false;
+        });
+      }
+    });
+  }, []);
+
   const allHunks = useMemo(() => {
     const result: Array<{ filePath: string; hunkKey: string; sig: string; oldStart: number; newStart: number; hunkHeader: string; isStaged: boolean; isUntracked: boolean }> = [];
     for (const file of files) {
@@ -495,6 +527,52 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
       root.removeEventListener('scroll', onScroll);
     };
   }, [computeTopMostVisibleHunkIdx, updateOverlayPosition]);
+
+  useEffect(() => {
+    const root = scrollContainerRef.current;
+    if (!root) return;
+
+    // Track which file horizontal scrollers are visible; sync only those to avoid jank on large diffs.
+    const io = new IntersectionObserver(
+      (entries) => {
+        let changed = false;
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const path = el.dataset.diffFilePath;
+          if (!path) continue;
+          if (entry.isIntersecting) {
+            if (!visibleHScrollersRef.current.has(path)) {
+              visibleHScrollersRef.current.add(path);
+              changed = true;
+            }
+          } else {
+            if (visibleHScrollersRef.current.delete(path)) changed = true;
+          }
+        }
+        if (changed) scheduleHScrollSync(hscrollLeftRef.current);
+      },
+      { root, threshold: 0.1 }
+    );
+
+    for (const el of hscrollRefs.current.values()) {
+      io.observe(el);
+    }
+
+    // Horizontal wheel gestures anywhere in the diff should scroll the code, while headers/gutters remain fixed.
+    const onWheel = (e: WheelEvent) => {
+      if (!e.deltaX) return;
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      const next = Math.max(0, hscrollLeftRef.current + e.deltaX);
+      scheduleHScrollSync(next);
+    };
+
+    root.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      root.removeEventListener('wheel', onWheel as any);
+      io.disconnect();
+    };
+  }, [scheduleHScrollSync, files.length]);
 
   useEffect(() => {
     const root = containerRef.current;
@@ -691,7 +769,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
       <div className="flex-1 relative">
         <div
           ref={scrollContainerRef}
-          className="absolute inset-0 overflow-y-auto overflow-x-auto"
+          className="absolute inset-0 overflow-y-auto overflow-x-hidden"
           data-testid="diff-scroll-container"
         >
           {files.map((file) => (
@@ -715,6 +793,26 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
               </div>
 
               <div className="st-diff-file-body">
+                <div
+                  data-testid="diff-hscroll-container"
+                  className="st-diff-hscroll"
+                  data-diff-file-path={file.path}
+                  ref={(el) => {
+                    if (!el) {
+                      hscrollRefs.current.delete(file.path);
+                      visibleHScrollersRef.current.delete(file.path);
+                      return;
+                    }
+                    hscrollRefs.current.set(file.path, el);
+                    // Align newly mounted scrollers with current global horizontal position.
+                    if (Math.abs(el.scrollLeft - hscrollLeftRef.current) > 0.5) el.scrollLeft = hscrollLeftRef.current;
+                  }}
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    if (hscrollSyncingRef.current) return;
+                    scheduleHScrollSync(el.scrollLeft, file.path);
+                  }}
+                >
                 <Diff
                   viewType="unified"
                   diffType={file.diffType}
@@ -802,6 +900,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                 >
                   {(hunks) => hunks.map((hunk) => <Hunk key={(hunk as any).__st_hunkKey as string} hunk={hunk} />)}
                 </Diff>
+                </div>
               </div>
             </div>
           ))}
@@ -895,6 +994,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           /* Ensure headers are sized to the viewport, not to the max-content table width. */
           .st-diff-file { width: 100%; }
           .st-diff-file-body { width: 100%; }
+          .st-diff-hscroll { overflow-x: auto; overflow-y: visible; width: 100%; }
 
           .st-diff-table.diff { table-layout: auto; border-collapse: separate; border-spacing: 0; }
           .st-diff-table .diff-line { font-size: 12px; line-height: 20px; }

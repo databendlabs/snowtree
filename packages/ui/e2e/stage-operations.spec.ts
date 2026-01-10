@@ -6,6 +6,15 @@ test.describe('Stage Operations (Diff Overlay)', () => {
     await openFirstWorktree(page);
   });
 
+  async function getActiveHunkOverlayFor(firstEditHunk: any, page: any) {
+    const anchor = firstEditHunk.locator('[data-hunk-anchor="true"][data-hunk-key]').first();
+    const hunkKey = await anchor.getAttribute('data-hunk-key');
+    expect(hunkKey).toBeTruthy();
+    const overlay = page.getByTestId('diff-hunk-actions-overlay');
+    await expect(overlay).toBeVisible();
+    return overlay.locator(`[data-hunk-key="${hunkKey}"]`).first();
+  }
+
   test('stages a hunk via per-hunk controls (Zed-style)', async ({ page }) => {
     const file = page.getByTestId('right-panel-file-tracked-src/components/Example.tsx');
     await expect(file).toBeVisible({ timeout: 15000 });
@@ -15,11 +24,12 @@ test.describe('Stage Operations (Diff Overlay)', () => {
     await expect(page.getByTestId('diff-viewer-zed')).toBeVisible();
 
     const firstEditHunk = page
-      .locator(`[data-diff-file-path="src/components/Example.tsx"] .diff-hunk`)
+      .locator(`[data-testid="diff-file"][data-diff-file-path="src/components/Example.tsx"] .diff-hunk`)
       .filter({ has: page.locator('.diff-code-insert, .diff-code-delete') })
       .first();
     await firstEditHunk.hover();
-    const stage = firstEditHunk.getByTestId('diff-hunk-stage');
+    const overlayInner = await getActiveHunkOverlayFor(firstEditHunk, page);
+    const stage = overlayInner.getByTestId('diff-hunk-stage');
     await expect(stage).toBeVisible();
     await stage.click();
 
@@ -39,11 +49,12 @@ test.describe('Stage Operations (Diff Overlay)', () => {
     await expect(page.getByTestId('diff-viewer-zed')).toBeVisible();
 
     const firstEditHunk = page
-      .locator(`[data-diff-file-path="src/components/Example.tsx"] .diff-hunk`)
+      .locator(`[data-testid="diff-file"][data-diff-file-path="src/components/Example.tsx"] .diff-hunk`)
       .filter({ has: page.locator('.diff-code-insert, .diff-code-delete') })
       .first();
     await firstEditHunk.hover();
-    const restore = firstEditHunk.getByTestId('diff-hunk-restore');
+    const overlayInner = await getActiveHunkOverlayFor(firstEditHunk, page);
+    const restore = overlayInner.getByTestId('diff-hunk-restore');
     await expect(restore).toBeVisible();
     await restore.click();
 

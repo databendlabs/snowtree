@@ -36,7 +36,7 @@ test.describe('Diff Panel and Stage Operations', () => {
     const scroller = page.getByTestId('diff-scroll-container');
     await expect(scroller).toBeVisible();
 
-    const fileRoot = page.locator('[data-diff-file-path="src/components/Example.tsx"]');
+    const fileRoot = page.locator('[data-testid="diff-file"][data-diff-file-path="src/components/Example.tsx"]');
     const header = fileRoot.getByTestId('diff-file-header');
     const hscroll = fileRoot.getByTestId('diff-hscroll-container');
 
@@ -136,7 +136,7 @@ test.describe('Diff Panel and Stage Operations', () => {
     const scroller = page.getByTestId('diff-scroll-container');
     await expect(scroller).toBeVisible();
 
-    const stagedFileRoot = page.locator('[data-diff-file-path="src/components/Staged.tsx"]');
+    const stagedFileRoot = page.locator('[data-testid="diff-file"][data-diff-file-path="src/components/Staged.tsx"]');
     await stagedFileRoot.scrollIntoViewIfNeeded();
     const hscroll = stagedFileRoot.getByTestId('diff-hscroll-container');
 
