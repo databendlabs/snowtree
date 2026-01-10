@@ -189,6 +189,32 @@ test.describe('Diff Panel and Stage Operations', () => {
     expect(overlap).not.toBeNull();
     expect(overlap!.badgeRight).toBeLessThanOrEqual(overlap!.textLeft + 1);
 
+    // Badge should sit near the vertical middle of the changed-range rail.
+    const middle = await stagedFileRoot.evaluate(() => {
+      const root = document.querySelector('[data-diff-file-path="src/components/Staged.tsx"]');
+      if (!root) return null;
+      const badgeEl = root.querySelector('.st-hunk-staged-badge') as HTMLElement | null;
+      if (!badgeEl) return null;
+      const changedRows = Array.from(root.querySelectorAll('tr.diff-line')).filter((row) =>
+        Boolean(row.querySelector('.diff-code-insert, .diff-code-delete'))
+      ) as HTMLElement[];
+      if (changedRows.length === 0) return null;
+      const first = changedRows[0]!.getBoundingClientRect();
+      const last = changedRows[changedRows.length - 1]!.getBoundingClientRect();
+      const badge = badgeEl.getBoundingClientRect();
+      return {
+        badgeCy: (badge.top + badge.bottom) / 2,
+        railTop: first.top,
+        railBottom: last.bottom,
+      };
+    });
+    expect(middle).not.toBeNull();
+    expect(middle!.badgeCy).toBeGreaterThan(middle!.railTop);
+    expect(middle!.badgeCy).toBeLessThan(middle!.railBottom);
+    const railMid = (middle!.railTop + middle!.railBottom) / 2;
+    // Within ~40% of the rail height from center (tolerant to small hunks and fonts).
+    expect(Math.abs(middle!.badgeCy - railMid)).toBeLessThan((middle!.railBottom - middle!.railTop) * 0.4 + 8);
+
     // Horizontal scroll should not move the gutters/badge.
     const badgeBox0 = await badge.boundingBox();
     const gutterBox0 = await gutter1.boundingBox();

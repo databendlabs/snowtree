@@ -1061,7 +1061,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                   className="st-diff-table"
                   widgets={Object.fromEntries(
                     file.hunks
-                      .map((hunk) => {
+                      .flatMap((hunk) => {
                         const changes = hunk.changes as ChangeData[];
                         const first = changes[0];
                         if (!first) return null;
@@ -1105,6 +1105,9 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                         // so we prefer the line *before* the first changed line when available (i.e. the last context
                         // line right above the hunk), otherwise fall back to the first changed line.
                         const firstChangedIdx = changes.findIndex((c) => c.type === 'insert' || c.type === 'delete');
+                        const changedIndices = changes
+                          .map((c, idx) => ((c.type === 'insert' || c.type === 'delete') ? idx : -1))
+                          .filter((idx) => idx >= 0);
                         const anchorChange =
                           firstChangedIdx > 0
                             ? changes[firstChangedIdx - 1]!
@@ -1113,14 +1116,27 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                               : first;
                         const changeKey = getChangeKey(anchorChange);
 
-                        const element: React.ReactElement | null = isCommitView ? null : (
+                        const anchorElement: React.ReactElement | null = isCommitView ? null : (
                           <div
                             data-testid="diff-hunk-controls"
                             data-hunk-key={hunkKey}
                             data-hunk-anchor="true"
                             className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass} ${isFocused ? 'st-hunk-focused' : ''} ${isHovered ? 'st-hunk-hovered' : ''}`}
                           >
-                            {hunkStatus === 'staged' && (
+                          </div>
+                        );
+
+                        const out: Array<readonly [string, React.ReactElement | null]> = [[changeKey, anchorElement] as const];
+
+                        // Persistent staged badge: place it near the vertical middle of the changed range so it
+                        // visually sits in the middle of the left change rail (Zed-like).
+                        if (!isCommitView && hunkStatus === 'staged' && changedIndices.length > 0) {
+                          const midIdx = changedIndices[Math.floor(changedIndices.length / 2)]!;
+                          const badgeChange = changes[midIdx]!;
+                          const badgeKey = getChangeKey(badgeChange);
+
+                          const badgeElement = (
+                            <div data-testid="diff-hunk-staged-badge-anchor" className="st-diff-hunk-staged-badge-anchor">
                               <div className="st-hunk-staged-badge-sticky" aria-label="Hunk staged">
                                 <div className="st-hunk-staged-badge" title="Staged" aria-hidden="true">
                                   <svg viewBox="0 0 16 16" width="10" height="10" fill="none">
@@ -1134,11 +1150,15 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                                   </svg>
                                 </div>
                               </div>
-                            )}
-                          </div>
-                        );
+                            </div>
+                          );
 
-                        return [changeKey, element] as const;
+                          // Avoid colliding with the controls anchor when the hunk is only one changed line.
+                          if (badgeKey !== changeKey) out.push([badgeKey, badgeElement] as const);
+                          else out[0] = [changeKey, <>{anchorElement}{badgeElement}</>] as const;
+                        }
+
+                        return out;
                       })
                       .filter((e): e is readonly [string, React.ReactElement | null] => e !== null)
                   ) as Record<string, React.ReactElement | null>}
@@ -1559,7 +1579,9 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           }
           .st-diff-table .st-hunk-staged-badge {
             position: absolute;
-            top: 0;
+            /* Widgets are rendered after the keyed line; offset upward by half a line height so the badge
+               visually centers on the line (and therefore the change rail), not between lines. */
+            top: calc(var(--st-diff-line-height) / -2);
             transform: translateY(-50%);
             left: 0;
             width: 14px;
