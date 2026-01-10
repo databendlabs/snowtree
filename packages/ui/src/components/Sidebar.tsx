@@ -537,23 +537,32 @@ export function Sidebar() {
                                             }}
                                           />
                                         ) : (
-                                          <div className="flex items-center gap-2">
-                                            <span
-                                              className="text-[12px] truncate"
-                                              style={{ color: 'var(--st-text)' }}
-                                              title="Double-click to rename"
-                                            >
-                                              {leafName}
-                                            </span>
-                                            {isRunning && (
-                                              <Loader2 
-                                                className="w-3 h-3 animate-spin flex-shrink-0" 
-                                                style={{ color: 'var(--st-accent)' }}
-                                              />
+                                          <div
+                                            className="flex flex-col min-w-0"
+                                            data-testid="worktree-item"
+                                            data-worktree-path={worktree.path}
+                                          >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <span
+                                                data-testid="worktree-name"
+                                                className="text-[12px] truncate"
+                                                style={{ color: 'var(--st-text)' }}
+                                                title={`${leafName} (double-click to rename)`}
+                                              >
+                                                {leafName}
+                                              </span>
+                                              {isRunning && (
+                                                <Loader2
+                                                  className="w-3 h-3 animate-spin flex-shrink-0"
+                                                  style={{ color: 'var(--st-accent)' }}
+                                                />
+                                              )}
+                                            </div>
+                                            {(worktree.createdAt || worktree.lastCommitAt) && (
+                                              <span data-testid="worktree-relative-time" className="text-[11px] st-text-faint mt-0.5">
+                                                {formatDistanceToNow(worktree.createdAt || worktree.lastCommitAt!)}
+                                              </span>
                                             )}
-                                            <span className="text-[11px] st-text-faint flex-shrink-0">
-                                              {worktree.createdAt || worktree.lastCommitAt ? formatDistanceToNow(worktree.createdAt || worktree.lastCommitAt!) : ''}
-                                            </span>
                                           </div>
                                         )}
                                       </div>
