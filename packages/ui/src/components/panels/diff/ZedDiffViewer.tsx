@@ -372,62 +372,19 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const hscrollRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const hscrollLeftRef = useRef(0);
-  const hscrollSyncingRef = useRef(false);
-  const hscrollScheduledRef = useRef<number | null>(null);
-  const hscrollPendingLeftRef = useRef<number>(0);
-  const hscrollPendingSourceRef = useRef<string | undefined>(undefined);
   const [currentHunkIdx, setCurrentHunkIdx] = useState(0);
   const [focusedHunkKey, setFocusedHunkKey] = useState<string | null>(null);
   const [focusedHunkSig, setFocusedHunkSig] = useState<{ filePath: string; sig: string; oldStart: number; newStart: number } | null>(null);
   const [hoveredHunkKey, setHoveredHunkKey] = useState<string | null>(null);
+  const [overlayTopPx, setOverlayTopPx] = useState<number | null>(null);
 
-  const scheduleHScrollSync = useCallback((left: number, sourceFilePath?: string) => {
-    hscrollLeftRef.current = left;
-    hscrollPendingLeftRef.current = left;
-    hscrollPendingSourceRef.current = sourceFilePath;
+  const activeHunkKey = hoveredHunkKey ?? focusedHunkKey;
 
-    if (hscrollScheduledRef.current != null) return;
-    hscrollScheduledRef.current = requestAnimationFrame(() => {
-      hscrollScheduledRef.current = null;
-      if (hscrollSyncingRef.current) return;
-      hscrollSyncingRef.current = true;
-      try {
-        const nextLeft = hscrollPendingLeftRef.current;
-        const source = hscrollPendingSourceRef.current;
-        for (const [path, el] of hscrollRefs.current.entries()) {
-          if (source && path === source) continue;
-          if (Math.abs(el.scrollLeft - nextLeft) > 0.5) el.scrollLeft = nextLeft;
-        }
-      } finally {
-        // Release on next frame to avoid feedback loops.
-        requestAnimationFrame(() => {
-          hscrollSyncingRef.current = false;
-        });
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    const root = scrollContainerRef.current;
-    if (!root) return;
-
-    // Make horizontal scrolling feel global (Zed-like): horizontal wheel gestures anywhere in the diff
-    // scroll the code, while gutters and headers remain fixed.
-    const onWheel = (e: WheelEvent) => {
-      if (!e.deltaX) return;
-      // Only treat this as a horizontal gesture when deltaX dominates, otherwise allow vertical scrolling.
-      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-      // Prevent the browser from attempting to scroll the outer container horizontally (keeps gutters fixed).
-      e.preventDefault();
-      const next = Math.max(0, hscrollLeftRef.current + e.deltaX);
-      scheduleHScrollSync(next);
-    };
-
-    root.addEventListener('wheel', onWheel, { passive: false });
-    return () => root.removeEventListener('wheel', onWheel as any);
-  }, [scheduleHScrollSync]);
+  const fileByPath = useMemo(() => {
+    const map = new Map<string, FileModel>();
+    for (const f of files) map.set(f.path, f);
+    return map;
+  }, [files]);
 
   const allHunks = useMemo(() => {
     const result: Array<{ filePath: string; hunkKey: string; sig: string; oldStart: number; newStart: number; hunkHeader: string; isStaged: boolean; isUntracked: boolean }> = [];
@@ -454,6 +411,35 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
     }
     return result;
   }, [files, stagedHunkHeaderBySig, unstagedHunkHeaderBySig]);
+
+  const activeHunk = useMemo(() => {
+    if (!activeHunkKey) return null;
+    return allHunks.find((h) => h.hunkKey === activeHunkKey) ?? null;
+  }, [allHunks, activeHunkKey]);
+
+  const updateOverlayPosition = useCallback(() => {
+    const scroller = scrollContainerRef.current;
+    if (!scroller || !activeHunkKey) {
+      setOverlayTopPx(null);
+      return;
+    }
+
+    const anchor = scroller.querySelector(`[data-hunk-key="${activeHunkKey}"][data-hunk-anchor="true"]`) as HTMLElement | null;
+    if (!anchor) {
+      setOverlayTopPx(null);
+      return;
+    }
+
+    const scrollerRect = scroller.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const rawTop = anchorRect.top - scrollerRect.top;
+    if (rawTop < 0 || rawTop > scrollerRect.height) {
+      setOverlayTopPx(null);
+      return;
+    }
+    const clamped = Math.max(24, Math.min(rawTop, scrollerRect.height - 24));
+    setOverlayTopPx(clamped);
+  }, [activeHunkKey]);
 
   const computeTopMostVisibleHunkIdx = useCallback((): number => {
     const root = scrollContainerRef.current;
@@ -498,6 +484,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
       raf = requestAnimationFrame(() => {
         const idx = computeTopMostVisibleHunkIdx();
         if (idx >= 0) setCurrentHunkIdx(idx);
+        updateOverlayPosition();
       });
     };
 
@@ -507,10 +494,10 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
       if (raf) cancelAnimationFrame(raf);
       root.removeEventListener('scroll', onScroll);
     };
-  }, [computeTopMostVisibleHunkIdx]);
+  }, [computeTopMostVisibleHunkIdx, updateOverlayPosition]);
 
   useEffect(() => {
-    const root = scrollContainerRef.current;
+    const root = containerRef.current;
     if (!root) return;
 
     const onMouseMove = (e: MouseEvent) => {
@@ -526,10 +513,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
       }
 
       const hunkRoot = target.closest('.diff-hunk') as HTMLElement | null;
-      if (!hunkRoot) {
-        setHoveredHunkKey((prev) => (prev === null ? prev : null));
-        return;
-      }
+      if (!hunkRoot) return;
       const anchor = hunkRoot.querySelector('[data-hunk-key]') as HTMLElement | null;
       const next = anchor?.getAttribute('data-hunk-key') ?? null;
       setHoveredHunkKey((prev) => (prev === next ? prev : next));
@@ -544,6 +528,10 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
       root.removeEventListener('mouseleave', onMouseLeave);
     };
   }, []);
+
+  useEffect(() => {
+    updateOverlayPosition();
+  }, [activeHunkKey, updateOverlayPosition]);
 
   useEffect(() => {
     onHunkInfo?.(currentHunkIdx + 1, allHunks.length);
@@ -700,54 +688,41 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
         } as React.CSSProperties
       }
     >
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden" data-testid="diff-scroll-container">
-        {files.map((file) => (
-          <div key={file.path} data-testid="diff-file" data-diff-file-path={file.path} className="st-diff-file">
-            <div
-              data-testid="diff-file-header"
-              ref={(el) => {
-                if (!el) {
-                  fileHeaderRefs.current.delete(file.path);
-                  return;
-                }
-                fileHeaderRefs.current.set(file.path, el);
-              }}
-              className="px-3 py-2 text-xs font-semibold st-diff-file-header"
-              style={{
-                backgroundColor: 'var(--st-surface)',
-                borderBottom: '1px solid var(--st-border-variant)',
-              }}
-            >
-              {file.path}
-            </div>
-
-            <div className="st-diff-file-body">
+      <div className="flex-1 relative">
+        <div
+          ref={scrollContainerRef}
+          className="absolute inset-0 overflow-y-auto overflow-x-auto"
+          data-testid="diff-scroll-container"
+        >
+          {files.map((file) => (
+            <div key={file.path} data-testid="diff-file" data-diff-file-path={file.path} className="st-diff-file">
               <div
-                data-testid="diff-hscroll-container"
-                className="st-diff-hscroll"
+                data-testid="diff-file-header"
                 ref={(el) => {
                   if (!el) {
-                    hscrollRefs.current.delete(file.path);
+                    fileHeaderRefs.current.delete(file.path);
                     return;
                   }
-                  hscrollRefs.current.set(file.path, el);
-                  // Keep newly mounted scrollers aligned with current horizontal position.
-                  if (Math.abs(el.scrollLeft - hscrollLeftRef.current) > 0.5) el.scrollLeft = hscrollLeftRef.current;
+                  fileHeaderRefs.current.set(file.path, el);
                 }}
-                onScroll={(e) => {
-                  const el = e.currentTarget;
-                  if (hscrollSyncingRef.current) return;
-                  scheduleHScrollSync(el.scrollLeft, file.path);
+                className="px-3 py-2 text-xs font-semibold st-diff-file-header"
+                style={{
+                  backgroundColor: 'var(--st-surface)',
+                  borderBottom: '1px solid var(--st-border-variant)',
                 }}
               >
-              <Diff
-                viewType="unified"
-                diffType={file.diffType}
-                hunks={file.hunks}
-                className="st-diff-table"
-                widgets={Object.fromEntries(
-                  file.hunks
-                    .map((hunk) => {
+                {file.path}
+              </div>
+
+              <div className="st-diff-file-body">
+                <Diff
+                  viewType="unified"
+                  diffType={file.diffType}
+                  hunks={file.hunks}
+                  className="st-diff-table"
+                  widgets={Object.fromEntries(
+                    file.hunks
+                      .map((hunk) => {
                       const changes = hunk.changes as ChangeData[];
                       const first = changes[0];
                       if (!first) return null;
@@ -763,12 +738,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
 
                     const hunkStatus: 'staged' | 'unstaged' | 'untracked' =
                       stagedHeader ? 'staged' : unstagedHeader ? 'unstaged' : 'untracked';
-
-                    const stageLabel = hunkStatus === 'staged' ? 'Unstage' : 'Stage';
-                    const canStageOrUnstage = Boolean(sessionId);
-                    const canRestore = Boolean(sessionId && (hunkStatus === 'staged' || hunkStatus === 'unstaged'));
-                    const stageHeader = hunkStatus === 'staged' ? stagedHeader! : hunkStatus === 'unstaged' ? unstagedHeader! : null;
-                    const restoreScope: 'staged' | 'unstaged' = hunkStatus === 'staged' ? 'staged' : 'unstaged';
                     const statusClass =
                       hunkStatus === 'staged'
                         ? 'st-hunk-status--staged'
@@ -780,7 +749,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                     const kindClass =
                       kind === 'added' ? 'st-hunk-kind--added' : kind === 'deleted' ? 'st-hunk-kind--deleted' : 'st-hunk-kind--modified';
                     const hunkKey = (hunk as any).__st_hunkKey as string;
-                    const isPending = pendingHunkKeys.has(hunkKey);
                     const isFocused =
                       focusedHunkKey === hunkKey ||
                       (focusedHunkSig != null &&
@@ -788,7 +756,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                         focusedHunkSig.sig === sig &&
                         (Math.abs(focusedHunkSig.oldStart - hunk.oldStart) + Math.abs(focusedHunkSig.newStart - hunk.newStart) <= 4));
                     const isHovered = hoveredHunkKey === hunkKey;
-                    const sigForFocus = sig;
 
                     // Anchor controls near the hunk start (Zed places controls at the start of the changed range,
                     // not on surrounding context lines). `react-diff-view` widgets render *after* the keyed line,
@@ -807,6 +774,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                       <div
                         data-testid="diff-hunk-controls"
                         data-hunk-key={hunkKey}
+                        data-hunk-anchor="true"
                         className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass} ${isFocused ? 'st-hunk-focused' : ''} ${isHovered ? 'st-hunk-hovered' : ''}`}
                       >
                         {hunkStatus === 'staged' && (
@@ -824,61 +792,80 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                             </div>
                           </div>
                         )}
-                        <div className="st-diff-hunk-actions">
-                          <button
-                            type="button"
-                            data-testid="diff-hunk-stage"
-                            disabled={!canStageOrUnstage || isPending}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setFocusedHunkKey(hunkKey);
-                              setHoveredHunkKey(hunkKey);
-                              if (sigForFocus) setFocusedHunkSig({ filePath: file.path, sig: sigForFocus, oldStart: hunk.oldStart, newStart: hunk.newStart });
-                              if (hunkStatus === 'untracked') return stageFile(file.path, true, hunkKey);
-                              if (file.diffType === 'delete') return stageFile(file.path, stageLabel === 'Stage', hunkKey);
-                              if (!stageHeader) return;
-                              stageOrUnstageHunk(file.path, stageLabel === 'Stage', stageHeader, hunkKey);
-                            }}
-                            className="st-diff-hunk-btn"
-                            title={canStageOrUnstage ? `${stageLabel} ${hunkStatus === 'untracked' ? 'file' : 'hunk'}` : 'Unavailable'}
-                          >
-                            {isPending ? '…' : stageLabel}
-                          </button>
-                          {(hunkStatus === 'staged' || hunkStatus === 'unstaged') && (
-                            <button
-                              type="button"
-                              data-testid="diff-hunk-restore"
-                              disabled={!canRestore || isPending || (file.diffType !== 'delete' && !stageHeader)}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setFocusedHunkKey(hunkKey);
-                                setHoveredHunkKey(hunkKey);
-                                if (sigForFocus) setFocusedHunkSig({ filePath: file.path, sig: sigForFocus, oldStart: hunk.oldStart, newStart: hunk.newStart });
-                                if (file.diffType === 'delete') return restoreFile(file.path, hunkKey);
-                                if (!stageHeader) return;
-                                restoreHunk(file.path, restoreScope, stageHeader, hunkKey);
-                              }}
-                              className="st-diff-hunk-btn"
-                              title={canRestore ? (file.diffType === 'delete' ? 'Restore file' : 'Restore hunk') : 'Unavailable'}
-                            >
-                              {isPending ? '…' : 'Restore'}
-                            </button>
-                          )}
-                        </div>
                       </div>
                     );
 
-                      return [changeKey, element] as const;
-                    })
-                    .filter((e): e is readonly [string, React.ReactElement | null] => e !== null)
-                ) as Record<string, React.ReactElement | null>}
-              >
-                {(hunks) => hunks.map((hunk) => <Hunk key={(hunk as any).__st_hunkKey as string} hunk={hunk} />)}
-              </Diff>
+                        return [changeKey, element] as const;
+                      })
+                      .filter((e): e is readonly [string, React.ReactElement | null] => e !== null)
+                  ) as Record<string, React.ReactElement | null>}
+                >
+                  {(hunks) => hunks.map((hunk) => <Hunk key={(hunk as any).__st_hunkKey as string} hunk={hunk} />)}
+                </Diff>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+
+        {!isCommitView && activeHunk && overlayTopPx != null && (() => {
+          const file = fileByPath.get(activeHunk.filePath);
+          if (!file) return null;
+          const hunkStatus: 'staged' | 'unstaged' | 'untracked' = activeHunk.isUntracked ? 'untracked' : activeHunk.isStaged ? 'staged' : 'unstaged';
+          const stageLabel = hunkStatus === 'staged' ? 'Unstage' : 'Stage';
+          const canStageOrUnstage = Boolean(sessionId);
+          const canRestore = Boolean(sessionId && (hunkStatus === 'staged' || hunkStatus === 'unstaged'));
+          const hunkKey = activeHunk.hunkKey;
+          const isPending = pendingHunkKeys.has(hunkKey);
+
+          return (
+            <div className="st-diff-actions-overlay" data-testid="diff-hunk-actions-overlay">
+              <div
+                className="st-diff-actions-overlay-inner"
+                data-hunk-key={hunkKey}
+                style={{ top: `${overlayTopPx}px` }}
+              >
+                <div className="st-diff-hunk-actions">
+                  <button
+                    type="button"
+                    data-testid="diff-hunk-stage"
+                    disabled={!canStageOrUnstage || isPending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFocusedHunkKey(hunkKey);
+                      setHoveredHunkKey(hunkKey);
+                      if (hunkStatus === 'untracked') return stageFile(file.path, true, hunkKey);
+                      if (file.diffType === 'delete') return stageFile(file.path, stageLabel === 'Stage', hunkKey);
+                      stageOrUnstageHunk(file.path, stageLabel === 'Stage', activeHunk.hunkHeader, hunkKey);
+                    }}
+                    className="st-diff-hunk-btn"
+                    title={canStageOrUnstage ? `${stageLabel} ${hunkStatus === 'untracked' ? 'file' : 'hunk'}` : 'Unavailable'}
+                  >
+                    {isPending ? '…' : stageLabel}
+                  </button>
+
+                  {(hunkStatus === 'staged' || hunkStatus === 'unstaged') && (
+                    <button
+                      type="button"
+                      data-testid="diff-hunk-restore"
+                      disabled={!canRestore || isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFocusedHunkKey(hunkKey);
+                        setHoveredHunkKey(hunkKey);
+                        if (file.diffType === 'delete') return restoreFile(file.path, hunkKey);
+                        restoreHunk(file.path, hunkStatus === 'staged' ? 'staged' : 'unstaged', activeHunk.hunkHeader, hunkKey);
+                      }}
+                      className="st-diff-hunk-btn"
+                      title={canRestore ? (file.diffType === 'delete' ? 'Restore file' : 'Restore hunk') : 'Unavailable'}
+                    >
+                      {isPending ? '…' : 'Restore'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       <style>
@@ -908,7 +895,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           /* Ensure headers are sized to the viewport, not to the max-content table width. */
           .st-diff-file { width: 100%; }
           .st-diff-file-body { width: 100%; }
-          .st-diff-hscroll { overflow-x: auto; overflow-y: visible; width: 100%; }
 
           .st-diff-table.diff { table-layout: auto; border-collapse: separate; border-spacing: 0; }
           .st-diff-table .diff-line { font-size: 12px; line-height: 20px; }
@@ -1004,33 +990,33 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           .st-diff-table .diff-widget-content { padding: 0; border: 0; height: 0; overflow: visible; }
 
           .st-diff-table .st-diff-hunk-actions-anchor { height: 0; position: relative; }
-          .st-diff-table .st-diff-hunk-actions {
+
+          /* Overlay layer: keeps hover controls visible while horizontally scrolling/dragging. */
+          .st-diff-actions-overlay {
             position: absolute;
-            top: 0;
+            inset: 0;
+            z-index: 90;
+            pointer-events: none;
+          }
+          .st-diff-actions-overlay-inner {
+            position: absolute;
+            right: 14px;
             transform: translateY(-50%);
-            right: 10px;
+            /* Let vertical scrolling gestures pass through to the underlying scroll container. */
+            pointer-events: none;
+          }
+          .st-diff-hunk-actions {
             display: inline-flex;
             align-items: center;
             gap: 8px;
             padding: 6px 8px;
             border-radius: 10px;
             background: color-mix(in srgb, var(--st-surface) 80%, transparent);
-            border: 1px solid color-mix(in srgb, var(--st-hunk-frame-color) 55%, var(--st-border-variant));
+            border: 1px solid color-mix(in srgb, var(--st-border-variant) 85%, transparent);
             box-shadow: 0 10px 28px color-mix(in srgb, #000 35%, transparent);
             backdrop-filter: blur(6px);
-            opacity: 0;
-            visibility: hidden;
-            pointer-events: none;
-            transition: opacity 120ms ease, visibility 0s linear 120ms;
-            z-index: 50;
           }
-          /* Avoid hover flicker: hover state is driven by JS via .st-hunk-hovered. */
-          .st-diff-table .st-hunk-hovered .st-diff-hunk-actions,
-          .st-diff-table .st-hunk-focused .st-diff-hunk-actions,
-          .st-diff-table .st-diff-hunk-actions:hover {
-            opacity: 1;
-            visibility: visible;
-            transition: opacity 120ms ease;
+          .st-diff-actions-overlay-inner .st-diff-hunk-btn {
             pointer-events: auto;
           }
 

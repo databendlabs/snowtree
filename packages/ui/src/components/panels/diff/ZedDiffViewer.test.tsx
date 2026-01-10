@@ -44,28 +44,19 @@ index 1234567..abcdefg 100644
 +y`;
 
 describe('ZedDiffViewer', () => {
-  function mockRaf() {
-    const callbacks = new Map<number, FrameRequestCallback>();
-    let nextId = 1;
-    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
-      const id = nextId++;
-      callbacks.set(id, cb);
-      return id;
-    });
-    const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id: number) => {
-      callbacks.delete(id);
-    });
-    return {
-      flush() {
-        const run = Array.from(callbacks.values());
-        callbacks.clear();
-        run.forEach((cb) => cb(0));
-      },
-      restore() {
-        rafSpy.mockRestore();
-        cancelSpy.mockRestore();
-      },
-    };
+  function mockRect(el: Element, rect: Partial<DOMRect> & Pick<DOMRect, 'top' | 'height'>) {
+    const full: DOMRect = {
+      x: 0,
+      y: rect.top ?? 0,
+      top: rect.top,
+      left: 0,
+      right: 0,
+      bottom: (rect.top ?? 0) + rect.height,
+      width: rect.width ?? 0,
+      height: rect.height,
+      toJSON: () => ({}),
+    } as any;
+    Object.defineProperty(el, 'getBoundingClientRect', { value: () => full });
   }
 
   async function hoverFirstHunk(container: HTMLElement) {
@@ -75,6 +66,10 @@ describe('ZedDiffViewer', () => {
     await waitFor(() => {
       const controls = screen.getAllByTestId('diff-hunk-controls')[0] as HTMLElement;
       expect(controls.classList.contains('st-hunk-hovered')).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('diff-hunk-actions-overlay')).toBeInTheDocument();
+      expect(screen.getByTestId('diff-hunk-stage')).toBeInTheDocument();
     });
   }
 
@@ -321,41 +316,82 @@ index 1234567..abcdefg 100644
     expect(screen.getAllByLabelText('Hunk staged').length).toBeGreaterThan(0);
   });
 
-  it('syncs horizontal scrolling across files on the next animation frame', () => {
-    const raf = mockRaf();
+  it('uses a single scroll container for horizontal scrolling', () => {
     render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} />);
-
-    const scrollers = screen.getAllByTestId('diff-hscroll-container') as HTMLDivElement[];
-    expect(scrollers.length).toBe(2);
-
-    scrollers[0]!.scrollLeft = 120;
-    fireEvent.scroll(scrollers[0]!);
-    // rAF-throttled: should not sync until the next frame.
-    expect(scrollers[1]!.scrollLeft).toBe(0);
-
-    raf.flush();
-    expect(scrollers[1]!.scrollLeft).toBe(120);
-
-    // Second frame releases the "syncing" guard.
-    raf.flush();
-    raf.restore();
+    const root = screen.getByTestId('diff-scroll-container') as HTMLDivElement;
+    expect(root).toBeInTheDocument();
+    // Regression guard: don’t create per-file horizontal scrollers (causes sync jank on large diffs).
+    expect(screen.queryByTestId('diff-hscroll-container')).toBeNull();
   });
 
-  it('does not block vertical scrolling for mostly-vertical wheel gestures', () => {
-    const raf = mockRaf();
+  it('pins hunk actions to the viewport right edge (overlay)', async () => {
+    const { container } = render(
+      <ZedDiffViewer
+        diff={SAMPLE_DIFF_TWO_HUNKS}
+        sessionId="s1"
+        currentScope="unstaged"
+        unstagedDiff={SAMPLE_DIFF_TWO_HUNKS}
+      />
+    );
+
+    const scroller = screen.getByTestId('diff-scroll-container');
+    const anchor = container.querySelector('[data-hunk-anchor="true"]') as HTMLElement | null;
+    expect(anchor).toBeTruthy();
+
+    // Force geometry so overlay position is deterministic in JSDOM.
+    mockRect(scroller, { top: 0, height: 400 });
+    // rawTop=10 => clamped to 24px
+    mockRect(anchor!, { top: 10, height: 0 });
+
+    await hoverFirstHunk(container);
+    const overlay = screen.getByTestId('diff-hunk-actions-overlay');
+    const overlayInner = overlay.querySelector('.st-diff-actions-overlay-inner') as HTMLElement | null;
+    expect(overlayInner).toBeTruthy();
+    expect(overlayInner!.style.top).toBe('24px');
+  });
+
+  it('hides overlay actions when the hovered hunk is offscreen', async () => {
+    const { container } = render(
+      <ZedDiffViewer
+        diff={SAMPLE_DIFF_TWO_HUNKS}
+        sessionId="s1"
+        currentScope="unstaged"
+        unstagedDiff={SAMPLE_DIFF_TWO_HUNKS}
+      />
+    );
+
+    const scroller = screen.getByTestId('diff-scroll-container');
+    const anchor = container.querySelector('[data-hunk-anchor="true"]') as HTMLElement | null;
+    expect(anchor).toBeTruthy();
+    mockRect(scroller, { top: 0, height: 200 });
+    // rawTop=999 => offscreen => overlay hidden
+    mockRect(anchor!, { top: 999, height: 0 });
+
+    const codeCell = container.querySelector('td.diff-code') as HTMLElement | null;
+    expect(codeCell).toBeTruthy();
+    fireEvent.mouseMove(codeCell!);
+    await waitFor(() => {
+      const controls = screen.getAllByTestId('diff-hunk-controls')[0] as HTMLElement;
+      expect(controls.classList.contains('st-hunk-hovered')).toBe(true);
+    });
+    expect(screen.queryByTestId('diff-hunk-actions-overlay')).toBeNull();
+  });
+
+  it('keeps diff scroll container constrained to the panel', () => {
     render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} />);
-    const root = screen.getByTestId('diff-scroll-container');
+    const scroller = screen.getByTestId('diff-scroll-container');
+    expect(scroller.className).toContain('absolute');
+    expect(scroller.className).toContain('inset-0');
+    expect(scroller.className).toContain('overflow-y-auto');
+  });
 
-    const mostlyVertical = new WheelEvent('wheel', { deltaX: 2, deltaY: 20, cancelable: true });
-    root.dispatchEvent(mostlyVertical);
-    expect(mostlyVertical.defaultPrevented).toBe(false);
-
-    const mostlyHorizontal = new WheelEvent('wheel', { deltaX: 20, deltaY: 2, cancelable: true });
-    root.dispatchEvent(mostlyHorizontal);
-    expect(mostlyHorizontal.defaultPrevented).toBe(true);
-
-    raf.flush();
-    raf.flush();
-    raf.restore();
+  it('does not let the overlay block vertical scrolling gestures', () => {
+    const { container } = render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} />);
+    const css = container.querySelector('style')?.textContent || '';
+    expect(css).toContain('.st-diff-actions-overlay');
+    expect(css).toContain('.st-diff-actions-overlay-inner');
+    expect(css).toContain('pointer-events: none');
+    expect(css).toContain('.st-diff-actions-overlay-inner .st-diff-hunk-btn');
+    expect(css).toContain('pointer-events: auto');
   });
 });

@@ -17,6 +17,11 @@ jobs:
           node-version: '22.15.1'
           cache: 'pnpm'
 
+      - name: Installer script sanity
+        run: |
+          sh -n install.sh
+          sh scripts/test-install.sh
+
       - run: pnpm install --frozen-lockfile
 
       - name: Configure git

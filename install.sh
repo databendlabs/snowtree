@@ -1,119 +1,159 @@
-#!/bin/bash
-set -e
+#!/bin/sh
+set -eu
 
-REPO="bohutang/snowtree"
-APP_NAME="snowtree"
+REPO="${SNOWTREE_REPO:-bohutang/snowtree}"
+APP_NAME="${SNOWTREE_APP_NAME:-snowtree}"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+info() { printf '%s\n' "[INFO] $*"; }
+warn() { printf '%s\n' "[WARN] $*"; }
+error() { printf '%s\n' "[ERROR] $*" >&2; exit 1; }
 
-info() { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error() {
-	echo -e "${RED}[ERROR]${NC} $1"
-	exit 1
+strip_v() {
+  case "$1" in
+    v*) printf '%s' "${1#v}" ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
-# Detect OS and architecture
+fetch_latest_version() {
+  if [ "${SNOWTREE_VERSION:-}" != "" ]; then
+    VERSION="$SNOWTREE_VERSION"
+    case "$VERSION" in
+      v*) : ;;
+      *) VERSION="v$VERSION" ;;
+    esac
+    return 0
+  fi
+
+  info "Fetching latest stable release..."
+  RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" || error "Failed to fetch release metadata"
+  VERSION="$(printf '%s' "$RELEASE_JSON" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+  [ "$VERSION" != "" ] || error "Failed to parse latest version. Check https://github.com/$REPO/releases"
+}
+
 detect_platform() {
-	OS="$(uname -s)"
-	ARCH="$(uname -m)"
+  OS="${SNOWTREE_OS:-$(uname -s)}"
+  ARCH="${SNOWTREE_ARCH:-$(uname -m)}"
 
-	case "$OS" in
-	Darwin)
-		PLATFORM="macos"
-		EXT="dmg"
-		ARTIFACT_PATTERN="macOS-universal.dmg"
-		;;
-	Linux)
-		PLATFORM="linux"
-		if command -v dpkg &>/dev/null; then
-			EXT="deb"
-			ARTIFACT_PATTERN="linux-x64.deb"
-		else
-			EXT="AppImage"
-			ARTIFACT_PATTERN="linux-x64.AppImage"
-		fi
-		;;
-	*)
-		error "Unsupported OS: $OS"
-		;;
-	esac
+  case "$OS" in
+    Darwin) PLATFORM="macos" ;;
+    Linux) PLATFORM="linux" ;;
+    *) error "Unsupported OS: $OS" ;;
+  esac
 
-	info "Detected platform: $PLATFORM ($ARCH)"
+  case "$PLATFORM" in
+    macos)
+      EXT="dmg"
+      case "$ARCH" in
+        arm64|aarch64) ARTIFACT_SUFFIX="macOS-arm64.dmg" ;;
+        x86_64|amd64) ARTIFACT_SUFFIX="macOS-x64.dmg" ;;
+        *) error "Unsupported macOS architecture: $ARCH" ;;
+      esac
+      ;;
+    linux)
+      if [ "${SNOWTREE_LINUX_PKG:-}" = "deb" ]; then
+        EXT="deb"
+        ARTIFACT_SUFFIX="linux-amd64.deb"
+      elif [ "${SNOWTREE_LINUX_PKG:-}" = "appimage" ]; then
+        EXT="AppImage"
+        ARTIFACT_SUFFIX="linux-x86_64.AppImage"
+      elif command -v dpkg >/dev/null 2>&1; then
+        EXT="deb"
+        ARTIFACT_SUFFIX="linux-amd64.deb"
+      else
+        EXT="AppImage"
+        ARTIFACT_SUFFIX="linux-x86_64.AppImage"
+      fi
+      ;;
+  esac
+
+  info "Detected platform: $PLATFORM ($ARCH)"
 }
 
-# Get latest release version
-get_latest_version() {
-	info "Fetching latest release..."
-	LATEST_RELEASE=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
-	VERSION=$(echo "$LATEST_RELEASE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+download_and_install() {
+  VERSION_NO_V="$(strip_v "$VERSION")"
+  ARTIFACT_NAME="${APP_NAME}-${VERSION_NO_V}-${ARTIFACT_SUFFIX}"
+  DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/$ARTIFACT_NAME"
 
-	if [ -z "$VERSION" ]; then
-		error "Failed to get latest version. Check if releases exist at https://github.com/$REPO/releases"
-	fi
+  if [ "${SNOWTREE_INSTALL_DRY_RUN:-}" = "1" ]; then
+    info "Dry run: would download from: $DOWNLOAD_URL"
+    return 0
+  fi
 
-	info "Latest version: $VERSION"
-}
+  TEMP_DIR="$(mktemp -d)"
+  DOWNLOAD_PATH="$TEMP_DIR/$ARTIFACT_NAME"
 
-# Download and install
-install() {
-	DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/${APP_NAME}-${VERSION#v}-${ARTIFACT_PATTERN}"
-	TEMP_DIR=$(mktemp -d)
-	DOWNLOAD_PATH="$TEMP_DIR/${APP_NAME}.${EXT}"
+  info "Downloading from: $DOWNLOAD_URL"
+  curl -fL --retry 3 --connect-timeout 15 -o "$DOWNLOAD_PATH" "$DOWNLOAD_URL" || error "Download failed (bad URL or network error)"
 
-	info "Downloading from: $DOWNLOAD_URL"
-	curl -L -o "$DOWNLOAD_PATH" "$DOWNLOAD_URL" || error "Download failed"
+  case "$PLATFORM" in
+    macos)
+      MOUNT_POINT="$TEMP_DIR/mount"
+      mkdir -p "$MOUNT_POINT"
+      info "Mounting DMG..."
+      hdiutil attach "$DOWNLOAD_PATH" -nobrowse -quiet -mountpoint "$MOUNT_POINT" || error "Failed to mount DMG"
 
-	case "$PLATFORM" in
-	macos)
-		info "Mounting DMG..."
-		MOUNT_POINT=$(hdiutil attach "$DOWNLOAD_PATH" -nobrowse | tail -1 | awk '{print $3}')
+      APP_SRC="$MOUNT_POINT/$APP_NAME.app"
+      [ -d "$APP_SRC" ] || error "App bundle not found in DMG: $APP_SRC"
 
-		info "Installing to /Applications..."
-		rm -rf "/Applications/${APP_NAME}.app" 2>/dev/null || true
-		cp -R "$MOUNT_POINT/${APP_NAME}.app" /Applications/
+      APP_DST="/Applications/$APP_NAME.app"
+      info "Installing to $APP_DST..."
 
-		hdiutil detach "$MOUNT_POINT" -quiet
-		info "Installed to /Applications/${APP_NAME}.app"
-		;;
-	linux)
-		if [ "$EXT" = "deb" ]; then
-			info "Installing .deb package..."
-			sudo dpkg -i "$DOWNLOAD_PATH" || sudo apt-get install -f -y
-		else
-			info "Installing AppImage..."
-			INSTALL_DIR="$HOME/.local/bin"
-			mkdir -p "$INSTALL_DIR"
-			mv "$DOWNLOAD_PATH" "$INSTALL_DIR/$APP_NAME"
-			chmod +x "$INSTALL_DIR/$APP_NAME"
-			info "Installed to $INSTALL_DIR/$APP_NAME"
+      if [ -w "/Applications" ]; then
+        rm -rf "$APP_DST" 2>/dev/null || true
+        if command -v ditto >/dev/null 2>&1; then
+          ditto "$APP_SRC" "$APP_DST"
+        else
+          cp -R "$APP_SRC" "$APP_DST"
+        fi
+      else
+        warn "/Applications is not writable; attempting to use sudo"
+        sudo rm -rf "$APP_DST" 2>/dev/null || true
+        if command -v ditto >/dev/null 2>&1; then
+          sudo ditto "$APP_SRC" "$APP_DST"
+        else
+          sudo cp -R "$APP_SRC" "$APP_DST"
+        fi
+      fi
 
-			if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-				warn "Add $INSTALL_DIR to your PATH: export PATH=\"\$PATH:$INSTALL_DIR\""
-			fi
-		fi
-		;;
-	esac
+      hdiutil detach "$MOUNT_POINT" -quiet || true
+      info "Installed to $APP_DST"
+      ;;
+    linux)
+      if [ "$EXT" = "deb" ]; then
+        info "Installing .deb package..."
+        sudo dpkg -i "$DOWNLOAD_PATH" || sudo apt-get install -f -y
+      else
+        info "Installing AppImage..."
+        INSTALL_DIR="$HOME/.local/bin"
+        mkdir -p "$INSTALL_DIR"
+        mv "$DOWNLOAD_PATH" "$INSTALL_DIR/$APP_NAME"
+        chmod +x "$INSTALL_DIR/$APP_NAME"
+        info "Installed to $INSTALL_DIR/$APP_NAME"
 
-	rm -rf "$TEMP_DIR"
-	echo ""
-	info "Installation complete! Run '$APP_NAME' to start."
+        case ":${PATH}:" in
+          *":$INSTALL_DIR:"*) : ;;
+          *) warn "Add $INSTALL_DIR to your PATH: export PATH=\"\$PATH:$INSTALL_DIR\"" ;;
+        esac
+      fi
+      ;;
+  esac
+
+  rm -rf "$TEMP_DIR"
+  info "Installation complete! Run '$APP_NAME' to start."
 }
 
 main() {
-	echo ""
-	echo "  ╔═══════════════════════════════════════╗"
-	echo "  ║       Snowtree Installer              ║"
-	echo "  ╚═══════════════════════════════════════╝"
-	echo ""
+  printf '\n'
+  printf '%s\n' "  ╔═══════════════════════════════════════╗"
+  printf '%s\n' "  ║       Snowtree Installer              ║"
+  printf '%s\n' "  ╚═══════════════════════════════════════╝"
+  printf '\n'
 
-	detect_platform
-	get_latest_version
-	install
+  fetch_latest_version
+  info "Latest version: $VERSION"
+  detect_platform
+  download_and_install
 }
 
-main
+main "$@"
