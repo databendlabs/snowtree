@@ -112,6 +112,34 @@ describe('RightPanel - Zed-style Changes list', () => {
       success: true,
       data: { number: 1234, url: 'https://github.com/org/repo/pull/1234' },
     });
+    // Add a session commit (id > 0) so Sync button is enabled
+    (API.sessions.getExecutions as any).mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 0,
+          commit_message: 'Uncommitted changes',
+          timestamp: new Date().toISOString(),
+          stats_additions: 0,
+          stats_deletions: 0,
+          stats_files_changed: 0,
+          after_commit_hash: '',
+          parent_commit_hash: null,
+          author: 'test',
+        },
+        {
+          id: 1,
+          commit_message: 'Session commit',
+          timestamp: new Date().toISOString(),
+          stats_additions: 5,
+          stats_deletions: 2,
+          stats_files_changed: 1,
+          after_commit_hash: '1111111111111111',
+          parent_commit_hash: null,
+          author: 'test',
+        },
+      ],
+    });
 
     render(<RightPanel {...mockProps} />);
 

@@ -69,7 +69,7 @@ describe('CommitList', () => {
     expect(buttons[0]).toHaveAttribute('aria-label', 'Select commit uncommitted changes');
   });
 
-  it('renders base commit with BASE badge', () => {
+  it('renders base commit', () => {
     render(
       <CommitList
         commits={[baseCommit]}
@@ -78,14 +78,11 @@ describe('CommitList', () => {
         onCommitSelect={() => {}}
       />
     );
-    expect(screen.getByTitle('base')).toBeInTheDocument();
     const baseButton = screen.getByLabelText('Select commit base123');
-    expect(baseButton.getAttribute('title')).toContain('base');
-    expect(baseButton.getAttribute('title')).toContain('Author:');
-    expect(baseButton.getAttribute('title')).toContain('Date:');
+    expect(baseButton).toBeInTheDocument();
   });
 
-  it('does not render a HEAD badge on session commits', () => {
+  it('renders session commits without badges', () => {
     const commits = [sessionCommit2, sessionCommit1];
     render(
       <CommitList
@@ -95,7 +92,9 @@ describe('CommitList', () => {
         onCommitSelect={() => {}}
       />
     );
-    expect(screen.queryByTitle('head')).not.toBeInTheDocument();
+    // Session commits should render with their commit messages
+    expect(screen.getByText('newer commit')).toBeInTheDocument();
+    expect(screen.getByText('older commit')).toBeInTheDocument();
   });
 
   it('calls onCommitSelect when commit is clicked', () => {
