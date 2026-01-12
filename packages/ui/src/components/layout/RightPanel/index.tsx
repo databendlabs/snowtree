@@ -297,7 +297,111 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
           borderLeft: `1px solid ${colors.border}`,
         }}
       >
-        {/* 1. Changes Section (max-height with scroll) */}
+        {/* 1. PR Section (flex-shrink-0, at top) */}
+        <div
+          className="flex-shrink-0"
+          style={{
+            backgroundColor: colors.bg.secondary,
+            borderBottom: `1px solid ${colors.border}`,
+          }}
+        >
+          <div className="flex items-center justify-between px-3 py-2">
+            <div
+              className="text-xs font-medium"
+              style={{ color: colors.text.secondary }}
+            >
+              PR
+            </div>
+            <div className="flex items-center gap-1">
+              {remotePullRequest?.number && remotePullRequest.url && (
+                <button
+                  type="button"
+                  onClick={handleOpenRemotePullRequest}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring"
+                  style={{ color: colors.accent }}
+                  data-testid="right-panel-open-remote-pr"
+                >
+                  <GitPullRequest className="w-3 h-3" />
+                  PR #{remotePullRequest.number}
+                  {remotePullRequest.merged && (
+                    <span
+                      className="flex items-center gap-0.5 ml-1 px-1.5 py-0.5 rounded text-[9px] font-medium"
+                      style={{
+                        backgroundColor: colors.text.added,
+                        color: '#fff',
+                      }}
+                    >
+                      <Check className="w-2.5 h-2.5" />
+                      merged
+                    </span>
+                  )}
+                </button>
+              )}
+              {onPushPR && (
+                <button
+                  type="button"
+                  onClick={onPushPR}
+                  disabled={isPushPRDisabled || isDisabled || remotePullRequest?.merged || !hasSessionCommits}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                  style={{ color: colors.accent }}
+                  data-testid="right-panel-sync-remote-pr"
+                >
+                  <GitPullRequest className="w-3 h-3" />
+                  {remotePullRequest ? 'Sync' : 'Create'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={isDisabled}
+                className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+              >
+                <RefreshCw
+                  className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`}
+                  style={{ color: colors.text.muted }}
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Commits Section (flex-shrink-0) */}
+        <div
+          className="flex-shrink-0"
+          style={{ borderBottom: `1px solid ${colors.border}` }}
+        >
+          <div
+            className="flex items-center justify-between px-3 py-2"
+            style={{ backgroundColor: colors.bg.secondary }}
+          >
+            <button
+              type="button"
+              onClick={() => setIsCommitsExpanded(!isCommitsExpanded)}
+              className="flex items-center gap-1.5 text-xs font-medium transition-all duration-75 px-1.5 py-0.5 -ml-1.5 rounded st-hoverable st-focus-ring"
+              style={{ color: colors.text.secondary }}
+            >
+              <ChevronDown
+                className={`w-3 h-3 transition-transform ${isCommitsExpanded ? '' : '-rotate-90'}`}
+                style={{ color: colors.text.muted }}
+              />
+              <span>Commits</span>
+            </button>
+          </div>
+
+          {isCommitsExpanded && (
+            <div className="max-h-48 overflow-y-auto">
+              <CommitList
+                commits={commits}
+                selectedCommitHash={selectedCommitHash}
+                isWorkingTreeSelected={isWorkingTreeSelected}
+                onCommitSelect={handleCommitSelect}
+                onBaseCommitOpenGitHub={handleBaseCommitOpenGitHub}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* 3. Changes Section (below Commits, max-height with scroll) */}
         <div className="flex flex-col min-h-0 max-h-[50%]">
           <div
             style={{
@@ -455,111 +559,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
           </div>
         </div>
 
-        {/* 2. Commits Section (flex-shrink-0) */}
-        <div
-          className="flex-shrink-0"
-          style={{ borderTop: `1px solid ${colors.border}` }}
-        >
-          <div
-            className="flex items-center justify-between px-3 py-2"
-            style={{ backgroundColor: colors.bg.secondary }}
-          >
-            <button
-              type="button"
-              onClick={() => setIsCommitsExpanded(!isCommitsExpanded)}
-              className="flex items-center gap-1.5 text-xs font-medium transition-all duration-75 px-1.5 py-0.5 -ml-1.5 rounded st-hoverable st-focus-ring"
-              style={{ color: colors.text.secondary }}
-            >
-              <ChevronDown
-                className={`w-3 h-3 transition-transform ${isCommitsExpanded ? '' : '-rotate-90'}`}
-                style={{ color: colors.text.muted }}
-              />
-              <span>Commits</span>
-            </button>
-          </div>
-
-          {isCommitsExpanded && (
-            <div className="max-h-48 overflow-y-auto">
-              <CommitList
-                commits={commits}
-                selectedCommitHash={selectedCommitHash}
-                isWorkingTreeSelected={isWorkingTreeSelected}
-                onCommitSelect={handleCommitSelect}
-                onBaseCommitOpenGitHub={handleBaseCommitOpenGitHub}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* 3. PR Section (flex-shrink-0) */}
-        <div
-          className="flex-shrink-0"
-          style={{
-            borderTop: `1px solid ${colors.border}`,
-            backgroundColor: colors.bg.secondary,
-          }}
-        >
-          <div className="flex items-center justify-between px-3 py-2">
-            <div
-              className="text-xs font-medium"
-              style={{ color: colors.text.secondary }}
-            >
-              PR
-            </div>
-            <div className="flex items-center gap-1">
-              {remotePullRequest?.number && remotePullRequest.url && (
-                <button
-                  type="button"
-                  onClick={handleOpenRemotePullRequest}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring"
-                  style={{ color: colors.accent }}
-                  data-testid="right-panel-open-remote-pr"
-                >
-                  <GitPullRequest className="w-3 h-3" />
-                  PR #{remotePullRequest.number}
-                  {remotePullRequest.merged && (
-                    <span
-                      className="flex items-center gap-0.5 ml-1 px-1.5 py-0.5 rounded text-[9px] font-medium"
-                      style={{
-                        backgroundColor: colors.text.added,
-                        color: '#fff',
-                      }}
-                    >
-                      <Check className="w-2.5 h-2.5" />
-                      merged
-                    </span>
-                  )}
-                </button>
-              )}
-              {onPushPR && (
-                <button
-                  type="button"
-                  onClick={onPushPR}
-                  disabled={isPushPRDisabled || isDisabled || remotePullRequest?.merged || !hasSessionCommits}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                  style={{ color: colors.accent }}
-                  data-testid="right-panel-sync-remote-pr"
-                >
-                  <GitPullRequest className="w-3 h-3" />
-                  Sync
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={refresh}
-                disabled={isDisabled}
-                className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-              >
-                <RefreshCw
-                  className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`}
-                  style={{ color: colors.text.muted }}
-                />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Spacer to push footer to bottom */}
+        {/* Spacer for future use */}
         <div className="flex-1" />
 
         {/* 4. Footer (flex-shrink-0) */}

@@ -78,17 +78,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:restore-file', sessionId, options),
     getCommitGithubUrl: (sessionId: string, options: { commitHash: string }): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:get-commit-github-url', sessionId, options),
-    // Sync PR workflow: deterministic operations
+    // Sync PR workflow helpers (AI executes git/gh commands directly)
     getSyncContext: (sessionId: string): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:get-sync-context', sessionId),
     getPrTemplate: (sessionId: string): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:get-pr-template', sessionId),
-    executeCommit: (sessionId: string, message: string): Promise<IPCResponse> =>
-      ipcRenderer.invoke('sessions:execute-commit', sessionId, message),
-    executePush: (sessionId: string): Promise<IPCResponse> =>
-      ipcRenderer.invoke('sessions:execute-push', sessionId),
-    executePr: (sessionId: string, options: { title: string; body: string; baseBranch: string; ownerRepo?: string }): Promise<IPCResponse> =>
-      ipcRenderer.invoke('sessions:execute-pr', sessionId, options),
   },
 
   panels: {

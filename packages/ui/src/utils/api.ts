@@ -172,21 +172,6 @@ export class API {
       }
       return result.data;
     },
-
-    async executeCommit(sessionId: string, message: string): Promise<{ success: boolean; error?: string; data?: { stdout: string } }> {
-      requireElectron();
-      return window.electronAPI.sessions.executeCommit(sessionId, message);
-    },
-
-    async executePush(sessionId: string): Promise<{ success: boolean; error?: string; data?: { stdout: string; branch: string } }> {
-      requireElectron();
-      return window.electronAPI.sessions.executePush(sessionId);
-    },
-
-    async executePr(sessionId: string, options: { title: string; body: string; baseBranch: string; ownerRepo?: string }): Promise<{ success: boolean; error?: string; data?: { action: string; stdout: string } }> {
-      requireElectron();
-      return window.electronAPI.sessions.executePr(sessionId, options);
-    },
   };
 
   static projects = {

@@ -75,7 +75,7 @@ export const CommitItem: React.FC<CommitItemProps> = React.memo(
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
               <span
-                className="flex-1 min-w-0 truncate font-medium"
+                className="flex-1 min-w-0 truncate font-medium text-left"
                 style={{
                   color: (() => {
                     if (isUncommitted) return colors.text.modified;
@@ -84,7 +84,7 @@ export const CommitItem: React.FC<CommitItemProps> = React.memo(
                   })(),
                 }}
               >
-                {isUncommitted ? '' : commit.commit_message}
+                {isUncommitted ? 'Uncommitted Changes' : commit.commit_message}
               </span>
               {badge && (
                 <span

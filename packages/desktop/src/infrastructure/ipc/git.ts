@@ -256,10 +256,46 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const session = sessionManager.getSession(sessionId);
       if (!session?.worktreePath) return { success: false, error: 'Session worktree not found' };
 
+      // Get remote URL to extract owner/repo (workaround for gh CLI worktree issue)
+      const remoteRes = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['git', 'remote', 'get-url', 'origin'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'get-remote-url' },
+      });
+
+      let repoArgs: string[] = [];
+      if (remoteRes.exitCode === 0 && remoteRes.stdout?.trim()) {
+        const url = remoteRes.stdout.trim();
+        // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        if (match) {
+          // Get current branch name (required when using --repo)
+          const branchRes = await gitExecutor.run({
+            sessionId,
+            cwd: session.worktreePath,
+            argv: ['git', 'branch', '--show-current'],
+            op: 'read',
+            recordTimeline: false,
+            throwOnError: false,
+            timeoutMs: 3_000,
+            meta: { source: 'ipc.git', operation: 'get-branch' },
+          });
+          const branch = branchRes.stdout?.trim();
+          if (branch) {
+            repoArgs = ['--repo', match[1], branch];
+          }
+        }
+      }
+
       const res = await gitExecutor.run({
         sessionId,
         cwd: session.worktreePath,
-        argv: ['gh', 'pr', 'view', '--json', 'number,url,state'],
+        argv: ['gh', 'pr', 'view', ...repoArgs, '--json', 'number,url,state'],
         op: 'read',
         recordTimeline: false,
         throwOnError: false,
@@ -603,186 +639,11 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
           diffStat: diffStatRes.stdout || '',
           prInfo,
           baseBranch,
-          ownerRepo, // Include for use in execute-pr
+          ownerRepo,
         },
       };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to get sync context' };
-    }
-  });
-
-  ipcMain.handle('sessions:execute-commit', async (_event, sessionId: string, message: string) => {
-    try {
-      const session = sessionManager.getSession(sessionId);
-      if (!session?.worktreePath) {
-        return { success: false, error: 'Session worktree not found' };
-      }
-
-      if (!message || typeof message !== 'string') {
-        return { success: false, error: 'Commit message is required' };
-      }
-
-      const result = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'commit', '-m', message],
-        op: 'write',
-        recordTimeline: true,
-        meta: { source: 'ipc.git', operation: 'execute-commit' },
-      });
-
-      if (result.exitCode !== 0) {
-        return { success: false, error: result.stderr || 'Failed to commit' };
-      }
-
-      void gitStatusManager.refreshSessionGitStatus(sessionId, false);
-      return { success: true, data: { stdout: result.stdout } };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to execute commit' };
-    }
-  });
-
-  ipcMain.handle('sessions:execute-push', async (_event, sessionId: string) => {
-    try {
-      const session = sessionManager.getSession(sessionId);
-      if (!session?.worktreePath) {
-        return { success: false, error: 'Session worktree not found' };
-      }
-
-      // Get current branch
-      const branchRes = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'branch', '--show-current'],
-        op: 'read',
-        recordTimeline: false,
-        meta: { source: 'ipc.git', operation: 'execute-push-branch' },
-      });
-
-      const branch = branchRes.stdout?.trim();
-      if (!branch) {
-        return { success: false, error: 'Could not determine current branch' };
-      }
-
-      // Push with upstream tracking
-      const result = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'push', '-u', 'origin', branch],
-        op: 'write',
-        recordTimeline: true,
-        meta: { source: 'ipc.git', operation: 'execute-push' },
-      });
-
-      if (result.exitCode !== 0) {
-        return { success: false, error: result.stderr || 'Failed to push' };
-      }
-
-      return { success: true, data: { stdout: result.stdout, branch } };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to execute push' };
-    }
-  });
-
-  ipcMain.handle('sessions:execute-pr', async (_event, sessionId: string, options: {
-    title: string;
-    body: string;
-    baseBranch: string;
-    ownerRepo?: string; // e.g., "owner/repo" for --repo flag
-  }) => {
-    try {
-      const session = sessionManager.getSession(sessionId);
-      if (!session?.worktreePath) {
-        return { success: false, error: 'Session worktree not found' };
-      }
-
-      const { title, body, baseBranch } = options;
-      if (!title) return { success: false, error: 'PR title is required' };
-
-      // Get ownerRepo from options or parse from remote
-      let ownerRepo = options.ownerRepo;
-      if (!ownerRepo) {
-        const remoteRes = await gitExecutor.run({
-          sessionId,
-          cwd: session.worktreePath,
-          argv: ['git', 'remote', '-v'],
-          op: 'read',
-          recordTimeline: false,
-          throwOnError: false,
-          meta: { source: 'ipc.git', operation: 'execute-pr-remote' },
-        });
-        ownerRepo = parseOwnerRepoFromRemoteOutput(remoteRes.stdout || '') || undefined;
-      }
-
-      if (!ownerRepo) {
-        return { success: false, error: 'Could not determine GitHub repository from git remote' };
-      }
-
-      // Get current branch for head ref
-      const branchRes = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'branch', '--show-current'],
-        op: 'read',
-        recordTimeline: false,
-        meta: { source: 'ipc.git', operation: 'execute-pr-branch' },
-      });
-      const headBranch = branchRes.stdout?.trim();
-      if (!headBranch) {
-        return { success: false, error: 'Could not determine current branch' };
-      }
-
-      // Check if PR already exists using --repo flag
-      const prViewRes = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['gh', 'pr', 'view', '--repo', ownerRepo, '--json', 'number'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 8_000,
-        meta: { source: 'ipc.git', operation: 'execute-pr-check' },
-      });
-
-      const prExists = prViewRes.exitCode === 0 && prViewRes.stdout.trim();
-
-      if (prExists) {
-        // Update existing PR using --repo flag
-        const updateRes = await gitExecutor.run({
-          sessionId,
-          cwd: session.worktreePath,
-          argv: ['gh', 'pr', 'edit', '--repo', ownerRepo, '--title', title, '--body', body],
-          op: 'write',
-          recordTimeline: true,
-          timeoutMs: 30_000,
-          meta: { source: 'ipc.git', operation: 'execute-pr-edit' },
-        });
-
-        if (updateRes.exitCode !== 0) {
-          return { success: false, error: updateRes.stderr || 'Failed to update PR' };
-        }
-
-        return { success: true, data: { action: 'updated', stdout: updateRes.stdout } };
-      } else {
-        // Create new PR using --repo flag and --head for the branch
-        const createRes = await gitExecutor.run({
-          sessionId,
-          cwd: session.worktreePath,
-          argv: ['gh', 'pr', 'create', '--repo', ownerRepo, '--base', baseBranch, '--head', headBranch, '--title', title, '--body', body],
-          op: 'write',
-          recordTimeline: true,
-          timeoutMs: 30_000,
-          meta: { source: 'ipc.git', operation: 'execute-pr-create' },
-        });
-
-        if (createRes.exitCode !== 0) {
-          return { success: false, error: createRes.stderr || 'Failed to create PR' };
-        }
-
-        return { success: true, data: { action: 'created', stdout: createRes.stdout } };
-      }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to execute PR operation' };
     }
   });
 

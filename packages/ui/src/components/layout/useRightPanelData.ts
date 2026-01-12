@@ -120,6 +120,7 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
   const abortRef = useRef<AbortController | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
   const lastGitStatusSignatureRef = useRef<string | null>(null);
+  const prPollingTimerRef = useRef<number | null>(null);
 
   const cancelPending = useCallback(() => {
     abortRef.current?.abort();
@@ -127,6 +128,10 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     if (refreshTimerRef.current) {
       window.clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = null;
+    }
+    if (prPollingTimerRef.current) {
+      window.clearInterval(prPollingTimerRef.current);
+      prPollingTimerRef.current = null;
     }
   }, []);
 
@@ -220,23 +225,36 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
   }, [sessionId]);
 
   const fetchRemotePullRequest = useCallback(async (signal: AbortSignal): Promise<RemotePullRequest | null> => {
-    if (!sessionId) return null;
+    if (!sessionId) {
+      console.log('[fetchRemotePullRequest] No sessionId, returning null');
+      return null;
+    }
     try {
+      console.log('[fetchRemotePullRequest] Fetching PR for sessionId:', sessionId);
       const response = await withTimeout(
         API.sessions.getRemotePullRequest(sessionId),
         REQUEST_TIMEOUT,
         'Load remote PR'
       );
-      if (signal.aborted) return null;
+      console.log('[fetchRemotePullRequest] API response:', response);
+      if (signal.aborted) {
+        console.log('[fetchRemotePullRequest] Signal aborted');
+        return null;
+      }
       if (response.success && response.data && typeof response.data === 'object') {
         const pr = response.data as { number?: unknown; url?: unknown; merged?: unknown } | null;
         const number = pr && typeof pr.number === 'number' ? pr.number : null;
         const url = pr && typeof pr.url === 'string' ? pr.url : '';
         const merged = pr && typeof pr.merged === 'boolean' ? pr.merged : false;
-        if (number && url) return { number, url, merged };
+        if (number && url) {
+          console.log('[fetchRemotePullRequest] Returning PR:', { number, url, merged });
+          return { number, url, merged };
+        }
       }
+      console.log('[fetchRemotePullRequest] No valid PR data, returning null');
       return null;
-    } catch {
+    } catch (error) {
+      console.error('[fetchRemotePullRequest] Error:', error);
       return null;
     }
   }, [sessionId]);
@@ -396,19 +414,84 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     const unsub = window.electronAPI?.events?.onTimelineEvent?.((data) => {
       if (!data || data.sessionId !== sessionId) return;
       const e = data.event as { kind?: unknown; status?: unknown; command?: unknown; meta?: unknown } | undefined;
-      if (!e || e.kind !== 'git.command') return;
+      if (!e || (e.kind !== 'git.command' && e.kind !== 'cli.command')) return;
       if (e.status !== 'finished' && e.status !== 'failed') return;
       const meta = (e.meta || {}) as Record<string, unknown>;
       const source = typeof meta.source === 'string' ? meta.source : '';
       if (source !== 'agent') return;
       const cmd = typeof e.command === 'string' ? e.command.trim() : '';
       if (!cmd || !/^(git|gh)\b/.test(cmd)) return;
-      const affectsHistory = /^(git\s+(add|commit|reset|checkout|switch|merge|rebase|cherry-pick|revert|stash|am|apply|rm|mv|tag)\b|gh\s+pr\s+create\b)/.test(cmd);
+      const affectsHistory = /^(git\s+(add|commit|reset|checkout|switch|merge|rebase|cherry-pick|revert|stash|am|apply|rm|mv|tag)\b|gh\s+pr\s+(create|edit)\b)/.test(cmd);
       if (!affectsHistory) return;
       scheduleRefresh();
     });
     return () => { unsub?.(); };
   }, [sessionId, scheduleRefresh]);
+
+  // Poll PR status every 5 seconds to detect changes from GitHub
+  useEffect(() => {
+    if (!sessionId) {
+      if (prPollingTimerRef.current) {
+        window.clearInterval(prPollingTimerRef.current);
+        prPollingTimerRef.current = null;
+      }
+      return;
+    }
+
+    const pollPRStatus = async () => {
+      try {
+        console.log('[PR Polling] Starting poll for sessionId:', sessionId);
+        const controller = new AbortController();
+        const newPR = await fetchRemotePullRequest(controller.signal);
+        console.log('[PR Polling] Received PR data:', newPR);
+        if (controller.signal.aborted) {
+          console.log('[PR Polling] Request aborted');
+          return;
+        }
+
+        // Update state if PR changed (created, updated, or deleted)
+        setRemotePullRequest((current) => {
+          console.log('[PR Polling] Current state:', current, '| New state:', newPR);
+          // PR was created
+          if (!current && newPR) {
+            console.log('[PR Polling] PR created, updating state');
+            return newPR;
+          }
+          // PR was deleted
+          if (current && !newPR) {
+            console.log('[PR Polling] PR deleted, clearing state');
+            return null;
+          }
+          // PR was updated
+          if (current && newPR && (
+            newPR.number !== current.number ||
+            newPR.url !== current.url ||
+            newPR.merged !== current.merged
+          )) {
+            console.log('[PR Polling] PR updated, updating state');
+            return newPR;
+          }
+          // No change
+          console.log('[PR Polling] No change detected');
+          return current;
+        });
+      } catch (error) {
+        console.error('[PR Polling] Error during poll:', error);
+        // Ignore polling errors to avoid spamming
+      }
+    };
+
+    // Start polling immediately and then every 5 seconds
+    void pollPRStatus();
+    prPollingTimerRef.current = window.setInterval(pollPRStatus, 5000);
+
+    return () => {
+      if (prPollingTimerRef.current) {
+        window.clearInterval(prPollingTimerRef.current);
+        prPollingTimerRef.current = null;
+      }
+    };
+  }, [sessionId, fetchRemotePullRequest]);
 
   const selectWorkingTree = useCallback(() => {
     setSelection({ kind: 'working' });

@@ -1,6 +1,24 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { GitBranch, ExternalLink } from 'lucide-react';
 import type { WorkspaceHeaderProps } from './types';
+
+// Extract repository name from worktree path
+// e.g., /Users/bohu/github/blog-hexo/worktrees/montreal-wphnwwp9 → blog-hexo
+function getRepositoryName(worktreePath?: string): string | null {
+  if (!worktreePath) return null;
+
+  // Split path and find the repository directory
+  // Worktree path pattern: <repo-path>/worktrees/<worktree-name>
+  const parts = worktreePath.split('/');
+  const worktreesIndex = parts.lastIndexOf('worktrees');
+
+  if (worktreesIndex > 0) {
+    // Get the directory before 'worktrees'
+    return parts[worktreesIndex - 1];
+  }
+
+  return null;
+}
 
 const StatusDot: React.FC<{ status: string }> = React.memo(({ status }) => {
   const getConfig = (s: string) => {
@@ -34,6 +52,10 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = React.memo(({
   session,
   branchName
 }) => {
+  const repositoryName = useMemo(() => {
+    return getRepositoryName(session.worktreePath) || session.name;
+  }, [session.worktreePath, session.name]);
+
   const handleOpenInFinder = async () => {
     if (session.worktreePath) {
       await window.electronAPI?.invoke('shell:openPath', session.worktreePath);
@@ -50,9 +72,9 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = React.memo(({
       }}
     >
       <div className="flex items-center gap-3 min-w-0">
-        {/* Session name - primary */}
+        {/* Repository name - primary */}
         <h1 className="text-[13px] font-medium truncate" style={{ color: 'var(--st-text)' }} data-testid="session-name">
-          {session.name}
+          {repositoryName}
         </h1>
 
         {/* Status dot */}

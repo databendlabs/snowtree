@@ -16,10 +16,10 @@
   --st-hover: rgba(255, 255, 255, 0.04);
   --st-selected: rgba(97, 175, 239, 0.12);
 
-  /* Text hierarchy (One Dark) */
-  --st-text: #abb2bf;
-  --st-text-muted: #7f848e;
-  --st-text-faint: #5c6370;
+  /* Text hierarchy (One Dark - improved contrast) */
+  --st-text: #c8ccd4;
+  --st-text-muted: #8a919e;
+  --st-text-faint: #656b78;
 
   /* Accent colors (One Dark) */
   --st-accent: #61afef;

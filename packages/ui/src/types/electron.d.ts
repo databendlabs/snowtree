@@ -117,7 +117,7 @@ export interface ElectronAPI {
     changeFileStage: (sessionId: string, options: { filePath: string; stage: boolean }) => Promise<IPCResponse<{ success: boolean; error?: string }>>;
     restoreFile: (sessionId: string, options: { filePath: string }) => Promise<IPCResponse<{ success: boolean; error?: string }>>;
     getCommitGithubUrl: (sessionId: string, options: { commitHash: string }) => Promise<IPCResponse<{ url: string }>>;
-    // Sync PR workflow: deterministic operations
+    // Sync PR workflow helpers (AI executes git/gh commands directly)
     getPrTemplate: (sessionId: string) => Promise<IPCResponse<{ template: string | null; path: string | null }>>;
     getSyncContext: (sessionId: string) => Promise<IPCResponse<{
       status: string;
@@ -128,9 +128,6 @@ export interface ElectronAPI {
       baseBranch: string;
       ownerRepo: string | null;
     }>>;
-    executeCommit: (sessionId: string, message: string) => Promise<IPCResponse<{ stdout: string }>>;
-    executePush: (sessionId: string) => Promise<IPCResponse<{ stdout: string; branch: string }>>;
-    executePr: (sessionId: string, options: { title: string; body: string; baseBranch: string; ownerRepo?: string }) => Promise<IPCResponse<{ action: string; stdout: string }>>;
   };
 
   panels: {
