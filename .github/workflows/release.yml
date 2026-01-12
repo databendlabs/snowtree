@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   create_release:
-    name: Bump version, tag and create prerelease (draft)
+    name: Create tag and prerelease (draft)
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.next.outputs.tag }}
@@ -122,26 +122,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bump package.json version
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.next.outputs.version }}"
-          node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); p.version=process.env.VERSION; fs.writeFileSync("package.json", JSON.stringify(p,null,2)+"\n");'
-        env:
-          VERSION: ${{ steps.next.outputs.version }}
-
-      - name: Commit and tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.next.outputs.version }}"
-          TAG="${{ steps.next.outputs.tag }}"
-
-          git add package.json
-          git commit -m "Bump version to ${VERSION}"
-          git tag -a "${TAG}" -m "${TAG}"
-
       - name: Capture release metadata
         id: meta
         shell: bash
@@ -150,13 +130,21 @@ jobs:
           SHA="$(git rev-parse HEAD)"
           echo "sha=${SHA}" >> "${GITHUB_OUTPUT}"
 
-      - name: Push (commit + tag)
+      - name: Tag (annotated)
         if: github.ref_name == 'main'
         shell: bash
         run: |
           set -euo pipefail
           TAG="${{ steps.next.outputs.tag }}"
-          git push origin HEAD:main
+          SHA="${{ steps.meta.outputs.sha }}"
+          git tag -a "${TAG}" "${SHA}" -m "${TAG}"
+
+      - name: Push tag
+        if: github.ref_name == 'main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.next.outputs.tag }}"
           git push origin "refs/tags/${TAG}"
 
       - name: Create prerelease (draft)
@@ -216,6 +204,19 @@ jobs:
         with:
           node-version: '22.15.1'
           cache: 'pnpm'
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.create_release.outputs.version }}"
+          if [ -z "${VERSION}" ]; then
+            echo "Missing version output" >&2
+            exit 1
+          fi
+          node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); p.version=process.env.VERSION; fs.writeFileSync("package.json", JSON.stringify(p,null,2)+"\n");'
+        env:
+          VERSION: ${{ needs.create_release.outputs.version }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
