@@ -188,12 +188,7 @@ export abstract class AbstractExecutor extends EventEmitter {
       cliLogger.request({
         tool,
         panelId,
-        sessionId,
-        agentSessionId: options.agentSessionId,
         worktreePath,
-        prompt: prompt || '',
-        model: options.model,
-        isResume: isResume || false,
         command,
         args,
       });
@@ -251,7 +246,6 @@ export abstract class AbstractExecutor extends EventEmitter {
 
       // Emit spawned event
       this.emit('spawned', { panelId, sessionId, fullCommand } as ExecutorSpawnedEvent);
-      cliLogger.info(tool, panelId, 'Process spawned successfully');
 
       if (this.shouldFinalizeSpawnCommandOnSpawn()) {
         const op = this.cliOperationByPanel.get(panelId);
@@ -358,10 +352,6 @@ export abstract class AbstractExecutor extends EventEmitter {
     let lineCount = 0;
 
     ptyProcess.onData((data: string) => {
-      // Log raw data for debugging (first 500 chars max)
-      const preview = data.length > 500 ? data.slice(0, 500) + '...' : data;
-      cliLogger.debug(this.getCliLogType(), panelId, `RAW data (${data.length} bytes): ${preview.replace(/\n/g, '\\n')}`);
-
       buffer += data;
 
       // Process complete lines
@@ -371,7 +361,6 @@ export abstract class AbstractExecutor extends EventEmitter {
       for (const line of lines) {
         if (line.trim()) {
           lineCount++;
-          cliLogger.debug(this.getCliLogType(), panelId, `LINE ${lineCount}: ${line.slice(0, 200)}${line.length > 200 ? '...' : ''}`);
           this.parseOutput(line, panelId, sessionId);
         }
       }
@@ -428,7 +417,7 @@ export abstract class AbstractExecutor extends EventEmitter {
       this.activeThinkingByPanel.delete(panelId);
 
       this.emit('exit', { panelId, sessionId, exitCode, signal } as ExecutorExitEvent);
-      cliLogger.info(this.getCliLogType(), panelId, `Process exited with code ${exitCode}`);
+      cliLogger.complete(this.getCliLogType(), panelId, exitCode);
     });
   }
 
@@ -802,7 +791,6 @@ export abstract class AbstractExecutor extends EventEmitter {
   /** Answer a pending user question (from AskUserQuestion tool) */
   async answerQuestion(panelId: string, answers: Record<string, string | string[]>): Promise<void> {
     const tool = this.getCliLogType();
-    cliLogger.info(tool, panelId, `answerQuestion called with answers: ${JSON.stringify(answers)}`);
 
     const process = this.processes.get(panelId);
     if (!process) {
@@ -812,7 +800,6 @@ export abstract class AbstractExecutor extends EventEmitter {
 
     // Try to get pending question from memory first
     let pending = this.pendingQuestions.get(panelId);
-    cliLogger.info(tool, panelId, `Pending question from memory: ${pending ? 'found' : 'not found'}`);
 
     // If not in memory, try to recover from database (e.g., after page refresh)
     if (!pending) {
@@ -825,7 +812,6 @@ export abstract class AbstractExecutor extends EventEmitter {
             toolUseId: event.tool_use_id || '',
             questions: event.questions,
           };
-          cliLogger.info(tool, panelId, `Recovered pending question from database: toolUseId=${pending.toolUseId}`);
           break;
         }
       }
@@ -836,8 +822,6 @@ export abstract class AbstractExecutor extends EventEmitter {
       throw new Error(`No pending question for panel ${panelId}`);
     }
 
-    cliLogger.info(tool, panelId, `Processing answer for toolUseId: ${pending.toolUseId}`);
-
     // Construct tool_result message for the AskUserQuestion tool
     // Format: answers directly as the content (not wrapped in {answers: ...})
     const toolResult = JSON.stringify({
@@ -845,8 +829,6 @@ export abstract class AbstractExecutor extends EventEmitter {
       tool_use_id: pending.toolUseId,
       content: JSON.stringify(answers),
     });
-
-    cliLogger.info(tool, panelId, `Writing tool_result to CLI: ${toolResult}`);
 
     // Write to CLI stdin
     process.pty.write(toolResult + '\n');
@@ -862,14 +844,12 @@ export abstract class AbstractExecutor extends EventEmitter {
         status: 'answered',
         answers: JSON.stringify(answers),
       });
-      cliLogger.info(tool, panelId, 'Timeline event updated to answered status');
     } catch (err) {
       cliLogger.error(tool, panelId, 'Failed to update timeline event', err instanceof Error ? err : undefined);
     }
 
     // Clean up
     this.pendingQuestions.delete(panelId);
-    cliLogger.info(tool, panelId, 'answerQuestion completed successfully');
   }
 
   /**
@@ -878,7 +858,6 @@ export abstract class AbstractExecutor extends EventEmitter {
    */
   async updateQuestionStatus(panelId: string, sessionId: string, answers: Record<string, string | string[]>): Promise<void> {
     const tool = this.getCliLogType();
-    cliLogger.info(tool, panelId, `updateQuestionStatus called for session ${sessionId}`);
 
     // Try to get pending question from memory first
     let pending = this.pendingQuestions.get(panelId);
@@ -893,14 +872,12 @@ export abstract class AbstractExecutor extends EventEmitter {
             toolUseId: event.tool_use_id || '',
             questions: event.questions,
           };
-          cliLogger.info(tool, panelId, `Recovered pending question from database: toolUseId=${pending.toolUseId}`);
           break;
         }
       }
     }
 
     if (!pending) {
-      cliLogger.info(tool, panelId, 'No pending question found, skipping timeline update');
       return;
     }
 
@@ -915,7 +892,6 @@ export abstract class AbstractExecutor extends EventEmitter {
         status: 'answered',
         answers: JSON.stringify(answers),
       });
-      cliLogger.info(tool, panelId, 'Timeline event updated to answered status');
     } catch (err) {
       cliLogger.error(tool, panelId, 'Failed to update timeline event', err instanceof Error ? err : undefined);
     }

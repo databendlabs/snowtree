@@ -4,6 +4,7 @@ import { join, dirname } from 'path';
 import type { Project, ProjectRunCommand, Folder, Session, SessionOutput, CreateSessionData, UpdateSessionData, ConversationMessage, PromptMarker, ExecutionDiff, CreateExecutionDiffData, CreatePanelExecutionDiffData } from './models';
 import type { TimelineEvent, CreateTimelineEventData } from './models';
 import type { ToolPanel, ToolPanelType, ToolPanelState, ToolPanelMetadata } from '@snowtree/core/types/panels';
+import { fileLogger } from '../logging/fileLogger';
 
 // Interface for legacy claude_panel_settings during migration
 interface ClaudePanelSetting {
@@ -1460,16 +1461,7 @@ export class DatabaseService {
   }
 
   getActiveProject(): Project | undefined {
-    const project = this.db.prepare('SELECT * FROM projects WHERE active = 1 LIMIT 1').get() as Project | undefined;
-    if (project) {
-      console.log(`[Database] Retrieved active project:`, {
-        id: project.id,
-        name: project.name,
-        build_script: project.build_script,
-        run_script: project.run_script
-      });
-    }
-    return project;
+    return this.db.prepare('SELECT * FROM projects WHERE active = 1 LIMIT 1').get() as Project | undefined;
   }
 
   getAllProjects(): Project[] {
@@ -1593,8 +1585,6 @@ export class DatabaseService {
     
     const id = `folder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    console.log('[Database] Creating folder:', { id, name, projectId, parentFolderId });
-
     // Get the max display_order - if this is a root-level folder (no parent),
     // we need to consider both folders and sessions since they share the same space
     let displayOrder: number;
@@ -1635,33 +1625,25 @@ export class DatabaseService {
     `);
     
     stmt.run(id, name, projectId, parentFolderId || null, displayOrder);
-    
-    const folder = this.getFolder(id);
-    console.log('[Database] Created folder:', folder);
-    
-    return folder!;
+
+    fileLogger.state('Database', 'Folder created', { id, name, projectId, parentFolderId });
+    return this.getFolder(id)!;
   }
 
   getFolder(id: string): Folder | undefined {
     const stmt = this.db.prepare(`
       SELECT * FROM folders WHERE id = ?
     `);
-    
-    const folder = stmt.get(id) as Folder | undefined;
-    console.log(`[Database] Getting folder by id ${id}:`, folder);
-    return folder;
+    return stmt.get(id) as Folder | undefined;
   }
 
   getFoldersForProject(projectId: number): Folder[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM folders 
-      WHERE project_id = ? 
+      SELECT * FROM folders
+      WHERE project_id = ?
       ORDER BY display_order ASC, name ASC
     `);
-    
-    const folders = stmt.all(projectId) as Folder[];
-    console.log(`[Database] Getting folders for project ${projectId}:`, folders);
-    return folders;
+    return stmt.all(projectId) as Folder[];
   }
 
   updateFolder(id: string, updates: { name?: string; display_order?: number; parent_folder_id?: string | null }): void {
@@ -1899,15 +1881,7 @@ export class DatabaseService {
   }
 
   getSession(id: string): Session | undefined {
-    const session = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as Session | undefined;
-    if (session && session.skip_continue_next !== undefined) {
-      console.log(`[Database] Retrieved session ${id} with skip_continue_next:`, {
-        raw_value: session.skip_continue_next,
-        type: typeof session.skip_continue_next,
-        is_truthy: !!session.skip_continue_next
-      });
-    }
-    return session;
+    return this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as Session | undefined;
   }
 
   getAllSessions(projectId?: number): Session[] {
@@ -1938,8 +1912,6 @@ export class DatabaseService {
   }
 
   updateSession(id: string, data: UpdateSessionData): Session | undefined {
-    console.log(`[Database] Updating session ${id} with data:`, data);
-    
     const updates: string[] = [];
     const values: (string | number | boolean | null)[] = [];
 
@@ -1972,7 +1944,6 @@ export class DatabaseService {
       values.push(data.base_branch);
     }
     if (data.folder_id !== undefined) {
-      console.log(`[Database] Setting folder_id to: ${data.folder_id}`);
       updates.push('folder_id = ?');
       values.push(data.folder_id);
     }
@@ -2010,9 +1981,7 @@ export class DatabaseService {
     }
     if (data.skip_continue_next !== undefined) {
       updates.push('skip_continue_next = ?');
-      const boolValue = data.skip_continue_next ? 1 : 0;
-      values.push(boolValue);
-      console.log(`[Database] Setting skip_continue_next to ${boolValue} (from ${data.skip_continue_next}) for session ${id}`);
+      values.push(data.skip_continue_next ? 1 : 0);
     }
     if (data.commit_mode !== undefined) {
       updates.push('commit_mode = ?');
@@ -2040,17 +2009,20 @@ export class DatabaseService {
     values.push(id);
 
     const sql = `UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`;
-    console.log('[Database] Executing SQL:', sql);
-    console.log('[Database] With values:', values);
-    
-    try {
-      this.db.prepare(sql).run(...values);
-      console.log('[Database] Update successful');
-    } catch (error) {
-      console.error('[Database] Update failed:', error);
-      throw error;
+    this.db.prepare(sql).run(...values);
+
+    // Log important state changes to file
+    const importantChanges: Record<string, unknown> = {};
+    if (data.name !== undefined) importantChanges.name = data.name;
+    if (data.worktree_path !== undefined) importantChanges.worktree_path = data.worktree_path;
+    if (data.worktree_name !== undefined) importantChanges.worktree_name = data.worktree_name;
+    if (data.status !== undefined) importantChanges.status = data.status;
+    if (data.archived !== undefined) importantChanges.archived = data.archived;
+
+    if (Object.keys(importantChanges).length > 0) {
+      fileLogger.state('Database', `Session updated: ${id.substring(0, 8)}`, importantChanges);
     }
-    
+
     return this.getSession(id);
   }
 
@@ -2645,21 +2617,11 @@ export class DatabaseService {
 
   // Prompt marker operations
   addPromptMarker(sessionId: string, promptText: string, outputIndex: number, outputLine?: number): number {
-    console.log('[Database] Adding prompt marker:', { sessionId, promptText, outputIndex, outputLine });
-    
-    try {
-      // Use datetime('now') to ensure UTC timestamp
-      const result = this.db.prepare(`
-        INSERT INTO prompt_markers (session_id, prompt_text, output_index, output_line, timestamp)
-        VALUES (?, ?, ?, ?, datetime('now'))
-      `).run(sessionId, promptText, outputIndex, outputLine);
-      
-      console.log('[Database] Prompt marker added successfully, ID:', result.lastInsertRowid);
-      return result.lastInsertRowid as number;
-    } catch (error) {
-      console.error('[Database] Failed to add prompt marker:', error);
-      throw error;
-    }
+    const result = this.db.prepare(`
+      INSERT INTO prompt_markers (session_id, prompt_text, output_index, output_line, timestamp)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).run(sessionId, promptText, outputIndex, outputLine);
+    return result.lastInsertRowid as number;
   }
 
   getPromptMarkers(sessionId: string): PromptMarker[] {
@@ -2749,27 +2711,15 @@ export class DatabaseService {
 
   // Claude panel prompt marker operations - use panel_id for Claude-specific data
   addPanelPromptMarker(panelId: string, promptText: string, outputIndex: number, outputLine?: number): number {
-    console.log('[Database] Adding panel prompt marker:', { panelId, promptText, outputIndex, outputLine });
-    
-    try {
-      // Get the session_id from the panel
-      const panel = this.getPanel(panelId);
-      if (!panel) {
-        throw new Error(`Panel not found: ${panelId}`);
-      }
-      
-      // Use datetime('now') to ensure UTC timestamp
-      const result = this.db.prepare(`
-        INSERT INTO prompt_markers (session_id, panel_id, prompt_text, output_index, output_line, timestamp)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
-      `).run(panel.sessionId, panelId, promptText, outputIndex, outputLine);
-      
-      console.log('[Database] Panel prompt marker added successfully, ID:', result.lastInsertRowid);
-      return result.lastInsertRowid as number;
-    } catch (error) {
-      console.error('[Database] Failed to add panel prompt marker:', error);
-      throw error;
+    const panel = this.getPanel(panelId);
+    if (!panel) {
+      throw new Error(`Panel not found: ${panelId}`);
     }
+    const result = this.db.prepare(`
+      INSERT INTO prompt_markers (session_id, panel_id, prompt_text, output_index, output_line, timestamp)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+    `).run(panel.sessionId, panelId, promptText, outputIndex, outputLine);
+    return result.lastInsertRowid as number;
   }
 
 
@@ -3038,11 +2988,7 @@ export class DatabaseService {
       sql: string;
     }>;
     
-    const structure = { columns, foreignKeys, indexes };
-    
-    console.log(`[Database] Table structure for ${tableName}:`, JSON.stringify(structure, null, 2));
-    
-    return structure;
+    return { columns, foreignKeys, indexes };
   }
 
   // UI State operations
@@ -3170,14 +3116,6 @@ export class DatabaseService {
     // Get existing panel first to merge state
     const existingPanel = this.getPanel(panelId);
 
-    // Add debug logging to track panel state changes
-    if (updates.state !== undefined) {
-      console.log(`[DB-DEBUG] updatePanel called for ${panelId} with state:`, JSON.stringify(updates.state));
-      if (existingPanel) {
-        console.log(`[DB-DEBUG] Existing panel state before update:`, JSON.stringify(existingPanel.state));
-      }
-    }
-
     this.transaction(() => {
       const setClauses: string[] = [];
       const values: (string | number | boolean | null)[] = [];
@@ -3210,33 +3148,24 @@ export class DatabaseService {
           }
         }
 
-        console.log(`[DB-DEBUG] Merged state:`, JSON.stringify(mergedState));
-
         setClauses.push('state = ?');
         values.push(JSON.stringify(mergedState));
       }
-      
+
       if (updates.metadata !== undefined) {
         setClauses.push('metadata = ?');
         values.push(JSON.stringify(updates.metadata));
       }
-      
+
       if (setClauses.length > 0) {
         setClauses.push('updated_at = CURRENT_TIMESTAMP');
         values.push(panelId);
-        
-        const result = this.db.prepare(`
+
+        this.db.prepare(`
           UPDATE tool_panels
           SET ${setClauses.join(', ')}
           WHERE id = ?
         `).run(...values);
-        
-        console.log(`[DB-DEBUG] Update result for panel ${panelId}: ${result.changes} rows affected`);
-        
-        if (updates.state !== undefined && result.changes > 0) {
-          const afterPanel = this.getPanel(panelId);
-          console.log(`[DB-DEBUG] Panel state after update:`, JSON.stringify(afterPanel?.state));
-        }
       }
     });
   }
