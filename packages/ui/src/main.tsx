@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { initializeTheme } from './stores/themeStore';
 
 const platform = (() => {
   const p = (navigator.platform || '').toLowerCase();
@@ -11,6 +12,9 @@ const platform = (() => {
 })();
 
 document.documentElement.dataset.platform = platform;
+
+// Initialize theme from localStorage
+initializeTheme();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

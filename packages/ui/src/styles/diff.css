@@ -1,0 +1,29 @@
+/* ============================================
+   Diff Viewer Styles
+   For react-diff-view and ZedDiffViewer
+   ============================================ */
+
+/* Diff container focus styles */
+.diff-container:focus-visible {
+  outline: 2px solid var(--st-diff-focus-ring);
+  outline-offset: -2px;
+}
+
+/* Diff code typography - use monospace font */
+.diff-code,
+.diff-gutter,
+.diff-line,
+.diff-code-text,
+.diff .diff-code,
+.diff-gutter-normal,
+.diff-gutter-insert,
+.diff-gutter-delete,
+.diff-code-normal,
+.diff-code-insert,
+.diff-code-delete,
+td.diff-code,
+td.diff-gutter {
+  font-family: var(--st-font-mono) !important;
+  font-size: var(--st-font-sm) !important;
+  line-height: 1.6 !important;
+}

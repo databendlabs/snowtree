@@ -6,12 +6,17 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Fonts: Inter (UI) + JetBrains Mono (Code) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <title>snowtree</title>
     <script>
       // Apply theme class before React loads to prevent flash
       const savedTheme = localStorage.getItem('theme');
       const theme = savedTheme === 'light' ? 'light' : 'dark';
       document.documentElement.classList.add(theme);
+      document.documentElement.setAttribute('data-theme', theme);
     </script>
   </head>
   <body>

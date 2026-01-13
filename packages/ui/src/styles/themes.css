@@ -1,0 +1,222 @@
+/* ============================================
+   Snowtree Theme System
+   Dark (One Dark) and Light themes
+   ============================================ */
+
+/* ====== Dark Theme (default) ====== */
+:root,
+.dark,
+[data-theme="dark"] {
+  /* Background layers */
+  --st-bg: #21252b;
+  --st-editor: #282c34;
+  --st-surface: #2c313a;
+  --st-surface-2: #333842;
+
+  /* Borders */
+  --st-border: #181a1f;
+  --st-border-variant: #3e4451;
+  --st-hover: rgba(255, 255, 255, 0.04);
+  --st-selected: rgba(97, 175, 239, 0.12);
+
+  /* Text hierarchy */
+  --st-text: #c8ccd4;
+  --st-text-muted: #8a919e;
+  --st-text-faint: #656b78;
+
+  /* Accent colors */
+  --st-accent: #61afef;
+  --st-assistant: #c678dd;
+  --st-success: #98c379;
+  --st-warning: #e5c07b;
+  --st-danger: #e06c75;
+
+  /* Border radius */
+  --st-radius: 8px;
+  --st-radius-sm: 6px;
+
+  /* Transitions */
+  --st-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --st-duration-fast: 100ms;
+  --st-duration: 150ms;
+  --st-duration-slow: 200ms;
+
+  /* Typography */
+  --st-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --st-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --st-font-xs: 11px;
+  --st-font-sm: 12px;
+  --st-font-base: 13px;
+  --st-font-lg: 14px;
+
+  /* Diff tokens */
+  --st-diff-bg: #282c33;
+  --st-diff-header-bg: #2a2e36;
+  --st-diff-header-hover: #32363f;
+  --st-diff-border: #363c46;
+  --st-diff-border-faint: #2e333c;
+  --st-diff-text: #abb2bf;
+  --st-diff-text-strong: #d7dae0;
+  --st-diff-text-muted: #5c6370;
+  --st-diff-gutter-fg: #4b5263;
+  --st-diff-gutter-hover-fg: #9da5b4;
+
+  /* Diff status markers */
+  --st-diff-added-marker: #27a657;
+  --st-diff-deleted-marker: #e06c76;
+  --st-diff-modified-marker: #d3b020;
+  --st-diff-renamed-marker: #61afef;
+
+  /* Diff line backgrounds */
+  --st-diff-added-bg: rgba(39, 166, 87, 0.12);
+  --st-diff-deleted-bg: rgba(224, 108, 118, 0.12);
+  --st-diff-modified-bg: rgba(211, 176, 32, 0.10);
+  --st-diff-added-bg-hover: rgba(39, 166, 87, 0.18);
+  --st-diff-deleted-bg-hover: rgba(224, 108, 118, 0.18);
+  --st-diff-modified-bg-hover: rgba(211, 176, 32, 0.16);
+
+  /* Diff hunk header */
+  --st-diff-hunk-bg: rgba(97, 175, 239, 0.06);
+  --st-diff-hunk-text: #5c6370;
+  --st-diff-focus-ring: color-mix(in srgb, var(--st-accent) 25%, transparent);
+
+  /* Visual Mode colors */
+  --st-visual-mode-bg: rgba(100, 150, 255, 0.18);
+  --st-visual-mode-border: rgba(100, 150, 255, 0.4);
+  --st-visual-mode-text: rgba(100, 150, 255, 1);
+  --st-visual-mode-selected-bg: rgba(100, 150, 255, 0.35);
+  --st-visual-mode-selected-border: rgba(100, 150, 255, 0.6);
+  --st-visual-mode-anchor: rgba(100, 200, 255, 0.8);
+  --st-visual-mode-cursor: rgba(100, 255, 150, 0.8);
+
+  /* Back-compat aliases */
+  --color-border-secondary: var(--st-border-variant);
+  --color-border-primary: var(--st-border-variant);
+  --color-text-tertiary: var(--st-text-faint);
+  --color-interactive: var(--st-accent);
+  --color-interactive-rgb: 98, 173, 239;
+  --color-interactive-text: var(--st-accent);
+  --color-interactive-hover: #79bdf2;
+  --color-text-interactive-on-dark: var(--st-accent);
+  --color-text-interactive-on-dark-hover: #79bdf2;
+  --color-text-interactive-on-dark-active: #4a9fe8;
+  --color-text-interactive-on-dark-focus: var(--st-accent);
+  --color-focus-ring: var(--st-accent);
+
+  /* macOS titlebar padding */
+  --st-titlebar-gap: 0px;
+}
+
+:root[data-platform="darwin"],
+.dark[data-platform="darwin"],
+[data-theme="dark"][data-platform="darwin"] {
+  --st-titlebar-gap: 28px;
+}
+
+/* ====== Light Theme ====== */
+.light,
+[data-theme="light"] {
+  /* Background layers */
+  --st-bg: #fafafa;
+  --st-editor: #ffffff;
+  --st-surface: #ffffff;
+  --st-surface-2: #f5f5f5;
+
+  /* Borders */
+  --st-border: #e4e4e7;
+  --st-border-variant: #d4d4d8;
+  --st-hover: rgba(0, 0, 0, 0.04);
+  --st-selected: rgba(97, 175, 239, 0.12);
+
+  /* Text hierarchy */
+  --st-text: #18181b;
+  --st-text-muted: #52525b;
+  --st-text-faint: #a1a1aa;
+
+  /* Accent colors */
+  --st-accent: #3b82f6;
+  --st-assistant: #a855f7;
+  --st-success: #22c55e;
+  --st-warning: #f59e0b;
+  --st-danger: #ef4444;
+
+  /* Border radius */
+  --st-radius: 8px;
+  --st-radius-sm: 6px;
+
+  /* Transitions */
+  --st-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --st-duration-fast: 100ms;
+  --st-duration: 150ms;
+  --st-duration-slow: 200ms;
+
+  /* Typography */
+  --st-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --st-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --st-font-xs: 11px;
+  --st-font-sm: 12px;
+  --st-font-base: 13px;
+  --st-font-lg: 14px;
+
+  /* Diff tokens */
+  --st-diff-bg: #ffffff;
+  --st-diff-header-bg: #f9fafb;
+  --st-diff-header-hover: #f3f4f6;
+  --st-diff-border: #e5e7eb;
+  --st-diff-border-faint: #f3f4f6;
+  --st-diff-text: #374151;
+  --st-diff-text-strong: #111827;
+  --st-diff-text-muted: #9ca3af;
+  --st-diff-gutter-fg: #d1d5db;
+  --st-diff-gutter-hover-fg: #6b7280;
+
+  /* Diff status markers */
+  --st-diff-added-marker: #16a34a;
+  --st-diff-deleted-marker: #dc2626;
+  --st-diff-modified-marker: #ea580c;
+  --st-diff-renamed-marker: #3b82f6;
+
+  /* Diff line backgrounds */
+  --st-diff-added-bg: rgba(22, 163, 74, 0.10);
+  --st-diff-deleted-bg: rgba(220, 38, 38, 0.10);
+  --st-diff-modified-bg: rgba(234, 88, 12, 0.08);
+  --st-diff-added-bg-hover: rgba(22, 163, 74, 0.16);
+  --st-diff-deleted-bg-hover: rgba(220, 38, 38, 0.16);
+  --st-diff-modified-bg-hover: rgba(234, 88, 12, 0.14);
+
+  /* Diff hunk header */
+  --st-diff-hunk-bg: rgba(59, 130, 246, 0.06);
+  --st-diff-hunk-text: #9ca3af;
+  --st-diff-focus-ring: color-mix(in srgb, var(--st-accent) 25%, transparent);
+
+  /* Visual Mode colors */
+  --st-visual-mode-bg: rgba(59, 130, 246, 0.15);
+  --st-visual-mode-border: rgba(59, 130, 246, 0.4);
+  --st-visual-mode-text: rgba(59, 130, 246, 1);
+  --st-visual-mode-selected-bg: rgba(59, 130, 246, 0.30);
+  --st-visual-mode-selected-border: rgba(59, 130, 246, 0.6);
+  --st-visual-mode-anchor: rgba(59, 130, 246, 0.8);
+  --st-visual-mode-cursor: rgba(34, 197, 94, 0.8);
+
+  /* Back-compat aliases */
+  --color-border-secondary: var(--st-border-variant);
+  --color-border-primary: var(--st-border-variant);
+  --color-text-tertiary: var(--st-text-faint);
+  --color-interactive: var(--st-accent);
+  --color-interactive-rgb: 59, 130, 246;
+  --color-interactive-text: var(--st-accent);
+  --color-interactive-hover: #60a5fa;
+  --color-text-interactive-on-dark: var(--st-accent);
+  --color-text-interactive-on-dark-hover: #60a5fa;
+  --color-text-interactive-on-dark-active: #2563eb;
+  --color-text-interactive-on-dark-focus: var(--st-accent);
+  --color-focus-ring: var(--st-accent);
+
+  /* macOS titlebar padding */
+  --st-titlebar-gap: 0px;
+}
+
+.light[data-platform="darwin"],
+[data-theme="light"][data-platform="darwin"] {
+  --st-titlebar-gap: 28px;
+}

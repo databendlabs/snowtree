@@ -42,6 +42,7 @@ export function Sidebar() {
   const [editingWorktreeSessionId, setEditingWorktreeSessionId] = useState<string | null>(null);
   const [draftWorktreeName, setDraftWorktreeName] = useState<string>('');
   const refreshTimersRef = useRef<Record<number, number | null>>({});
+  const hasInitializedRenameInputRef = useRef(false);
 
   const loadProjects = useCallback(async () => {
     const res = await API.projects.getAll();
@@ -327,6 +328,7 @@ export function Sidebar() {
 
   const beginRenameWorktree = useCallback((worktree: Worktree, sessionId: string | null) => {
     const leafName = worktree.path.split('/').filter(Boolean).pop() || worktree.path;
+    hasInitializedRenameInputRef.current = false;
     setEditingWorktreePath(worktree.path);
     setEditingWorktreeSessionId(sessionId);
     setDraftWorktreeName(leafName);
@@ -526,7 +528,8 @@ export function Sidebar() {
                                         {isEditing ? (
                                           <input
                                             ref={(el) => {
-                                              if (el) {
+                                              if (el && !hasInitializedRenameInputRef.current) {
+                                                hasInitializedRenameInputRef.current = true;
                                                 requestAnimationFrame(() => {
                                                   el.focus();
                                                   el.select();
