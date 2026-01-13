@@ -55,11 +55,10 @@ describe('Session IPC Handlers - Worktree Path Recovery', () => {
   let mockServices: AppServices;
 
   const sessionId = 'test-session-123';
-  const projectId = 1;
-  const oldWorktreePath = '/path/to/worktrees/paris-w7x9k2m';
-  const newWorktreePath = '/path/to/worktrees/my-feature';
-  const oldBranchName = 'paris-w7x9k2m';
-  const newBranchName = 'my-feature';
+	  const projectId = 1;
+	  const oldWorktreePath = '/path/to/worktrees/paris-w7x9k2m';
+	  const newWorktreePath = '/path/to/worktrees/my-feature';
+	  const oldBranchName = 'paris-w7x9k2m';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,11 +128,11 @@ describe('Session IPC Handlers - Worktree Path Recovery', () => {
       expect(mockGitExecutor.run).not.toHaveBeenCalled();
     });
 
-    it('should recover worktree path and rename git branch when folder is renamed', async () => {
-      const session = {
-        id: sessionId,
-        worktreePath: oldWorktreePath,
-        projectId,
+	    it('should recover worktree path when folder is moved/renamed', async () => {
+	      const session = {
+	        id: sessionId,
+	        worktreePath: oldWorktreePath,
+	        projectId,
       };
       const dbSession = {
         worktree_name: oldBranchName,
@@ -146,30 +145,18 @@ describe('Session IPC Handlers - Worktree Path Recovery', () => {
       mockSessionManager.getDbSession.mockReturnValue(dbSession);
       mockDatabaseService.getProject.mockReturnValue(project);
       (fs.existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
-      mockWorktreeManager.listWorktreesDetailed.mockResolvedValue([
-        { path: newWorktreePath, branch: oldBranchName },
-      ]);
-      mockGitExecutor.run.mockResolvedValue({ exitCode: 0 });
+	      mockWorktreeManager.listWorktreesDetailed.mockResolvedValue([
+	        { path: newWorktreePath, branch: oldBranchName },
+	      ]);
 
-      const result = await mockIpcMain.invoke('sessions:get', sessionId);
+	      const result = await mockIpcMain.invoke('sessions:get', sessionId);
 
-      expect(result.success).toBe(true);
-      expect(mockGitExecutor.run).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sessionId,
-          cwd: newWorktreePath,
-          argv: ['git', 'branch', '-m', oldBranchName, newBranchName],
-          op: 'write',
-        })
-      );
-      expect(mockSessionManager.updateSession).toHaveBeenCalledWith(sessionId, {
-        worktreePath: newWorktreePath,
-        worktreeName: newBranchName,
-      });
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining('Renamed git branch')
-      );
-    });
+	      expect(result.success).toBe(true);
+	      expect(mockSessionManager.updateSession).toHaveBeenCalledWith(sessionId, {
+	        worktreePath: newWorktreePath,
+	      });
+	      expect(mockGitExecutor.run).not.toHaveBeenCalled();
+	    });
 
     it('should not rename branch when folder name matches branch name', async () => {
       const session = {
@@ -195,14 +182,13 @@ describe('Session IPC Handlers - Worktree Path Recovery', () => {
 
       const result = await mockIpcMain.invoke('sessions:get', sessionId);
 
-      expect(result.success).toBe(true);
-      // Branch rename should NOT be called because folder name matches branch name
-      expect(mockGitExecutor.run).not.toHaveBeenCalled();
-      expect(mockSessionManager.updateSession).toHaveBeenCalledWith(sessionId, {
-        worktreePath: `/different/path/worktrees/${oldBranchName}`,
-        worktreeName: oldBranchName,
-      });
-    });
+	      expect(result.success).toBe(true);
+	      // Branch renames are not performed during path recovery.
+	      expect(mockGitExecutor.run).not.toHaveBeenCalled();
+	      expect(mockSessionManager.updateSession).toHaveBeenCalledWith(sessionId, {
+	        worktreePath: `/different/path/worktrees/${oldBranchName}`,
+	      });
+	    });
 
     it('should return null when session has no worktreePath', async () => {
       mockSessionManager.getSession.mockReturnValue({ id: sessionId, worktreePath: null });
@@ -242,45 +228,9 @@ describe('Session IPC Handlers - Worktree Path Recovery', () => {
       expect(mockSessionManager.updateSession).not.toHaveBeenCalled();
     });
 
-    it('should handle git branch rename failure gracefully', async () => {
-      const session = {
-        id: sessionId,
-        worktreePath: oldWorktreePath,
-        projectId,
-      };
-      const dbSession = {
-        worktree_name: oldBranchName,
-      };
-      const project = {
-        path: '/path/to/project',
-      };
-
-      mockSessionManager.getSession.mockReturnValue(session);
-      mockSessionManager.getDbSession.mockReturnValue(dbSession);
-      mockDatabaseService.getProject.mockReturnValue(project);
-      (fs.existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
-      mockWorktreeManager.listWorktreesDetailed.mockResolvedValue([
-        { path: newWorktreePath, branch: oldBranchName },
-      ]);
-      // Git branch rename fails
-      mockGitExecutor.run.mockRejectedValue(new Error('Branch rename failed'));
-
-      const result = await mockIpcMain.invoke('sessions:get', sessionId);
-
-      expect(result.success).toBe(true);
-      // Session should still be updated with new path but old branch name
-      expect(mockSessionManager.updateSession).toHaveBeenCalledWith(sessionId, {
-        worktreePath: newWorktreePath,
-        worktreeName: oldBranchName,
-      });
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to rename git branch')
-      );
-    });
-
-    it('should return null when no project found', async () => {
-      const session = {
-        id: sessionId,
+	    it('should return null when no project found', async () => {
+	      const session = {
+	        id: sessionId,
         worktreePath: oldWorktreePath,
         projectId,
       };
