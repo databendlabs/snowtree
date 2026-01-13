@@ -525,6 +525,14 @@ export function Sidebar() {
                                       <div className="min-w-0">
                                         {isEditing ? (
                                           <input
+                                            ref={(el) => {
+                                              if (el) {
+                                                requestAnimationFrame(() => {
+                                                  el.focus();
+                                                  el.select();
+                                                });
+                                              }
+                                            }}
                                             value={draftWorktreeName}
                                             onChange={(e) => setDraftWorktreeName(e.target.value)}
                                             onKeyDown={(e) => {
@@ -538,7 +546,6 @@ export function Sidebar() {
                                             }}
                                             onBlur={() => void commitRenameWorktree(project, worktree)}
                                             className="w-full text-[12px] font-medium rounded px-2 py-1 outline-none st-focus-ring"
-                                            autoFocus
                                             style={{
                                               backgroundColor: 'var(--st-editor)',
                                               color: 'var(--st-text)',
