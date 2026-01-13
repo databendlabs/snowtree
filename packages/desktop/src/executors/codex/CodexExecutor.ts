@@ -389,6 +389,23 @@ export class CodexExecutor extends AbstractExecutor {
         const method = methodMatch ? methodMatch[1] : '';
         const id = idMatch ? (idMatch[1] || idMatch[2] || '') : '';
         const summary = method ? `rpc:${method}${id ? `#${id}` : ''}` : 'rpc:unknown';
+
+        // When running under a PTY, our outbound JSON-RPC requests are commonly echoed back.
+        // If the echoed line gets wrapped/contaminated with terminal control characters, it may
+        // become invalid JSON. These echoes are non-actionable and should not alarm users.
+        const clientMethods = new Set([
+          'initialize',
+          'newConversation',
+          'resumeConversation',
+          'addConversationListener',
+          'sendUserMessage',
+          'initialized',
+        ]);
+        if (clientMethods.has(method)) {
+          this.logger?.verbose?.(`[Codex] Ignoring unparseable PTY-echo of client request (${summary}) (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)})`);
+          return true;
+        }
+
         const snippet = t.length > 220 ? `${t.slice(0, 220)}…` : t;
         this.logger?.warn(`[Codex] Failed to parse JSON line (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
         this.maybeEmitInternalWarning(
