@@ -1229,11 +1229,10 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
 
                         const out: Array<readonly [string, React.ReactElement | null]> = [[changeKey, anchorElement] as const];
 
-                        // Persistent staged badge: place it near the vertical middle of the changed range so it
-                        // visually sits in the middle of the left change rail (Zed-like).
+                        // Persistent staged badge: place it at the top of the changed range
                         if (!isCommitView && hunkStatus === 'staged' && changedIndices.length > 0) {
-                          const midIdx = changedIndices[Math.floor(changedIndices.length / 2)]!;
-                          const badgeChange = changes[midIdx]!;
+                          const firstIdx = changedIndices[0]!;
+                          const badgeChange = changes[firstIdx]!;
                           const badgeKey = getChangeKey(badgeChange);
 
                           const badgeElement = (
@@ -1798,10 +1797,9 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           }
           .st-diff-table .st-hunk-staged-badge {
             position: absolute;
-            /* Widgets are rendered after the keyed line; offset upward by half a line height so the badge
-               visually centers on the line (and therefore the change rail), not between lines. */
-            top: calc(var(--st-diff-line-height) / -2);
-            transform: translateY(-50%);
+            /* Position badge at the top of the first changed line */
+            top: 3px;
+            transform: none;
             left: 0;
             width: 14px;
             height: 14px;
