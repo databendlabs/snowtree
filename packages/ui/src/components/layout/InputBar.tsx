@@ -4,6 +4,7 @@ import type { InputBarProps, CLITool, ImageAttachment, ExecutionMode } from './t
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { TimelineEvent } from '../../types/timeline';
+import { clearSessionDraft, getSessionDraft, setSessionDraft } from './sessionDraftCache';
 
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/tiff'];
 const IS_MAC =
@@ -435,9 +436,9 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   const historyIndexRef = useRef<number | null>(null); // index into inputHistoryRef.current
   const draftBeforeHistoryRef = useRef<string>('');
   const historyNavPrimedRef = useRef<'up' | 'down' | null>(null);
-  const draftBySessionIdRef = useRef<Map<string, { html: string; images: ImageAttachment[] }>>(new Map());
   const imageAttachmentsRef = useRef<ImageAttachment[]>([]);
   const restoringDraftRef = useRef(false);
+  const draftSaveRafRef = useRef<number | null>(null);
   const emitSelectionChange = useCallback(() => {
     try {
       document.dispatchEvent(new Event('selectionchange'));
@@ -450,21 +451,24 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     imageAttachmentsRef.current = imageAttachments;
   }, [imageAttachments]);
 
-  const saveDraftForSession = useCallback((sessionId: string) => {
+  const saveDraftNow = useCallback((sessionId: string) => {
     if (restoringDraftRef.current) return;
     const editor = editorRef.current;
     if (!editor) return;
 
     const html = editor.innerHTML || '';
     const images = imageAttachmentsRef.current;
-
-    if (html.trim().length === 0 && images.length === 0) {
-      draftBySessionIdRef.current.delete(sessionId);
-      return;
-    }
-
-    draftBySessionIdRef.current.set(sessionId, { html, images });
+    setSessionDraft(sessionId, { html, images });
   }, []);
+
+  const scheduleDraftSave = useCallback((sessionId: string) => {
+    if (restoringDraftRef.current) return;
+    if (draftSaveRafRef.current !== null) return;
+    draftSaveRafRef.current = requestAnimationFrame(() => {
+      draftSaveRafRef.current = null;
+      saveDraftNow(sessionId);
+    });
+  }, [saveDraftNow]);
 
   const getEditorText = useCallback(() => {
     if (!editorRef.current) return '';
@@ -739,7 +743,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     if (!editor) return;
 
     restoringDraftRef.current = true;
-    const draft = draftBySessionIdRef.current.get(sessionId);
+    const draft = getSessionDraft(sessionId);
     if (draft) {
       editor.innerHTML = draft.html;
       setImageAttachments(draft.images);
@@ -763,9 +767,13 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
     // Save current session draft when switching away/unmounting.
     return () => {
-      saveDraftForSession(sessionId);
+      if (draftSaveRafRef.current !== null) {
+        cancelAnimationFrame(draftSaveRafRef.current);
+        draftSaveRafRef.current = null;
+      }
+      saveDraftNow(sessionId);
     };
-  }, [emitSelectionChange, moveCursorToEnd, saveDraftForSession, session.id]);
+  }, [emitSelectionChange, moveCursorToEnd, saveDraftNow, session.id]);
 
   const handleEditorCopy = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     void e;
@@ -781,6 +789,15 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
     requestAnimationFrame(() => moveCursorToEnd());
   }, [moveCursorToEnd]);
+
+  const handleEditorInput = useCallback(() => {
+    scheduleDraftSave(session.id);
+  }, [scheduleDraftSave, session.id]);
+
+  useEffect(() => {
+    // Persist draft when image attachments change (e.g., paste/remove pill).
+    scheduleDraftSave(session.id);
+  }, [imageAttachments, scheduleDraftSave, session.id]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -819,7 +836,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     }
 
     onSend(text, imageAttachments.length > 0 ? imageAttachments : undefined, executionMode === 'plan');
-    draftBySessionIdRef.current.delete(session.id);
+    clearSessionDraft(session.id);
     if (editorRef.current) {
       const editor = editorRef.current;
       editor.innerHTML = '';
@@ -1383,6 +1400,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                   aria-multiline="true"
                   data-testid="input-editor"
                   onKeyDown={handleKeyDown}
+                  onInput={handleEditorInput}
                   onPaste={handleEditorPaste}
                   onCopy={handleEditorCopy}
                   onFocus={() => {
@@ -1390,6 +1408,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                   }}
                   onBlur={() => {
                     setIsFocused(false);
+                    saveDraftNow(session.id);
                     // Save cursor position on blur
                     const selection = window.getSelection();
                     if (selection && selection.rangeCount > 0) {
