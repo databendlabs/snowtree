@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { GitBranch, ExternalLink } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { GitBranch, Copy, Check } from 'lucide-react';
 import type { WorkspaceHeaderProps } from './types';
 
 // Extract repository name from worktree path
@@ -56,9 +56,13 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = React.memo(({
     return getRepositoryName(session.worktreePath) || session.name;
   }, [session.worktreePath, session.name]);
 
-  const handleOpenInFinder = async () => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyPath = async () => {
     if (session.worktreePath) {
-      await window.electronAPI?.invoke('shell:openPath', session.worktreePath);
+      await navigator.clipboard.writeText(session.worktreePath);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -98,11 +102,15 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = React.memo(({
       <div className="flex items-center gap-1" style={{ ['WebkitAppRegion' as never]: 'no-drag' }}>
         <button
           type="button"
-          onClick={handleOpenInFinder}
+          onClick={handleCopyPath}
           className="p-1.5 rounded st-hoverable st-focus-ring"
-          title="Open in Finder"
+          title={copied ? 'Copied!' : 'Copy workspace path'}
         >
-          <ExternalLink className="w-3.5 h-3.5" style={{ color: 'var(--st-text-muted)' }} />
+          {copied ? (
+            <Check className="w-3.5 h-3.5" style={{ color: 'var(--st-success)' }} />
+          ) : (
+            <Copy className="w-3.5 h-3.5" style={{ color: 'var(--st-text-muted)' }} />
+          )}
         </button>
       </div>
     </div>
