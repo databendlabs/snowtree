@@ -536,9 +536,9 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       }
     };
 
-    // Start polling immediately and then every 5 seconds
+    // Start polling immediately and then every 3 seconds
     void pollPRStatus();
-    prPollingTimerRef.current = window.setInterval(pollPRStatus, 5000);
+    prPollingTimerRef.current = window.setInterval(pollPRStatus, 3000);
 
     return () => {
       if (prPollingTimerRef.current) {
@@ -571,9 +571,9 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       }
     };
 
-    // Start polling immediately and then every 30 seconds
+    // Start polling immediately and then every 3 seconds
     void pollBranchSyncStatus();
-    branchSyncPollingTimerRef.current = window.setInterval(pollBranchSyncStatus, 30_000);
+    branchSyncPollingTimerRef.current = window.setInterval(pollBranchSyncStatus, 3000);
 
     return () => {
       if (branchSyncPollingTimerRef.current) {

@@ -154,7 +154,7 @@ describe('useRightPanelData - PR polling', () => {
     const initialCalls = mockGetRemotePullRequest.mock.calls.length;
 
     // Advance 5 seconds
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(3000);
 
     // Should have called one more time
     expect(mockGetRemotePullRequest.mock.calls.length).toBe(initialCalls + 1);
@@ -184,7 +184,7 @@ describe('useRightPanelData - PR polling', () => {
     const initialCalls = mockGetRemotePullRequest.mock.calls.length;
 
     // Advance 5 seconds to trigger next poll
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(3000);
 
     // PR should now be detected - at least one more call
     expect(mockGetRemotePullRequest.mock.calls.length).toBeGreaterThan(initialCalls);
@@ -217,7 +217,7 @@ describe('useRightPanelData - PR polling', () => {
     const initialCalls = mockGetRemotePullRequest.mock.calls.length;
 
     // Advance 5 seconds to trigger next poll
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(3000);
 
     // Should have detected the merged status change - at least one more call
     expect(mockGetRemotePullRequest.mock.calls.length).toBeGreaterThan(initialCalls);
@@ -247,7 +247,7 @@ describe('useRightPanelData - PR polling', () => {
     const initialCalls = mockGetRemotePullRequest.mock.calls.length;
 
     // Advance 5 seconds to trigger next poll
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(3000);
 
     // Should have detected PR deletion - at least one more call
     expect(mockGetRemotePullRequest.mock.calls.length).toBeGreaterThan(initialCalls);
@@ -255,7 +255,7 @@ describe('useRightPanelData - PR polling', () => {
     unmount();
   });
 
-  it('polls every 5 seconds', async () => {
+  it('polls every 3 seconds', async () => {
     render(<Harness sessionId="s1" />);
 
     // Wait for initial load
@@ -263,10 +263,10 @@ describe('useRightPanelData - PR polling', () => {
 
     const initialCalls = mockGetRemotePullRequest.mock.calls.length;
 
-    // Advance 15 seconds (3 intervals)
-    await vi.advanceTimersByTimeAsync(15000);
+    // Advance 9 seconds (3 intervals)
+    await vi.advanceTimersByTimeAsync(9000);
 
-    // Should have called 3 more times (once every 5 seconds)
+    // Should have called 3 more times (once every 3 seconds)
     expect(mockGetRemotePullRequest.mock.calls.length).toBe(initialCalls + 3);
   });
 
@@ -283,7 +283,7 @@ describe('useRightPanelData - PR polling', () => {
     await vi.runOnlyPendingTimersAsync();
 
     // Advance 5 seconds
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(3000);
 
     // Should have started polling for s2
     expect(mockGetRemotePullRequest).toHaveBeenCalledWith('s2');
