@@ -40,8 +40,12 @@ export class CodexExecutor extends AbstractExecutor {
   private conversationIdByPanel = new Map<string, { conversationId: string; rolloutPath?: string }>();
   private rpcOpById = new Map<string | number, { panelId: string; sessionId: string; startMs: number; kind: 'cli.command' }>();
   private pendingUserTurnRpcIdsByPanel = new Map<string, string[]>();
+  private warnedSilentTurnRpcIds = new Set<string>();
   private turnIdleTimerByPanel = new Map<string, NodeJS.Timeout>();
   private lastTurnActivityMsByPanel = new Map<string, number>();
+  private recentCodexActivityByPanel = new Map<string, string[]>();
+  private jsonFragmentByPanel = new Map<string, { buf: string; startedAtMs: number }>();
+  private internalWarningLastMsByKey = new Map<string, number>();
   private pendingRequests: Map<string | number, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
@@ -73,6 +77,12 @@ export class CodexExecutor extends AbstractExecutor {
     // `codex app-server` is a long-lived process; the “Running” indicator should
     // reflect per-turn activity, not the server process lifetime.
     return true;
+  }
+
+  protected getSpawnTransport(): 'pty' | 'stdio' {
+    // `codex app-server` speaks JSON-RPC over stdio; running under a PTY can
+    // introduce echo/wrapping that corrupts JSON framing.
+    return 'stdio';
   }
 
   getCommandName(): string {
@@ -189,22 +199,162 @@ export class CodexExecutor extends AbstractExecutor {
   }
 
   parseOutput(data: string, panelId: string, sessionId: string): void {
-    const trimmed = data.trim();
+    const trimmed = String(data ?? '').trim();
     if (!trimmed) return;
 
+    this.trackRecentCodexActivity(panelId, trimmed);
+
+    // Codex runs under a PTY; long JSON-RPC requests can be echoed back and occasionally include
+    // terminal control bytes or get split across lines. Maintain a small per-panel buffer and
+    // parse any complete JSON objects we can extract.
+    const prior = this.jsonFragmentByPanel.get(panelId);
+    const combined = prior ? `${prior.buf}\n${trimmed}` : trimmed;
+    const processed = this.processCodexMixedOutput(combined, panelId, sessionId);
+
+    if (processed.partialJson) {
+      const startedAtMs = prior?.startedAtMs ?? Date.now();
+      // Prevent unbounded growth if output is not actually JSON.
+      if (processed.partialJson.length > 256_000) {
+        this.logger?.warn(`[Codex] Dropping oversized JSON fragment (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)} len=${processed.partialJson.length})`);
+        this.maybeEmitInternalWarning(
+          panelId,
+          sessionId,
+          'codex-json-fragment',
+          `Dropped an oversized Codex JSON fragment (len=${processed.partialJson.length}). This can cause missing timeline items. Check dev logs for details.`,
+          60_000
+        );
+        this.jsonFragmentByPanel.delete(panelId);
+      } else {
+        // If we keep buffering for a while, surface a single warning.
+        const ageMs = Date.now() - startedAtMs;
+        if (ageMs > 2000 && !prior) {
+          const snippet = processed.partialJson.length > 220 ? `${processed.partialJson.slice(0, 220)}…` : processed.partialJson;
+          this.logger?.warn(`[Codex] Buffering partial JSON (${Math.round(ageMs)}ms) (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
+          this.maybeEmitInternalWarning(
+            panelId,
+            sessionId,
+            'codex-json-fragment',
+            `Buffering partial Codex JSON output (>2s). Output may be incomplete until parsing recovers. Check dev logs for details.`,
+            60_000
+          );
+        }
+        this.jsonFragmentByPanel.set(panelId, { buf: processed.partialJson, startedAtMs });
+      }
+    } else {
+      this.jsonFragmentByPanel.delete(panelId);
+    }
+  }
+
+  // ============================================================================
+  // JSON-RPC Protocol Methods
+  // ============================================================================
+
+  private stripAnsiAndControlNoise(text: string): string {
+    // Remove ANSI CSI sequences (e.g. \x1b[...m, \x1b[?2004h) and stray NULs that can appear in PTY echo.
+    // Keep it conservative to avoid changing real JSON content.
+    return text
+      .replace(/\u0000/g, '')
+      .replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, '');
+  }
+
+  private maybeEmitInternalWarning(
+    panelId: string,
+    sessionId: string,
+    code: string,
+    message: string,
+    minIntervalMs = 30_000
+  ): void {
+    const key = `${panelId}:${code}`;
+    const now = Date.now();
+    const last = this.internalWarningLastMsByKey.get(key) || 0;
+    if (now - last < minIntervalMs) return;
+    this.internalWarningLastMsByKey.set(key, now);
+
+    // Route to timeline via a thinking entry (multi-line so it isn't filtered as a short Codex phase marker).
+    const content = `Snowtree warning (${code}):\n${message}`;
+    void this.handleNormalizedEntry(panelId, sessionId, {
+      id: `snowtree:warn:${code}:${now}`,
+      timestamp: new Date().toISOString(),
+      entryType: 'thinking',
+      content,
+      metadata: { streaming: false, internal: true, code },
+    });
+  }
+
+  private processCodexMixedOutput(
+    raw: string,
+    panelId: string,
+    sessionId: string
+  ): { partialJson?: string } {
+    const cleaned = this.stripAnsiAndControlNoise(raw).trim();
+    if (!cleaned) return {};
+
+    const extracted = this.extractTopLevelJsonObjects(cleaned);
+    if (extracted.objects.length > 0) {
+      for (const obj of extracted.objects) {
+        if (!this.tryHandleCodexJson(obj, panelId, sessionId)) {
+          // Not JSON; emit as stdout for visibility
+          const out = obj.trim();
+          if (out) {
+            this.emit('output', {
+              panelId,
+              sessionId,
+              type: 'stdout',
+              data: out,
+              timestamp: new Date(),
+            } as ExecutorOutputEvent);
+          }
+        }
+      }
+
+      const noise = extracted.noise.trim();
+      if (noise) {
+        this.emit('output', {
+          panelId,
+          sessionId,
+          type: 'stdout',
+          data: noise,
+          timestamp: new Date(),
+        } as ExecutorOutputEvent);
+      }
+
+      return extracted.partial ? { partialJson: extracted.partial } : {};
+    }
+
+    if (this.tryHandleCodexJson(cleaned, panelId, sessionId)) {
+      return {};
+    }
+
+    // Likely a partial JSON object; keep buffering only for lines that look like JSON-RPC.
+    if (cleaned.startsWith('{') && cleaned.includes("\"method\"")) {
+      return { partialJson: cleaned };
+    }
+
+    this.emit('output', {
+      panelId,
+      sessionId,
+      type: 'stdout',
+      data: cleaned,
+      timestamp: new Date(),
+    } as ExecutorOutputEvent);
+
+    return {};
+  }
+
+  private tryHandleCodexJson(payload: string, panelId: string, sessionId: string): boolean {
     try {
-      const message = JSON.parse(trimmed);
+      const message = JSON.parse(payload);
 
       // Handle JSON-RPC response
       if ('id' in message && (message.result !== undefined || message.error)) {
         this.handleRpcResponse(message as JsonRpcResponse);
-        return;
+        return true;
       }
 
       // Handle JSON-RPC notification
       if ('method' in message && !('id' in message)) {
         this.handleRpcNotification(message as JsonRpcNotification, panelId, sessionId);
-        return;
+        return true;
       }
 
       // Handle JSON-RPC request (from server)
@@ -220,13 +370,13 @@ export class CodexExecutor extends AbstractExecutor {
           'addConversationListener',
           'sendUserMessage',
         ]);
-        if (clientMethods.has(m.method)) return;
-        if (this.pendingRequests.has(m.id) || this.pendingRequests.has(normalizedId)) return;
+        if (clientMethods.has(m.method)) return true;
+        if (this.pendingRequests.has(m.id) || this.pendingRequests.has(normalizedId)) return true;
         this.handleRpcRequest(message as JsonRpcRequest, panelId, sessionId);
-        return;
+        return true;
       }
 
-      // Generic message
+      // Generic JSON message
       this.emit('output', {
         panelId,
         sessionId,
@@ -234,21 +384,111 @@ export class CodexExecutor extends AbstractExecutor {
         data: message,
         timestamp: new Date(),
       } as ExecutorOutputEvent);
+      return true;
     } catch {
-      // Not JSON, emit as stdout
-      this.emit('output', {
-        panelId,
-        sessionId,
-        type: 'stdout',
-        data: trimmed,
-        timestamp: new Date(),
-      } as ExecutorOutputEvent);
+      // If this looks like JSON-RPC but failed to parse, emit a warning with a short snippet.
+      // This helps diagnose protocol desync or partial-line issues without flooding the logs.
+      const t = payload.trim();
+      if (t.startsWith('{') && t.includes('"method"')) {
+        const methodMatch = t.match(/"method"\s*:\s*"([^"]+)"/);
+        const idMatch = t.match(/"id"\s*:\s*(?:"([^"]+)"|(\d+))/);
+        const method = methodMatch ? methodMatch[1] : '';
+        const id = idMatch ? (idMatch[1] || idMatch[2] || '') : '';
+        const summary = method ? `rpc:${method}${id ? `#${id}` : ''}` : 'rpc:unknown';
+
+        // When running under a PTY, our outbound JSON-RPC requests are commonly echoed back.
+        // If the echoed line gets wrapped/contaminated with terminal control characters, it may
+        // become invalid JSON. These echoes are non-actionable and should not alarm users.
+        const clientMethods = new Set([
+          'initialize',
+          'newConversation',
+          'resumeConversation',
+          'addConversationListener',
+          'sendUserMessage',
+          'initialized',
+        ]);
+        if (clientMethods.has(method)) {
+          this.logger?.verbose?.(`[Codex] Ignoring unparseable PTY-echo of client request (${summary}) (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)})`);
+          return true;
+        }
+
+        const snippet = t.length > 220 ? `${t.slice(0, 220)}…` : t;
+        this.logger?.warn(`[Codex] Failed to parse JSON line (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
+        this.maybeEmitInternalWarning(
+          panelId,
+          sessionId,
+          'codex-json-parse',
+          `Failed to parse Codex JSON-RPC output (${summary}). This can cause missing assistant messages/commands. Check dev logs for details.`,
+          60_000
+        );
+      }
+      return false;
     }
   }
 
-  // ============================================================================
-  // JSON-RPC Protocol Methods
-  // ============================================================================
+  private extractTopLevelJsonObjects(input: string): { objects: string[]; noise: string; partial?: string } {
+    const objects: string[] = [];
+    let noise = '';
+    let start = -1;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+
+      if (start === -1) {
+        if (ch === '{') {
+          start = i;
+          depth = 1;
+          inString = false;
+          escape = false;
+        } else {
+          noise += ch;
+        }
+        continue;
+      }
+
+      if (inString) {
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === '\\\\') {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (ch === '{') {
+        depth++;
+        continue;
+      }
+
+      if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          objects.push(input.slice(start, i + 1));
+          start = -1;
+        }
+      }
+    }
+
+    if (start !== -1) {
+      return { objects, noise, partial: input.slice(start) };
+    }
+
+    return { objects, noise };
+  }
 
   private nextRequestId(): string {
     return String(++this.requestId);
@@ -320,6 +560,14 @@ export class CodexExecutor extends AbstractExecutor {
   ): void {
     const { method, params } = notification;
 
+    if (method === 'turn/started') {
+      this.logger?.info(`[Codex] turn started (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)})`);
+    } else if (method === 'turn/completed') {
+      this.logger?.info(`[Codex] turn completed (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)})`);
+    } else if (method === 'error') {
+      this.logger?.warn(`[Codex] turn error notification (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)})`);
+    }
+
     // Codex can keep streaming deltas (reasoning/assistant text) after commands finish.
     // Treat non-terminal notifications as activity so the UI stays in "Running".
     if (method !== 'turn/completed' && method !== 'error') {
@@ -381,13 +629,12 @@ export class CodexExecutor extends AbstractExecutor {
   }
 
   private sendRpcMessage(panelId: string, message: JsonRpcRequest | JsonRpcResponse | JsonRpcNotification): void {
-    const process = this.processes.get(panelId);
-    if (!process) {
+    if (!this.processes.has(panelId)) {
       throw new Error(`No Codex process found for panel ${panelId}`);
     }
 
     const data = JSON.stringify(message) + '\n';
-    process.pty.write(data);
+    super.sendInput(panelId, data);
   }
 
   private sendRpcResponse(panelId: string, id: string | number, result: unknown): void {
@@ -567,6 +814,7 @@ export class CodexExecutor extends AbstractExecutor {
   ): Promise<void> {
     const rpcId = this.nextRequestId();
     this.enqueuePendingUserTurn(panelId, rpcId);
+    this.warnedSilentTurnRpcIds.delete(rpcId);
 
     const request: JsonRpcRequest = {
       id: rpcId,
@@ -588,6 +836,10 @@ export class CodexExecutor extends AbstractExecutor {
       // spurious "Request sendUserMessage timed out" errors while the agent may still be running.
       this.pendingRequests.set(rpcId, { resolve: (() => resolve()) as unknown as (value: unknown) => void, reject, label: 'sendUserMessage' });
       this.sendRpcMessage(panelId, request);
+      const proc = this.processes.get(panelId);
+      const sid = proc?.sessionId || '';
+      if (sid) this.noteTurnActivity(panelId, sid);
+      this.scheduleSilentTurnWarning(panelId, sid, rpcId);
       setTimeout(() => {
         if (this.pendingRequests.has(rpcId)) {
           this.pendingRequests.delete(rpcId);
@@ -596,6 +848,57 @@ export class CodexExecutor extends AbstractExecutor {
         }
       }, 30000);
     });
+  }
+
+  private scheduleSilentTurnWarning(panelId: string, sessionId: string, rpcId: string): void {
+    const warnAfterMs = 15_000;
+    setTimeout(() => {
+      if (!sessionId) return;
+      const pending = this.pendingUserTurnRpcIdsByPanel.get(panelId) || [];
+      if (!pending.includes(rpcId)) return;
+      if (this.warnedSilentTurnRpcIds.has(rpcId)) return;
+
+      const last = this.lastTurnActivityMsByPanel.get(panelId) || 0;
+      const now = Date.now();
+      if (last && now - last < warnAfterMs) return;
+
+      this.warnedSilentTurnRpcIds.add(rpcId);
+      const convo = this.conversationIdByPanel.get(panelId)?.conversationId;
+      const recent = (this.recentCodexActivityByPanel.get(panelId) || []).slice(-6).join(' | ');
+      this.logger?.warn(
+        `[Codex] No events received for ${Math.round(warnAfterMs / 1000)}s after sendUserMessage ` +
+        `(panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)} rpcId=${rpcId}` +
+        `${convo ? ` convo=${convo.slice(0, 8)}` : ''}). ` +
+        `Recent: ${recent || '(none)'}`
+      );
+    }, warnAfterMs);
+  }
+
+  private trackRecentCodexActivity(panelId: string, line: string): void {
+    const current = this.recentCodexActivityByPanel.get(panelId) || [];
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    let summary = trimmed;
+    if (trimmed.startsWith('{')) {
+      const methodMatch = trimmed.match(/"method"\s*:\s*"([^"]+)"/);
+      const idMatch = trimmed.match(/"id"\s*:\s*(?:"([^"]+)"|(\d+))/);
+      const method = methodMatch ? methodMatch[1] : '';
+      const id = idMatch ? (idMatch[1] || idMatch[2] || '') : '';
+      if (method) {
+        summary = `rpc:${method}${id ? `#${id}` : ''}`;
+      } else if (id && (trimmed.includes('"result"') || trimmed.includes('"error"'))) {
+        summary = `rpc:response#${id}`;
+      } else {
+        summary = trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
+      }
+    } else {
+      summary = trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
+    }
+
+    current.push(summary);
+    if (current.length > 24) current.splice(0, current.length - 24);
+    this.recentCodexActivityByPanel.set(panelId, current);
   }
 
   /**
@@ -676,6 +979,11 @@ export class CodexExecutor extends AbstractExecutor {
     if (prompt) {
       await this.sendUserMessage(panelId, conversationId, prompt);
     }
+  }
+
+  interrupt(panelId: string): void {
+    if (!this.processes.has(panelId)) return;
+    super.sendInput(panelId, '\x03');
   }
 
   sendInput(panelId: string, input: string): void {

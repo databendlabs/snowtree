@@ -71,6 +71,8 @@ export interface RightPanelData {
 }
 
 const REQUEST_TIMEOUT = 15_000;
+const PR_POLL_INTERVAL_MS = 3_000;
+const BRANCH_SYNC_POLL_INTERVAL_MS = 3_000;
 
 const toEpochMs = (timestamp: string) => {
   const t = Date.parse(timestamp);
@@ -138,7 +140,9 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
   const refreshTimerRef = useRef<number | null>(null);
   const lastGitStatusSignatureRef = useRef<string | null>(null);
   const prPollingTimerRef = useRef<number | null>(null);
+  const prPollingAbortRef = useRef<AbortController | null>(null);
   const branchSyncPollingTimerRef = useRef<number | null>(null);
+  const branchSyncPollingAbortRef = useRef<AbortController | null>(null);
 
   const cancelPending = useCallback(() => {
     abortRef.current?.abort();
@@ -146,14 +150,6 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     if (refreshTimerRef.current) {
       window.clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = null;
-    }
-    if (prPollingTimerRef.current) {
-      window.clearInterval(prPollingTimerRef.current);
-      prPollingTimerRef.current = null;
-    }
-    if (branchSyncPollingTimerRef.current) {
-      window.clearInterval(branchSyncPollingTimerRef.current);
-      branchSyncPollingTimerRef.current = null;
     }
     // Reset loading state when canceling pending requests to avoid stuck state
     setIsLoading(false);
@@ -249,36 +245,26 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
   }, [sessionId]);
 
   const fetchRemotePullRequest = useCallback(async (signal: AbortSignal): Promise<RemotePullRequest | null> => {
-    if (!sessionId) {
-      console.log('[fetchRemotePullRequest] No sessionId, returning null');
-      return null;
-    }
+    if (!sessionId) return null;
     try {
-      console.log('[fetchRemotePullRequest] Fetching PR for sessionId:', sessionId);
       const response = await withTimeout(
         API.sessions.getRemotePullRequest(sessionId),
         REQUEST_TIMEOUT,
         'Load remote PR'
       );
-      console.log('[fetchRemotePullRequest] API response:', response);
-      if (signal.aborted) {
-        console.log('[fetchRemotePullRequest] Signal aborted');
-        return null;
-      }
+      if (signal.aborted) return null;
       if (response.success && response.data && typeof response.data === 'object') {
         const pr = response.data as { number?: unknown; url?: unknown; merged?: unknown } | null;
         const number = pr && typeof pr.number === 'number' ? pr.number : null;
         const url = pr && typeof pr.url === 'string' ? pr.url : '';
         const merged = pr && typeof pr.merged === 'boolean' ? pr.merged : false;
         if (number && url) {
-          console.log('[fetchRemotePullRequest] Returning PR:', { number, url, merged });
           return { number, url, merged };
         }
       }
-      console.log('[fetchRemotePullRequest] No valid PR data, returning null');
       return null;
     } catch (error) {
-      console.error('[fetchRemotePullRequest] Error:', error);
+      void error;
       return null;
     }
   }, [sessionId]);
@@ -483,38 +469,38 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     return () => { unsub?.(); };
   }, [sessionId, scheduleRefresh]);
 
-  // Poll PR status every 5 seconds to detect changes from GitHub
+  // Poll PR status periodically to detect changes from GitHub
   useEffect(() => {
     if (!sessionId) {
       if (prPollingTimerRef.current) {
         window.clearInterval(prPollingTimerRef.current);
         prPollingTimerRef.current = null;
       }
+      prPollingAbortRef.current?.abort();
+      prPollingAbortRef.current = null;
       return;
     }
 
     const pollPRStatus = async () => {
       try {
-        console.log('[PR Polling] Starting poll for sessionId:', sessionId);
+        if (document.visibilityState !== 'visible') return;
+
+        // Cancel previous in-flight poll (avoid races when refresh() also hits the endpoint).
+        prPollingAbortRef.current?.abort();
         const controller = new AbortController();
+        prPollingAbortRef.current = controller;
+
         const newPR = await fetchRemotePullRequest(controller.signal);
-        console.log('[PR Polling] Received PR data:', newPR);
-        if (controller.signal.aborted) {
-          console.log('[PR Polling] Request aborted');
-          return;
-        }
+        if (controller.signal.aborted) return;
 
         // Update state if PR changed (created, updated, or deleted)
         setRemotePullRequest((current) => {
-          console.log('[PR Polling] Current state:', current, '| New state:', newPR);
           // PR was created
           if (!current && newPR) {
-            console.log('[PR Polling] PR created, updating state');
             return newPR;
           }
           // PR was deleted
           if (current && !newPR) {
-            console.log('[PR Polling] PR deleted, clearing state');
             return null;
           }
           // PR was updated
@@ -523,47 +509,61 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
             newPR.url !== current.url ||
             newPR.merged !== current.merged
           )) {
-            console.log('[PR Polling] PR updated, updating state');
             return newPR;
           }
           // No change
-          console.log('[PR Polling] No change detected');
           return current;
         });
       } catch (error) {
-        console.error('[PR Polling] Error during poll:', error);
+        void error;
         // Ignore polling errors to avoid spamming
       }
     };
 
-    // Start polling immediately and then every 3 seconds
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void pollPRStatus();
+    };
+
+    // Start polling immediately and then periodically
     void pollPRStatus();
-    prPollingTimerRef.current = window.setInterval(pollPRStatus, 3000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    prPollingTimerRef.current = window.setInterval(pollPRStatus, PR_POLL_INTERVAL_MS);
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (prPollingTimerRef.current) {
         window.clearInterval(prPollingTimerRef.current);
         prPollingTimerRef.current = null;
       }
+      prPollingAbortRef.current?.abort();
+      prPollingAbortRef.current = null;
     };
   }, [sessionId, fetchRemotePullRequest]);
 
-  // Poll branch sync status every 30 seconds (longer interval since it requires fetch)
+  // Poll branch sync status periodically (requires fetch)
   useEffect(() => {
     if (!sessionId) {
       if (branchSyncPollingTimerRef.current) {
         window.clearInterval(branchSyncPollingTimerRef.current);
         branchSyncPollingTimerRef.current = null;
       }
+      branchSyncPollingAbortRef.current?.abort();
+      branchSyncPollingAbortRef.current = null;
       return;
     }
 
     const pollBranchSyncStatus = async () => {
       try {
+        if (document.visibilityState !== 'visible') return;
+        branchSyncPollingAbortRef.current?.abort();
+        const controller = new AbortController();
+        branchSyncPollingAbortRef.current = controller;
+
         const [newBranchSync, newPRSync] = await Promise.all([
           fetchBranchSyncStatus(),
           fetchPRSyncStatus(),
         ]);
+        if (controller.signal.aborted) return;
         setBranchSyncStatus(newBranchSync);
         setPrSyncStatus(newPRSync);
       } catch {
@@ -571,15 +571,22 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       }
     };
 
-    // Start polling immediately and then every 3 seconds
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void pollBranchSyncStatus();
+    };
+
     void pollBranchSyncStatus();
-    branchSyncPollingTimerRef.current = window.setInterval(pollBranchSyncStatus, 3000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    branchSyncPollingTimerRef.current = window.setInterval(pollBranchSyncStatus, BRANCH_SYNC_POLL_INTERVAL_MS);
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (branchSyncPollingTimerRef.current) {
         window.clearInterval(branchSyncPollingTimerRef.current);
         branchSyncPollingTimerRef.current = null;
       }
+      branchSyncPollingAbortRef.current?.abort();
+      branchSyncPollingAbortRef.current = null;
     };
   }, [sessionId, fetchBranchSyncStatus, fetchPRSyncStatus]);
 

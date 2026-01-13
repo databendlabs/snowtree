@@ -7,7 +7,7 @@ import { InputBar } from './InputBar';
 import { RightPanel } from './RightPanel/index';
 import { DiffOverlay } from './DiffOverlay';
 import { useLayoutData } from './useLayoutData';
-import type { PendingMessage, FileChange } from './types';
+import type { PendingMessage, FileChange, CLITool } from './types';
 import type { DiffTarget } from '../../types/diff';
 
 const RIGHT_PANEL_WIDTH_KEY = 'snowtree-right-panel-width';
@@ -239,7 +239,7 @@ export const MainLayout: React.FC = React.memo(() => {
       '   - Use the template structure for PR body',
       '',
       '3. Push branch:',
-      '   - git push -u origin "$(git branch --show-current)"',
+      '   - git push origin "$(git branch --show-current)"',
       '',
       '4. Create or update PR (ALWAYS use --repo <owner>/<repo> with gh commands):',
       '   - Check existing: gh pr view --repo <owner>/<repo> "$(git branch --show-current)" --json number,url,state',
@@ -249,6 +249,8 @@ export const MainLayout: React.FC = React.memo(() => {
       'Guidelines:',
       '- ALWAYS use --repo <owner>/<repo> with ALL gh commands (required for worktree compatibility)',
       '- ALWAYS use --draft flag when creating new PRs',
+      '- Avoid commands that persist git config (e.g. `git push -u`, `git branch --set-upstream-to`, `git config ...`); in worktrees these may write outside the worktree directory and fail under restricted sandboxes',
+      '- If you need SSH options for a single push, use `GIT_SSH_COMMAND=\"ssh -p 22\" git push origin \"$(git branch --show-current)\"` or `git -c core.sshCommand=\"ssh -p 22\" push origin \"$(git branch --show-current)\"` (do not persist config)',
       '- Do NOT mention the CLI/AI tool or add any generated-by/co-author signatures',
       '- If there are staged/unstaged changes: stop and tell me to commit first',
       '- If PR template exists: follow its structure exactly',
@@ -385,6 +387,32 @@ export const MainLayout: React.FC = React.memo(() => {
     }
   }, [isProcessing, pendingMessage]);
 
+  // Conversation-level keybinding: Tab only switches agent (Shift+Tab toggles plan/execute).
+  // Prevent using Tab for focus traversal while a session conversation is active.
+  useEffect(() => {
+    if (!session) return;
+
+    const handleTabKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      if (e.shiftKey) {
+        setExecutionMode(executionMode === 'execute' ? 'plan' : 'execute');
+        return;
+      }
+
+      const tools: CLITool[] = ['claude', 'codex'];
+      const currentIndex = tools.indexOf(selectedTool);
+      const nextIndex = (currentIndex + 1) % tools.length;
+      setSelectedTool(tools[nextIndex]);
+    };
+
+    window.addEventListener('keydown', handleTabKey, { capture: true });
+    return () => window.removeEventListener('keydown', handleTabKey, { capture: true });
+  }, [session, selectedTool, executionMode, setSelectedTool, setExecutionMode]);
+
   if (!activeSessionId) {
     return (
       <div className="flex-1 flex h-full st-bg">
@@ -424,13 +452,11 @@ export const MainLayout: React.FC = React.memo(() => {
               session={session}
               panelId={aiPanel?.id || null}
               selectedTool={selectedTool}
-              onToolChange={setSelectedTool}
               onSend={handleSendMessage}
               onCancel={cancelRequest}
               isProcessing={isProcessing}
               focusRequestId={inputFocusRequestId}
               initialExecutionMode={executionMode}
-              onExecutionModeChange={setExecutionMode}
             />
           </>
         ) : (

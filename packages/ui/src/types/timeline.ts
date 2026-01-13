@@ -27,6 +27,8 @@ export interface BaseTimelineEvent {
   exit_code?: number;
   tool?: string;
   meta?: Record<string, unknown>;
+  // Used by streaming event types; in practice may be a boolean or 0/1 from SQLite.
+  is_streaming?: boolean | number;
 }
 
 // Chat events

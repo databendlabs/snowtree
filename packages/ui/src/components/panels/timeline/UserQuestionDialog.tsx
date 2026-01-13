@@ -84,7 +84,7 @@ export function UserQuestionDialog({ questions, onSubmit, onCancel }: UserQuesti
     const state = stateRef.current;
 
     // Only handle navigation keys to avoid interfering with text input
-    const navigationKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'h', 'l', 'j', 'k', 'Enter', 'Escape', 'Tab'];
+    const navigationKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'h', 'l', 'j', 'k', 'Enter', 'Escape'];
     if (!navigationKeys.includes(e.key)) return;
 
     const pick = (answer: string, custom: boolean = false) => {

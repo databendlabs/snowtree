@@ -10,6 +10,7 @@ export function useWorkspaceStageSync() {
   const { sessions, isLoaded, updateWorkspaceStage } = useSessionStore();
   const syncedSessionsRef = useRef<Set<string>>(new Set());
   const pollingTimerRef = useRef<number | null>(null);
+  const pollingInFlightRef = useRef(false);
 
   // Fetch workspace stage for a single session
   const fetchStageForSession = async (sessionId: string) => {
@@ -70,20 +71,36 @@ export function useWorkspaceStageSync() {
     void fetchAll();
   }, [isLoaded, sessions, updateWorkspaceStage]);
 
-  // Periodic refresh for all sessions (every 30 seconds)
+  // Periodic refresh for all sessions (every 5 seconds)
   useEffect(() => {
     if (!isLoaded) return;
 
-    const pollAll = () => {
-      const sessionsWithWorktree = sessions.filter((s) => s.worktreePath);
-      for (const s of sessionsWithWorktree) {
-        void fetchStageForSession(s.id);
+    const pollAll = async () => {
+      if (pollingInFlightRef.current) return;
+      if (document.visibilityState !== 'visible') return;
+      pollingInFlightRef.current = true;
+      try {
+        const sessionsWithWorktree = sessions.filter((s) => s.worktreePath);
+        const batchSize = 3;
+        for (let i = 0; i < sessionsWithWorktree.length; i += batchSize) {
+          const batch = sessionsWithWorktree.slice(i, i + batchSize);
+          await Promise.all(batch.map((s) => fetchStageForSession(s.id)));
+        }
+      } finally {
+        pollingInFlightRef.current = false;
       }
     };
 
-    pollingTimerRef.current = window.setInterval(pollAll, 30_000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void pollAll();
+    };
+
+    void pollAll();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    pollingTimerRef.current = window.setInterval(() => { void pollAll(); }, 5_000);
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (pollingTimerRef.current) {
         window.clearInterval(pollingTimerRef.current);
         pollingTimerRef.current = null;

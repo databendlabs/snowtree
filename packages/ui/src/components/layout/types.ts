@@ -44,14 +44,12 @@ export interface InputBarProps {
   session: Session;
   panelId: string | null;
   selectedTool: CLITool;
-  onToolChange: (tool: CLITool) => void;
   onSend: (message: string, images?: ImageAttachment[], planMode?: boolean) => void;
   onCancel: () => void;
   isProcessing: boolean;
   placeholder?: string;
   focusRequestId?: number;
   initialExecutionMode?: ExecutionMode;
-  onExecutionModeChange?: (mode: ExecutionMode) => void;
 }
 
 export interface RightPanelProps {

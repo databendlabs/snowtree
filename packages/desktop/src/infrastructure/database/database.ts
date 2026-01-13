@@ -2432,6 +2432,104 @@ export class DatabaseService {
     return tx();
   }
 
+  updateTimelineAssistantEvent(id: number, command: string, isStreaming: number | null, timestamp: string): TimelineEvent {
+    const update = this.db.prepare(`
+      UPDATE timeline_events
+      SET command = ?, is_streaming = ?, timestamp = ?
+      WHERE id = ?
+    `);
+
+    const select = this.db.prepare(`
+      SELECT
+        id,
+        session_id,
+        seq,
+        timestamp,
+        kind,
+        status,
+        command,
+        cwd,
+        duration_ms,
+        exit_code,
+        panel_id,
+        tool,
+        meta_json,
+        tool_name,
+        tool_input,
+        tool_result,
+        is_error,
+        content,
+        is_streaming,
+        tool_use_id,
+        questions,
+        answers,
+        action_type,
+        thinking_id
+      FROM timeline_events
+      WHERE id = ?
+    `);
+
+    update.run(command ?? null, isStreaming, timestamp, id);
+
+    const updated = select.get(id) as {
+      id: number;
+      session_id: string;
+      seq: number;
+      timestamp: string;
+      kind: string;
+      status: string | null;
+      command: string | null;
+      cwd: string | null;
+      duration_ms: number | null;
+      exit_code: number | null;
+      panel_id: string | null;
+      tool: string | null;
+      meta_json: string | null;
+      tool_name: string | null;
+      tool_input: string | null;
+      tool_result: string | null;
+      is_error: number | null;
+      content: string | null;
+      is_streaming: number | null;
+      tool_use_id: string | null;
+      questions: string | null;
+      answers: string | null;
+      action_type: string | null;
+      thinking_id: string | null;
+    } | undefined;
+
+    if (!updated) {
+      throw new Error(`Timeline event not found: ${id}`);
+    }
+
+    return {
+      id: updated.id,
+      session_id: updated.session_id,
+      seq: updated.seq,
+      timestamp: updated.timestamp,
+      kind: updated.kind as TimelineEvent['kind'],
+      status: updated.status ? (updated.status as TimelineEvent['status']) : undefined,
+      command: updated.command ?? undefined,
+      cwd: updated.cwd ?? undefined,
+      duration_ms: updated.duration_ms ?? undefined,
+      exit_code: updated.exit_code ?? undefined,
+      panel_id: updated.panel_id ?? undefined,
+      tool: updated.tool ? (updated.tool as TimelineEvent['tool']) : undefined,
+      meta: updated.meta_json ? (JSON.parse(updated.meta_json) as Record<string, unknown>) : undefined,
+      tool_name: updated.tool_name ?? undefined,
+      tool_input: updated.tool_input ?? undefined,
+      tool_result: updated.tool_result ?? undefined,
+      is_error: updated.is_error ?? undefined,
+      content: updated.content ?? undefined,
+      is_streaming: updated.is_streaming ?? undefined,
+      tool_use_id: updated.tool_use_id ?? undefined,
+      questions: updated.questions ?? undefined,
+      answers: updated.answers ?? undefined,
+      action_type: updated.action_type ?? undefined,
+      thinking_id: updated.thinking_id ?? undefined
+    } satisfies TimelineEvent;
+  }
+
   getTimelineEvents(sessionId: string): TimelineEvent[] {
     const rows = this.db.prepare(`
       SELECT

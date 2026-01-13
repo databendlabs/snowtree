@@ -75,8 +75,8 @@ type CommandInfo = {
 
 type TimelineItem =
   | { type: 'userMessage'; seq: number; timestamp: string; content: string }
-  | { type: 'agentResponse'; seq: number; timestamp: string; endTimestamp: string; status: 'running' | 'done' | 'error' | 'interrupted'; messages: Array<{ content: string; timestamp: string }>; commands: CommandInfo[] }
-  | { type: 'thinking'; seq: number; timestamp: string; content: string; isStreaming?: boolean; tool?: string | null }
+  | { type: 'agentResponse'; seq: number; timestamp: string; endTimestamp: string; status: 'running' | 'done' | 'error' | 'interrupted'; messages: Array<{ content: string; timestamp: string; isStreaming?: boolean }>; commands: CommandInfo[] }
+  | { type: 'thinking'; seq: number; timestamp: string; content: string; isStreaming?: boolean; tool?: string | null; thinkingId?: string }
   | { type: 'toolCall'; seq: number; timestamp: string; toolName: string; toolInput?: string; toolResult?: string; isError?: boolean; exitCode?: number }
   | { type: 'userQuestion'; seq: number; timestamp: string; toolUseId: string; panelId?: string; questions: Question[]; status: 'pending' | 'answered'; answers?: Record<string, string | string[]> };
 
@@ -108,9 +108,9 @@ const buildItems = (
 ): TimelineItem[] => {
   type FlatItem =
     | { type: 'user'; seq: number; timestamp: string; content: string }
-    | { type: 'assistant'; seq: number; timestamp: string; content: string }
+    | { type: 'assistant'; seq: number; timestamp: string; content: string; isStreaming?: boolean }
     | { type: 'command'; seq: number; timestamp: string; kind: 'cli' | 'git' | 'worktree'; status?: TimelineEvent['status']; command: string; cwd?: string; durationMs?: number; exitCode?: number; tool?: string; meta?: Record<string, unknown> }
-    | { type: 'thinking'; seq: number; timestamp: string; content: string; isStreaming?: boolean; tool?: string | null }
+    | { type: 'thinking'; seq: number; timestamp: string; content: string; isStreaming?: boolean; tool?: string | null; thinkingId?: string }
     | { type: 'toolCall'; seq: number; timestamp: string; toolName: string; toolInput?: string; toolResult?: string; isError?: boolean; exitCode?: number }
     | { type: 'userQuestion'; seq: number; timestamp: string; toolUseId: string; panelId?: string; questions: Question[]; status: 'pending' | 'answered'; answers?: Record<string, string | string[]> };
 
@@ -131,7 +131,7 @@ const buildItems = (
     if (event.kind === 'chat.user') {
       flat.push({ type: 'user', seq: event.seq, timestamp: event.timestamp, content: event.command || '' });
     } else if (event.kind === 'chat.assistant') {
-      flat.push({ type: 'assistant', seq: event.seq, timestamp: event.timestamp, content: event.command || '' });
+      flat.push({ type: 'assistant', seq: event.seq, timestamp: event.timestamp, content: event.command || '', isStreaming: Boolean(event.is_streaming) });
     } else if (event.kind === 'thinking') {
       const content = (event.content || '').trim();
       // Codex emits lots of single-line phase markers ("Searching", "Preparing", "Respond", etc.)
@@ -147,6 +147,9 @@ const buildItems = (
         content: event.content || '',
         isStreaming: Boolean(event.is_streaming),
         tool: event.tool ?? null,
+        thinkingId: typeof (event as TimelineEvent & { thinking_id?: unknown }).thinking_id === 'string'
+          ? String((event as TimelineEvent & { thinking_id: string }).thinking_id)
+          : undefined,
       });
     } else if (event.kind === 'tool_use') {
       // Pair tool_use with tool_result - use event.id as the pair key
@@ -230,7 +233,7 @@ const buildItems = (
     if (first.kind === 'chat.user') {
       flat.push({ type: 'user', seq: first.seq, timestamp: first.timestamp, content: first.command || '' });
     } else if (first.kind === 'chat.assistant') {
-      flat.push({ type: 'assistant', seq: first.seq, timestamp: first.timestamp, content: first.command || '' });
+      flat.push({ type: 'assistant', seq: first.seq, timestamp: first.timestamp, content: first.command || '', isStreaming: Boolean(first.is_streaming) });
     } else if (first.kind === 'cli.command' || first.kind === 'git.command' || first.kind === 'worktree.command') {
       flat.push({
         type: 'command',
@@ -293,7 +296,7 @@ const buildItems = (
     // Collect all non-user items into an agent response
     const startSeq = current.seq;
     const startTimestamp = current.timestamp;
-    const messages: Array<{ content: string; timestamp: string }> = [];
+    const messages: Array<{ content: string; timestamp: string; isStreaming?: boolean }> = [];
     const commands: CommandInfo[] = [];
     let endTimestamp = current.timestamp;
     let hasRunning = false;
@@ -305,7 +308,7 @@ const buildItems = (
       endTimestamp = item.timestamp;
 
       if (item.type === 'assistant') {
-        messages.push({ content: item.content, timestamp: item.timestamp });
+        messages.push({ content: item.content, timestamp: item.timestamp, isStreaming: item.isStreaming });
       } else if (item.type === 'command') {
         const meta = item.meta || {};
         const termination = typeof meta.termination === 'string' ? meta.termination : undefined;
@@ -411,7 +414,7 @@ const UserMessage: React.FC<{ content: string; timestamp: string; images?: Image
 );
 
 const AgentResponse: React.FC<{
-  messages: Array<{ content: string; timestamp: string }>;
+  messages: Array<{ content: string; timestamp: string; isStreaming?: boolean }>;
   commands: CommandInfo[];
   status: 'running' | 'done' | 'error' | 'interrupted';
   timestamp: string;
@@ -442,21 +445,10 @@ const AgentResponse: React.FC<{
     return c.status === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0);
   }).length;
   const doneCount = commands.length - runningCount - failedCount - interruptedCount;
+  const lastMessageIsStreaming = messages.length > 0 && Boolean(messages[messages.length - 1]?.isStreaming);
 
   return (
     <div className="agent-response-container">
-      {messages.length > 0 && (
-        <div className="space-y-2">
-          {messages.map((msg, idx) => (
-            <div key={idx} className="markdown-content text-sm leading-relaxed" style={{ color: colors.text.primary }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {msg.content}
-              </ReactMarkdown>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Commands section */}
       {commands.length > 0 && (
         <div className="commands-section">
@@ -614,6 +606,25 @@ const AgentResponse: React.FC<{
         </div>
       )}
 
+      {messages.length > 0 && (
+        <div className="space-y-2">
+          {messages.map((msg, idx) => (
+            <div key={idx} className="markdown-content text-sm leading-relaxed" style={{ color: colors.text.primary }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {msg.content}
+              </ReactMarkdown>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {lastMessageIsStreaming && (
+        <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: colors.text.muted }}>
+          <Spinner />
+          <span>Responding...</span>
+        </div>
+      )}
+
       <div className="message-timestamp">
         {formatDistanceToNow(parseTimestamp(endTimestamp))}
       </div>
@@ -646,7 +657,6 @@ export const TimelineView: React.FC<{
   const [hasNew, setHasNew] = useState(false);
   const idsRef = useRef(new Set<number>());
   const requestIdRef = useRef(0);
-  const [streamingAssistant, setStreamingAssistant] = useState<{ content: string; timestamp: string } | null>(null);
   const [dismissedQuestionIds, setDismissedQuestionIds] = useState<Set<string>>(new Set());
 
   const isAtBottom = useCallback((container: HTMLDivElement) => {
@@ -702,7 +712,6 @@ export const TimelineView: React.FC<{
       if (data.sessionId !== sessionId) return;
       const event = data.event as TimelineEvent | undefined;
       if (!event) return;
-      // Streaming is cleared in a separate effect that checks timeline items
       const already = idsRef.current.has(event.id);
       idsRef.current.add(event.id);
       setEvents((prev) => {
@@ -727,21 +736,6 @@ export const TimelineView: React.FC<{
     return () => unsubscribe();
   }, [sessionId]);
 
-  useEffect(() => {
-    const api = window.electronAPI;
-    if (!api?.events?.onAssistantStream) return;
-
-    const unsub = api.events.onAssistantStream((data) => {
-      if (!data || data.sessionId !== sessionId) return;
-      const content = (data.content || '').trim();
-      if (!content) return;
-      setStreamingAssistant({ content, timestamp: new Date().toISOString() });
-    });
-    return () => {
-      if (unsub) unsub();
-    };
-  }, [sessionId]);
-
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
@@ -754,7 +748,7 @@ export const TimelineView: React.FC<{
     if (!wasAtBottomRef.current) return;
     const behavior: ScrollBehavior = loading ? 'auto' : 'smooth';
     requestAnimationFrame(() => scrollToBottom(behavior));
-  }, [events.length, pendingMessage?.content, streamingAssistant?.content, loading, scrollToBottom, isAtBottom]);
+  }, [events.length, pendingMessage?.content, loading, scrollToBottom, isAtBottom]);
 
   useEffect(() => {
     const node = contentRef.current;
@@ -792,46 +786,6 @@ export const TimelineView: React.FC<{
   const items = useMemo(() => {
     return buildItems(events, session.toolType, session.status);
   }, [events, session.toolType, session.status]);
-
-  // Clear streaming when a new timeline assistant message arrives that contains the streaming content
-  useEffect(() => {
-    if (!streamingAssistant) return;
-
-    const streamingContent = streamingAssistant.content;
-    const streamingTimestamp = streamingAssistant.timestamp;
-
-    // Only check the most recent item
-    for (let i = items.length - 1; i >= 0 && i >= items.length - 2; i--) {
-      const item = items[i];
-      if (item.type === 'agentResponse' && item.messages.length > 0) {
-        const lastMsg = item.messages[item.messages.length - 1];
-        // Only clear if:
-        // 1. The timeline message is at least as long as streaming (covers the content)
-        // 2. AND the timeline message arrived after streaming started (newer timestamp)
-        // 3. OR the timeline message contains the streaming content (substring match)
-        const timelineTimestamp = item.timestamp;
-        const isNewer = timelineTimestamp >= streamingTimestamp;
-        const isLonger = lastMsg.content.length >= streamingContent.length * 0.9;
-        const containsContent = streamingContent.length > 50 && lastMsg.content.includes(streamingContent.slice(0, 50));
-
-        if (isNewer && (isLonger || containsContent)) {
-          setStreamingAssistant(null);
-          return;
-        }
-      }
-    }
-  }, [items, streamingAssistant]);
-
-  // Clear streaming when session is no longer running/initializing (fallback safety)
-  useEffect(() => {
-    if (!streamingAssistant) return;
-    if (session.status !== 'running' && session.status !== 'initializing') {
-      const timer = setTimeout(() => {
-        setStreamingAssistant(null);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [session.status, streamingAssistant]);
 
   // Group items by time for separators
   const itemsWithSeparators = useMemo(() => {
@@ -920,7 +874,7 @@ export const TimelineView: React.FC<{
               if (timelineItem.type === 'thinking') {
                 return (
                   <ThinkingMessage
-                    key={`thinking-${timelineItem.seq}`}
+                    key={`thinking-${timelineItem.thinkingId || timelineItem.seq}`}
                     content={timelineItem.content}
                     timestamp={timelineItem.timestamp}
                     isStreaming={timelineItem.isStreaming}
@@ -992,20 +946,6 @@ export const TimelineView: React.FC<{
                 />
               );
             })}
-
-            {streamingAssistant && (
-              <div className="agent-response-container">
-                <div className="markdown-content text-sm leading-relaxed" style={{ color: colors.text.primary }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {streamingAssistant.content}
-                  </ReactMarkdown>
-                </div>
-                <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: colors.text.muted }}>
-                  <Spinner />
-                  <span>Responding...</span>
-                </div>
-              </div>
-            )}
 
             {visiblePendingMessage && (
               <div

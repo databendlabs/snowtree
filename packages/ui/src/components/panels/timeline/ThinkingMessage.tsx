@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './ThinkingMessage.css';
 
 export interface ThinkingMessageProps {
@@ -8,7 +8,15 @@ export interface ThinkingMessageProps {
 }
 
 export function ThinkingMessage({ content, timestamp, isStreaming }: ThinkingMessageProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(Boolean(isStreaming));
+  const [userToggled, setUserToggled] = useState(false);
+
+  // Opencode-style UX: show thinking details while streaming; collapse once complete.
+  useEffect(() => {
+    if (userToggled) return;
+    if (isStreaming) setExpanded(true);
+    else setExpanded(false);
+  }, [isStreaming, userToggled]);
 
   const formatTime = (isoString: string) => {
     const date = new Date(isoString);
@@ -24,12 +32,16 @@ export function ThinkingMessage({ content, timestamp, isStreaming }: ThinkingMes
     <div className="thinking-message">
       <div
         className="thinking-header"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          setUserToggled(true);
+          setExpanded(!expanded);
+        }}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
+            setUserToggled(true);
             setExpanded(!expanded);
           }
         }}

@@ -9,7 +9,8 @@ import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { exec } from 'child_process';
+import { exec, spawn as spawnChild } from 'child_process';
+import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { promisify } from 'util';
 
 import type { Logger } from '../../infrastructure/logging/logger';
@@ -108,6 +109,14 @@ export abstract class AbstractExecutor extends EventEmitter {
    */
   protected shouldFinalizeSpawnCommandOnSpawn(): boolean {
     return false;
+  }
+
+  /**
+   * Some tools (e.g. JSON-RPC servers) should not run under a PTY because terminal
+   * echo/wrapping can corrupt protocol framing. Default is PTY for interactive CLIs.
+   */
+  protected getSpawnTransport(): 'pty' | 'stdio' {
+    return 'pty';
   }
 
   /** Get CLI tool type for logging */
@@ -220,20 +229,33 @@ export abstract class AbstractExecutor extends EventEmitter {
         }
       });
 
-      // Spawn PTY process
-      const ptyProcess = await this.spawnPtyProcess(command, args, worktreePath, env);
-
-      // Store process
-      const executorProcess: ExecutorProcess = {
-        pty: ptyProcess,
-        panelId,
-        sessionId,
-        worktreePath,
-      };
-      this.processes.set(panelId, executorProcess);
-
-      // Set up handlers
-      this.setupProcessHandlers(ptyProcess, panelId, sessionId);
+      const transport = this.getSpawnTransport();
+      if (transport === 'pty') {
+        const ptyProcess = await this.spawnPtyProcess(command, args, worktreePath, env);
+        const executorProcess: ExecutorProcess = {
+          transport: 'pty',
+          pty: ptyProcess,
+          panelId,
+          sessionId,
+          worktreePath,
+        };
+        this.processes.set(panelId, executorProcess);
+        this.setupPtyProcessHandlers(ptyProcess, panelId, sessionId);
+      } else {
+        const child = await this.spawnStdioProcess(command, args, worktreePath, env);
+        const executorProcess: ExecutorProcess = {
+          transport: 'stdio',
+          child,
+          panelId,
+          sessionId,
+          worktreePath,
+          stdin: child.stdin,
+          stdout: child.stdout,
+          stderr: child.stderr,
+        };
+        this.processes.set(panelId, executorProcess);
+        this.setupStdioProcessHandlers(child, panelId, sessionId);
+      }
 
       // Build display command
       const displayArgs = args.map((arg, i) => {
@@ -356,8 +378,8 @@ export abstract class AbstractExecutor extends EventEmitter {
     throw lastError;
   }
 
-  /** Set up process event handlers */
-  protected setupProcessHandlers(ptyProcess: pty.IPty, panelId: string, sessionId: string): void {
+  /** Set up PTY process event handlers */
+  protected setupPtyProcessHandlers(ptyProcess: pty.IPty, panelId: string, sessionId: string): void {
     let buffer = '';
     let lineCount = 0;
 
@@ -382,8 +404,8 @@ export abstract class AbstractExecutor extends EventEmitter {
         this.parseOutput(buffer, panelId, sessionId);
       }
 
-      this.processes.delete(panelId);
       await this.cleanupResources(sessionId);
+      this.processes.delete(panelId);
 
       const op = this.cliOperationByPanel.get(panelId);
       if (op) {
@@ -428,6 +450,137 @@ export abstract class AbstractExecutor extends EventEmitter {
 
       this.emit('exit', { panelId, sessionId, exitCode, signal } as ExecutorExitEvent);
       cliLogger.complete(this.getCliLogType(), panelId, exitCode);
+    });
+  }
+
+  /** Spawn non-PTY process with piped stdio (used for machine protocols like JSON-RPC). */
+  protected async spawnStdioProcess(
+    command: string,
+    args: string[],
+    cwd: string,
+    env: Record<string, string>
+  ): Promise<ChildProcessWithoutNullStreams> {
+    // Validate working directory exists before spawning
+    if (!fs.existsSync(cwd)) {
+      throw new Error(
+        `Working directory does not exist: ${cwd}\n\n` +
+          `This usually happens when the workspace was renamed or deleted. ` +
+          `Please create a new session or restore the workspace directory.`
+      );
+    }
+
+    this.logger?.verbose(`Executing (stdio): ${command} ${args.join(' ')}`);
+    this.logger?.verbose(`Working directory: ${cwd}`);
+
+    const child = spawnChild(command, args, {
+      cwd,
+      env,
+      stdio: 'pipe',
+      detached: process.platform !== 'win32',
+    });
+
+    if (!child.stdout || !child.stderr || !child.stdin) {
+      throw new Error('Failed to spawn process with piped stdio');
+    }
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    return child;
+  }
+
+  /** Set up stdio process event handlers */
+  protected setupStdioProcessHandlers(
+    child: ChildProcessWithoutNullStreams,
+    panelId: string,
+    sessionId: string
+  ): void {
+    let outBuffer = '';
+    let errBuffer = '';
+
+    const flushOut = (final = false) => {
+      const lines = outBuffer.split('\n');
+      outBuffer = final ? '' : (lines.pop() || '');
+      for (const line of lines) {
+        if (line.trim()) this.parseOutput(line, panelId, sessionId);
+      }
+    };
+
+    const flushErr = (final = false) => {
+      const lines = errBuffer.split('\n');
+      errBuffer = final ? '' : (lines.pop() || '');
+      for (const line of lines) {
+        const t = line.trimEnd();
+        if (!t.trim()) continue;
+        this.emit('output', {
+          panelId,
+          sessionId,
+          type: 'stderr',
+          data: t,
+          timestamp: new Date(),
+        } as ExecutorOutputEvent);
+      }
+    };
+
+    (child.stdout as NodeJS.ReadableStream).on('data', (data: string | Buffer) => {
+      outBuffer += typeof data === 'string' ? data : data.toString('utf8');
+      flushOut(false);
+    });
+
+    (child.stderr as NodeJS.ReadableStream).on('data', (data: string | Buffer) => {
+      errBuffer += typeof data === 'string' ? data : data.toString('utf8');
+      flushErr(false);
+    });
+
+    child.on('exit', async (exitCode: number | null, signal: NodeJS.Signals | null) => {
+      flushOut(true);
+      flushErr(true);
+
+      await this.cleanupResources(sessionId);
+      this.processes.delete(panelId);
+
+      const op = this.cliOperationByPanel.get(panelId);
+      if (op) {
+        const durationMs = Date.now() - op.startMs;
+        const runtime = this.runtimeMetaByPanel.get(panelId) || {};
+        this.recordTimelineCommand({
+          sessionId,
+          panelId,
+          kind: 'cli.command',
+          status: typeof exitCode === 'number' && exitCode !== 0 ? 'failed' : 'finished',
+          command: undefined,
+          cwd: undefined,
+          tool: this.getToolType(),
+          durationMs,
+          exitCode: typeof exitCode === 'number' ? exitCode : undefined,
+          meta: { operationId: op.operationId, ...runtime, signal },
+        });
+        this.cliOperationByPanel.delete(panelId);
+      }
+
+      const byId = this.pendingToolOpByPanelId.get(panelId);
+      if (byId && byId.size > 0) {
+        const isError = typeof exitCode === 'number' && exitCode !== 0;
+        for (const [toolUseId, toolOp] of byId.entries()) {
+          const durationMs = Date.now() - toolOp.startMs;
+          this.recordTimelineCommand({
+            sessionId,
+            panelId,
+            kind: toolOp.kind,
+            status: isError ? 'failed' : 'finished',
+            durationMs,
+            tool: this.getToolType(),
+            meta: { operationId: toolOp.operationId || toolUseId },
+          });
+        }
+        this.pendingToolOpByPanelId.delete(panelId);
+      }
+      this.pendingToolOpByPanel.delete(panelId);
+      this.activeThinkingByPanel.delete(panelId);
+
+      // ChildProcess provides a string signal; the downstream session status logic expects numbers.
+      // Emit null here and let the caller infer termination from exitCode/session events.
+      this.emit('exit', { panelId, sessionId, exitCode, signal: null } as ExecutorExitEvent);
+      cliLogger.complete(this.getCliLogType(), panelId, typeof exitCode === 'number' ? exitCode : -1);
     });
   }
 
@@ -791,11 +944,36 @@ export abstract class AbstractExecutor extends EventEmitter {
 
   /** Send input to process */
   sendInput(panelId: string, input: string): void {
-    const process = this.processes.get(panelId);
-    if (!process) {
+    const proc = this.processes.get(panelId);
+    if (!proc) {
       throw new Error(`No process found for panel ${panelId}`);
     }
-    process.pty.write(input);
+    if (proc.transport === 'pty') {
+      proc.pty?.write(input);
+      return;
+    }
+
+    // For non-PTY processes, Ctrl+C should be delivered as a signal, not a byte.
+    if (input === '\x03') {
+      const pid = proc.child?.pid;
+      if (pid) {
+        try {
+          try {
+            process.kill(-pid, 'SIGINT');
+          } catch {
+            process.kill(pid, 'SIGINT');
+          }
+          return;
+        } catch {
+          // fall through
+        }
+      }
+    }
+
+    if (!proc.stdin) {
+      throw new Error(`No stdin available for panel ${panelId}`);
+    }
+    proc.stdin.write(input);
   }
 
   /** Answer a pending user question (from AskUserQuestion tool) */
@@ -841,7 +1019,7 @@ export abstract class AbstractExecutor extends EventEmitter {
     });
 
     // Write to CLI stdin
-    process.pty.write(toolResult + '\n');
+    this.sendInput(panelId, toolResult + '\n');
 
     // Update Timeline status to 'answered'
     try {
@@ -964,7 +1142,7 @@ export abstract class AbstractExecutor extends EventEmitter {
     if (!process) return;
 
     const { sessionId } = process;
-    const pid = process.pty.pid;
+    const pid = process.transport === 'pty' ? process.pty?.pid : process.child?.pid;
 
     this.terminationByPanel.set(panelId, { reason, atMs: Date.now() });
     this.finalizeInFlightOps(panelId, sessionId, reason);

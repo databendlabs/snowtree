@@ -36,6 +36,8 @@ interface ClaudeSpawnOptions extends ExecutorSpawnOptions {
  */
 export class ClaudeExecutor extends AbstractExecutor {
   private messageParser: ClaudeMessageParser;
+  private jsonFragmentByPanel = new Map<string, { buf: string; startedAtMs: number }>();
+  private internalWarningLastMsByKey = new Map<string, number>();
 
   constructor(
     sessionManager: SessionManager,
@@ -163,13 +165,45 @@ export class ClaudeExecutor extends AbstractExecutor {
     this.logger?.verbose(`Cleaning up Claude resources for session ${sessionId}`);
   }
 
+  private stripAnsiAndControlNoise(text: string): string {
+    return text
+      .replace(/\u0000/g, '')
+      .replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, '');
+  }
+
+  private maybeEmitInternalWarning(
+    panelId: string,
+    sessionId: string,
+    code: string,
+    message: string,
+    minIntervalMs = 60_000
+  ): void {
+    const key = `${panelId}:${code}`;
+    const now = Date.now();
+    const last = this.internalWarningLastMsByKey.get(key) || 0;
+    if (now - last < minIntervalMs) return;
+    this.internalWarningLastMsByKey.set(key, now);
+
+    const content = `Snowtree warning (${code}):\n${message}`;
+    void this.handleNormalizedEntry(panelId, sessionId, {
+      id: `snowtree:warn:${code}:${now}`,
+      timestamp: new Date().toISOString(),
+      entryType: 'thinking',
+      content,
+      metadata: { streaming: false, internal: true, code },
+    });
+  }
+
   parseOutput(data: string, panelId: string, sessionId: string): void {
-    const trimmed = data.trim();
+    const trimmed = this.stripAnsiAndControlNoise(String(data ?? '')).trim();
     if (!trimmed) return;
 
     try {
       // Try to parse as JSON
-      const message = JSON.parse(trimmed) as ClaudeMessage;
+      const prior = this.jsonFragmentByPanel.get(panelId);
+      const combined = prior ? `${prior.buf}\n${trimmed}` : trimmed;
+      const message = JSON.parse(combined) as ClaudeMessage;
+      this.jsonFragmentByPanel.delete(panelId);
 
       // Log parsed message type for debugging
       const msgType = message.type || 'unknown';
@@ -225,8 +259,51 @@ export class ClaudeExecutor extends AbstractExecutor {
         }
       }
     } catch (parseError) {
+      // Claude is expected to be line-delimited JSON (stream-json). If we fail to parse and it looks like JSON,
+      // buffer for the next line; otherwise treat as stdout but surface a warning to aid debugging.
+      if (trimmed.startsWith('{') && (trimmed.includes('"type"') || trimmed.includes('"message"'))) {
+        const existing = this.jsonFragmentByPanel.get(panelId);
+        const startedAtMs = existing?.startedAtMs ?? Date.now();
+        const nextBuf = existing ? `${existing.buf}\n${trimmed}` : trimmed;
+        const ageMs = Date.now() - startedAtMs;
+
+        if (nextBuf.length > 256_000) {
+          this.logger?.warn(`[Claude] Dropping oversized JSON fragment (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)} len=${nextBuf.length})`);
+          this.maybeEmitInternalWarning(
+            panelId,
+            sessionId,
+            'claude-json-fragment',
+            `Dropped an oversized Claude JSON fragment (len=${nextBuf.length}). This can cause missing messages/commands. Check dev logs for details.`
+          );
+          this.jsonFragmentByPanel.delete(panelId);
+          return;
+        }
+
+        this.jsonFragmentByPanel.set(panelId, { buf: nextBuf, startedAtMs });
+        if (ageMs > 1500) {
+          const snippet = nextBuf.length > 220 ? `${nextBuf.slice(0, 220)}…` : nextBuf;
+          this.logger?.warn(`[Claude] Buffering partial JSON (${Math.round(ageMs)}ms) (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
+          this.maybeEmitInternalWarning(
+            panelId,
+            sessionId,
+            'claude-json-fragment',
+            `Buffering partial Claude JSON output (>1.5s). Output may be incomplete until parsing recovers. Check dev logs for details.`
+          );
+        }
+        return;
+      }
+
       // Not JSON, emit as stdout and log
       cliLogger.info('Claude', panelId, `Non-JSON output: ${trimmed.slice(0, 200)}${trimmed.length > 200 ? '...' : ''}`);
+      if (trimmed.includes('Error') || trimmed.includes('Failed')) {
+        this.logger?.warn(`[Claude] Non-JSON output in stream-json mode (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${trimmed.slice(0, 220)}${trimmed.length > 220 ? '…' : ''}`);
+        this.maybeEmitInternalWarning(
+          panelId,
+          sessionId,
+          'claude-non-json',
+          `Received non-JSON output from Claude in stream-json mode. This may indicate a CLI crash or protocol mismatch. Check dev logs for details.`
+        );
+      }
       this.emit('output', {
         panelId,
         sessionId,
@@ -260,8 +337,7 @@ export class ClaudeExecutor extends AbstractExecutor {
       throw new Error(`No Claude process found for panel ${panelId}`);
     }
 
-    // Send message via stdin
-    process.pty.write(message + '\n');
+    this.sendInput(panelId, message + '\n');
   }
 
   /**
@@ -353,11 +429,8 @@ export class ClaudeExecutor extends AbstractExecutor {
    * Interrupt current operation (Ctrl+C)
    */
   interrupt(panelId: string): void {
-    const process = this.processes.get(panelId);
-    if (!process) return;
-
-    // Send Ctrl+C
-    process.pty.write('\x03');
+    if (!this.processes.has(panelId)) return;
+    this.sendInput(panelId, '\x03');
     cliLogger.info('Claude', panelId, 'Sent interrupt signal');
   }
 }

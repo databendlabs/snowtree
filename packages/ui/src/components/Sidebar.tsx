@@ -52,6 +52,8 @@ export function Sidebar() {
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateInstalling, setUpdateInstalling] = useState(false);
   const [updateError, setUpdateError] = useState<string>('');
+  const sidebarPollingTimerRef = useRef<number | null>(null);
+  const worktreePollInFlightRef = useRef<Set<number>>(new Set());
 
   const loadProjects = useCallback(async () => {
     const res = await API.projects.getAll();
@@ -340,6 +342,43 @@ export function Sidebar() {
     // Load real git worktrees for all repos (best-effort).
     void Promise.all(projects.map((p) => loadWorktrees(p)));
   }, [projects, loadWorktrees]);
+
+  // Periodically refresh worktree stats in the sidebar so badges/counters update without clicking.
+  useEffect(() => {
+    if (sidebarPollingTimerRef.current) {
+      window.clearInterval(sidebarPollingTimerRef.current);
+      sidebarPollingTimerRef.current = null;
+    }
+    if (projects.length === 0) return;
+
+    const poll = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const targets = projects.filter((p) => !collapsedProjects.has(p.id));
+      for (const project of targets) {
+        if (worktreePollInFlightRef.current.has(project.id)) continue;
+        worktreePollInFlightRef.current.add(project.id);
+        void loadWorktrees(project, { silent: true }).finally(() => {
+          worktreePollInFlightRef.current.delete(project.id);
+        });
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void poll();
+    };
+
+    void poll();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    sidebarPollingTimerRef.current = window.setInterval(() => { void poll(); }, 5_000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (sidebarPollingTimerRef.current) {
+        window.clearInterval(sidebarPollingTimerRef.current);
+        sidebarPollingTimerRef.current = null;
+      }
+    };
+  }, [projects, collapsedProjects, loadWorktrees]);
 
   const activeSession = useMemo(() => sessions.find((s) => s.id === activeSessionId) || null, [sessions, activeSessionId]);
   const activeWorktreePath = activeSession?.worktreePath || null;

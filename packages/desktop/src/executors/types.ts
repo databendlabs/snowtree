@@ -4,6 +4,7 @@
  */
 
 import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch';
+import type { ChildProcessWithoutNullStreams } from 'child_process';
 
 // ============================================================================
 // Executor Types
@@ -29,12 +30,15 @@ export interface ExecutorSpawnOptions {
 }
 
 export interface ExecutorProcess {
-  pty: IPty;
+  transport: 'pty' | 'stdio';
   panelId: string;
   sessionId: string;
   worktreePath: string;
+  pty?: IPty;
+  child?: ChildProcessWithoutNullStreams;
   stdin?: NodeJS.WritableStream;
   stdout?: NodeJS.ReadableStream;
+  stderr?: NodeJS.ReadableStream;
 }
 
 export interface ExecutorAvailability {

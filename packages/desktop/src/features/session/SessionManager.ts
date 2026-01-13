@@ -55,6 +55,7 @@ export class SessionManager extends EventEmitter {
   private activeProject: Project | null = null;
   private terminalSessionManager: TerminalManager;
   private autoContextBuffers: Map<string, SessionOutput[]> = new Map();
+  private streamingAssistantTimelineEventByPanel: Map<string, number> = new Map();
 
   constructor(public db: DatabaseService) {
     super();
@@ -83,6 +84,78 @@ export class SessionManager extends EventEmitter {
     });
     this.emit('timeline:event', { sessionId: event.session_id, event });
     return event;
+  }
+
+  upsertStreamingAssistantTimeline(panelId: string, sessionId: string, tool: string | undefined, content: string, timestamp?: string): TimelineEvent {
+    const ts = typeof timestamp === 'string' && timestamp ? timestamp : new Date().toISOString();
+    const existingId = this.streamingAssistantTimelineEventByPanel.get(panelId);
+
+    if (!existingId) {
+      let resolvedTool = tool;
+      if (!resolvedTool) {
+        try {
+          const panel = this.db.getPanel(panelId);
+          resolvedTool = panel?.type;
+        } catch {
+          // best-effort
+        }
+      }
+      const event = this.db.addTimelineEvent({
+        session_id: sessionId,
+        panel_id: panelId,
+        kind: 'chat.assistant',
+        command: content,
+        tool: resolvedTool,
+        is_streaming: 1,
+        timestamp: ts,
+        meta: { streaming: true }
+      });
+      this.streamingAssistantTimelineEventByPanel.set(panelId, event.id);
+      this.emit('timeline:event', { sessionId: event.session_id, event });
+      return event;
+    }
+
+    const updated = this.db.updateTimelineAssistantEvent(existingId, content, 1, ts);
+    this.emit('timeline:event', { sessionId: updated.session_id, event: updated });
+    return updated;
+  }
+
+  finalizeStreamingAssistantTimeline(panelId: string, sessionId: string, tool: string | undefined, content: string, timestamp?: string): TimelineEvent {
+    const ts = typeof timestamp === 'string' && timestamp ? timestamp : new Date().toISOString();
+    const existingId = this.streamingAssistantTimelineEventByPanel.get(panelId);
+
+    if (existingId) {
+      const updated = this.db.updateTimelineAssistantEvent(existingId, content, 0, ts);
+      this.streamingAssistantTimelineEventByPanel.delete(panelId);
+      this.emit('timeline:event', { sessionId: updated.session_id, event: updated });
+      return updated;
+    }
+
+    let resolvedTool = tool;
+    if (!resolvedTool) {
+      try {
+        const panel = this.db.getPanel(panelId);
+        resolvedTool = panel?.type;
+      } catch {
+        // best-effort
+      }
+    }
+    const event = this.db.addTimelineEvent({
+      session_id: sessionId,
+      panel_id: panelId,
+      kind: 'chat.assistant',
+      command: content,
+      tool: resolvedTool,
+      is_streaming: 0,
+      timestamp: ts,
+      meta: { streaming: false }
+    });
+    this.emit('timeline:event', { sessionId: event.session_id, event });
+    return event;
+  }
+
+  clearStreamingAssistantTimeline(panelId: string): void {
+    this.streamingAssistantTimelineEventByPanel.delete(panelId);
   }
 
   getTimelineEvents(sessionId: string): TimelineEvent[] {
@@ -1165,21 +1238,29 @@ export class SessionManager extends EventEmitter {
     }));
   }
 
-  addPanelConversationMessage(panelId: string, messageType: 'user' | 'assistant', content: string): void {
+  addPanelConversationMessage(
+    panelId: string,
+    messageType: 'user' | 'assistant',
+    content: string,
+    options?: { recordTimeline?: boolean }
+  ): void {
     this.db.addPanelConversationMessage(panelId, messageType, content);
 
     try {
       const panel = this.db.getPanel(panelId);
       console.log('[SessionManager] addPanelConversationMessage:', { panelId, messageType, hasPanel: !!panel, sessionId: panel?.sessionId });
       if (panel?.sessionId) {
-        this.addTimelineEvent({
-          session_id: panel.sessionId,
-          panel_id: panelId,
-          kind: messageType === 'user' ? 'chat.user' : 'chat.assistant',
-          command: content,
-          tool: panel.type
-        });
-        console.log('[SessionManager] Timeline event added for', messageType);
+        const recordTimeline = options?.recordTimeline !== false;
+        if (recordTimeline) {
+          this.addTimelineEvent({
+            session_id: panel.sessionId,
+            panel_id: panelId,
+            kind: messageType === 'user' ? 'chat.user' : 'chat.assistant',
+            command: content,
+            tool: panel.type
+          });
+          console.log('[SessionManager] Timeline event added for', messageType);
+        }
       } else {
         console.warn('[SessionManager] No sessionId for panel, timeline event not added');
       }

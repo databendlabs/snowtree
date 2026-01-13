@@ -266,7 +266,7 @@ export class CodexPanelManager extends AbstractAIPanelManager {
     }
 
     this.logger?.verbose(`Sending interrupt signal (Ctrl+C) to panel ${panelId}`);
-    this.codexExecutor.sendInput(panelId, '\x03');
+    this.codexExecutor.interrupt(panelId);
   }
 
   /**

@@ -77,7 +77,7 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
   });
 
   const wireExecutorLifecycle = (executor: ExecutorLike) => {
-    const streamingAssistantBufferByPanel = new Map<string, string>();
+    const streamingAssistantBufferByPanel = new Map<string, { content: string; timestamp?: string }>();
     const lastAssistantByPanel = new Map<string, string>();
     const pendingStreamFlushByPanel = new Map<string, NodeJS.Timeout>();
 
@@ -115,15 +115,21 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
         console.log('[events.ts] assistant_message:', { isStreaming, contentLen: content.length, panelId: panelId.slice(0, 8) });
 
         if (isStreaming) {
-          streamingAssistantBufferByPanel.set(panelId, content);
+          streamingAssistantBufferByPanel.set(panelId, { content, timestamp: entry.timestamp });
           if (!pendingStreamFlushByPanel.has(panelId)) {
             const t = setTimeout(() => {
               pendingStreamFlushByPanel.delete(panelId);
               const latest = streamingAssistantBufferByPanel.get(panelId);
-              if (!latest || !latest.trim()) return;
-              console.log('[events.ts] Sending assistant:stream to UI, contentLen:', latest.length);
-              send('assistant:stream', { sessionId, panelId, content: latest });
-            }, 48);
+              const latestText = latest?.content || '';
+              if (!latestText.trim()) return;
+              console.log('[events.ts] Updating streaming assistant timeline, contentLen:', latestText.length);
+              try {
+                const tool = typeof meta.tool === 'string' ? meta.tool : undefined;
+                sessionManager.upsertStreamingAssistantTimeline(panelId, sessionId, tool, latestText, latest?.timestamp);
+              } catch {
+                // best-effort
+              }
+            }, 100);
             pendingStreamFlushByPanel.set(panelId, t);
           }
           return;
@@ -132,9 +138,18 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
         const last = lastAssistantByPanel.get(panelId);
         if (last === content) return;
         lastAssistantByPanel.set(panelId, content);
+        const pending = pendingStreamFlushByPanel.get(panelId);
+        if (pending) clearTimeout(pending);
+        pendingStreamFlushByPanel.delete(panelId);
         streamingAssistantBufferByPanel.delete(panelId);
         try {
-          sessionManager.addPanelConversationMessage(panelId, 'assistant', content);
+          const tool = typeof meta.tool === 'string' ? meta.tool : undefined;
+          sessionManager.finalizeStreamingAssistantTimeline(panelId, sessionId, tool, content, entry.timestamp);
+        } catch {
+          // best-effort
+        }
+        try {
+          sessionManager.addPanelConversationMessage(panelId, 'assistant', content, { recordTimeline: false });
         } catch {
           // best-effort
         }
@@ -174,18 +189,29 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
         pendingStreamFlushByPanel.delete(panelId);
 
         const buffered = streamingAssistantBufferByPanel.get(panelId);
-        if (buffered && buffered.trim()) {
+        const bufferedText = buffered?.content || '';
+        if (bufferedText.trim()) {
           const last = lastAssistantByPanel.get(panelId);
-          if (last !== buffered) {
-            lastAssistantByPanel.set(panelId, buffered);
+          if (last !== bufferedText) {
+            lastAssistantByPanel.set(panelId, bufferedText);
             try {
-              sessionManager.addPanelConversationMessage(panelId, 'assistant', buffered);
+              sessionManager.finalizeStreamingAssistantTimeline(panelId, sessionId, undefined, bufferedText, buffered?.timestamp);
+            } catch {
+              // best-effort
+            }
+            try {
+              sessionManager.addPanelConversationMessage(panelId, 'assistant', bufferedText, { recordTimeline: false });
             } catch {
               // best-effort
             }
           }
         }
         streamingAssistantBufferByPanel.delete(panelId);
+        try {
+          sessionManager.clearStreamingAssistantTimeline(panelId);
+        } catch {
+          // best-effort
+        }
       }
 
       const code = typeof exitCode === 'number' ? exitCode : null;

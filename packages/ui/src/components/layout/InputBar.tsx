@@ -396,14 +396,12 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   session,
   panelId: _panelId,
   selectedTool,
-  onToolChange,
   onSend,
   onCancel,
   isProcessing,
   placeholder = 'Message...',
   focusRequestId,
   initialExecutionMode,
-  onExecutionModeChange
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
@@ -416,16 +414,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     }
   }, [initialExecutionMode]);
 
-  // Wrapper to notify parent when execution mode changes
-  const setExecutionMode = useCallback((mode: ExecutionMode | ((prev: ExecutionMode) => ExecutionMode)) => {
-    setExecutionModeInternal((prev) => {
-      const newMode = typeof mode === 'function' ? mode(prev) : mode;
-      if (newMode !== prev) {
-        onExecutionModeChange?.(newMode);
-      }
-      return newMode;
-    });
-  }, [onExecutionModeChange]);
   const editorRef = useRef<HTMLDivElement>(null);
   const [aiToolsStatus, setAiToolsStatus] = useState<AiToolsStatus | null>(null);
   const [, setAiToolsLoading] = useState(false);
@@ -961,30 +949,11 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
         }
       }
     };
-    const handleTabKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-
-      if (e.shiftKey) {
-        // Shift+Tab: Toggle execution mode (plan/execute)
-        setExecutionMode((prev) => prev === 'execute' ? 'plan' : 'execute');
-      } else {
-        // Tab: Switch agent
-        const tools: CLITool[] = ['claude', 'codex'];
-        const currentIndex = tools.indexOf(selectedTool);
-        const nextIndex = (currentIndex + 1) % tools.length;
-        onToolChange(tools[nextIndex]);
-      }
-    };
     window.addEventListener('keydown', handleGlobalKeyDown);
-    document.addEventListener('keydown', handleTabKey, { capture: true });
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown);
-      document.removeEventListener('keydown', handleTabKey, { capture: true });
     };
-  }, [isRunning, escPending, onCancel, selectedTool, onToolChange]);
+  }, [isRunning, escPending, onCancel]);
 
   useEffect(() => {
     if (!focusRequestId) return;
