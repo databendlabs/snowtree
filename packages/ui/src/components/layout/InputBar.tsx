@@ -72,6 +72,41 @@ const BlockCursor: React.FC<{
               return;
             }
           }
+
+          // Fallback: insert a temporary marker to get cursor position
+          // This handles cases like cursor after <br> where getBoundingClientRect returns zero
+          try {
+            const marker = document.createElement('span');
+            marker.setAttribute('data-cursor-marker', 'true');
+            marker.textContent = '\u200B'; // zero-width space
+
+            // Clone the range to avoid modifying the original selection
+            const markerRange = range.cloneRange();
+            markerRange.insertNode(marker);
+
+            const markerRect = marker.getBoundingClientRect();
+            const hasValidRect = markerRect.width !== 0 || markerRect.height !== 0;
+
+            // Immediately remove marker and restore selection
+            const parent = marker.parentNode;
+            if (parent) {
+              parent.removeChild(marker);
+              // Normalize to merge adjacent text nodes
+              parent.normalize();
+            }
+
+            if (hasValidRect) {
+              const newPos = {
+                top: markerRect.top - editorRect.top,
+                left: markerRect.left - editorRect.left,
+              };
+              setPosition(newPos);
+              lastPositionRef.current = newPos;
+              return;
+            }
+          } catch {
+            // best-effort, continue to fallback
+          }
         }
       }
 
@@ -103,7 +138,23 @@ const BlockCursor: React.FC<{
     updatePosition();
 
     const editor = editorRef.current;
-    const observer = new MutationObserver(debouncedUpdate);
+    const observer = new MutationObserver((mutations) => {
+      // Ignore mutations caused by cursor marker insertion/removal
+      const isMarkerMutation = mutations.every((m) => {
+        if (m.type === 'childList') {
+          const isMarkerNode = (node: Node) =>
+            node instanceof HTMLElement && node.hasAttribute('data-cursor-marker');
+          return (
+            Array.from(m.addedNodes).every(isMarkerNode) ||
+            Array.from(m.removedNodes).every(isMarkerNode)
+          );
+        }
+        return false;
+      });
+      if (!isMarkerMutation) {
+        debouncedUpdate();
+      }
+    });
     observer.observe(editor, {
       childList: true,
       subtree: true,
