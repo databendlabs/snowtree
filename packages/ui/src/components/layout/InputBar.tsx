@@ -401,11 +401,31 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   onCancel,
   isProcessing,
   placeholder = 'Message...',
-  focusRequestId
+  focusRequestId,
+  initialExecutionMode,
+  onExecutionModeChange
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('execute');
+  const [executionMode, setExecutionModeInternal] = useState<ExecutionMode>(initialExecutionMode || 'execute');
+
+  // Update local state when initialExecutionMode changes (e.g., session switch)
+  useEffect(() => {
+    if (initialExecutionMode !== undefined) {
+      setExecutionModeInternal(initialExecutionMode);
+    }
+  }, [initialExecutionMode]);
+
+  // Wrapper to notify parent when execution mode changes
+  const setExecutionMode = useCallback((mode: ExecutionMode | ((prev: ExecutionMode) => ExecutionMode)) => {
+    setExecutionModeInternal((prev) => {
+      const newMode = typeof mode === 'function' ? mode(prev) : mode;
+      if (newMode !== prev) {
+        onExecutionModeChange?.(newMode);
+      }
+      return newMode;
+    });
+  }, [onExecutionModeChange]);
   const editorRef = useRef<HTMLDivElement>(null);
   const [aiToolsStatus, setAiToolsStatus] = useState<AiToolsStatus | null>(null);
   const [, setAiToolsLoading] = useState(false);

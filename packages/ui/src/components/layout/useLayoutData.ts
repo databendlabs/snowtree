@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { Session } from '../../types/session';
-import type { ToolPanel } from '@snowtree/core/types/panels';
-import type { CLITool, ImageAttachment } from './types';
+import type { ToolPanel, BaseAIPanelState } from '@snowtree/core/types/panels';
+import type { CLITool, ImageAttachment, ExecutionMode } from './types';
 
 interface UseLayoutDataResult {
   session: Session | null;
@@ -13,8 +13,10 @@ interface UseLayoutDataResult {
   isProcessing: boolean;
   isLoadingSession: boolean;
   loadError: string | null;
+  executionMode: ExecutionMode;
   reload: () => void;
   setSelectedTool: (tool: CLITool) => void;
+  setExecutionMode: (mode: ExecutionMode) => void;
   sendMessage: (message: string, images?: ImageAttachment[], planMode?: boolean) => Promise<void>;
   sendMessageToTool: (tool: CLITool, message: string, options?: { skipCheckpointAutoCommit?: boolean }) => Promise<void>;
   cancelRequest: () => Promise<void>;
@@ -30,6 +32,43 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const [reloadToken, setReloadToken] = useState(0);
+
+  // Derive executionMode from aiPanel state
+  const executionMode = useMemo<ExecutionMode>(() => {
+    const customState = aiPanel?.state?.customState as BaseAIPanelState | undefined;
+    return customState?.executionMode || 'execute';
+  }, [aiPanel]);
+
+  // Update execution mode and persist to panel state
+  const setExecutionMode = useCallback(async (mode: ExecutionMode) => {
+    if (!aiPanel) return;
+
+    try {
+      const currentState = aiPanel.state || { isActive: true };
+      const currentCustomState = (currentState.customState as BaseAIPanelState) || {};
+
+      const updatedPanel = {
+        ...aiPanel,
+        state: {
+          ...currentState,
+          customState: {
+            ...currentCustomState,
+            executionMode: mode
+          }
+        }
+      };
+
+      // Update local state immediately for responsive UI
+      setAiPanel(updatedPanel);
+
+      // Persist to backend
+      await window.electronAPI?.panels?.update(aiPanel.id, {
+        state: updatedPanel.state
+      });
+    } catch (error) {
+      console.error('Failed to update execution mode:', error);
+    }
+  }, [aiPanel]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -255,8 +294,10 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     isProcessing,
     isLoadingSession,
     loadError,
+    executionMode,
     reload: () => setReloadToken((v) => v + 1),
     setSelectedTool,
+    setExecutionMode,
     sendMessage,
     sendMessageToTool,
     cancelRequest

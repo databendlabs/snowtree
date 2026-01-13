@@ -50,6 +50,8 @@ export interface InputBarProps {
   isProcessing: boolean;
   placeholder?: string;
   focusRequestId?: number;
+  initialExecutionMode?: ExecutionMode;
+  onExecutionModeChange?: (mode: ExecutionMode) => void;
 }
 
 export interface RightPanelProps {

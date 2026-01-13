@@ -1,6 +1,6 @@
 import type { IpcMain } from 'electron';
 import { panelManager } from '../../features/panels/PanelManager';
-import type { CreatePanelRequest } from '@snowtree/core/types/panels';
+import type { CreatePanelRequest, ToolPanel } from '@snowtree/core/types/panels';
 
 export function registerPanelHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('panels:create', async (_event, request: CreatePanelRequest) => {
@@ -18,6 +18,15 @@ export function registerPanelHandlers(ipcMain: IpcMain): void {
       return { success: true, data: panels };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to list panels' };
+    }
+  });
+
+  ipcMain.handle('panels:update', async (_event, panelId: string, updates: Partial<ToolPanel>) => {
+    try {
+      await panelManager.updatePanel(panelId, updates);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to update panel' };
     }
   });
 }

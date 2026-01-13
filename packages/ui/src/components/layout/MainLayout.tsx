@@ -68,8 +68,10 @@ export const MainLayout: React.FC = React.memo(() => {
     isProcessing,
     isLoadingSession,
     loadError,
+    executionMode,
     reload,
     setSelectedTool,
+    setExecutionMode,
     sendMessage,
     sendMessageToTool,
     cancelRequest
@@ -427,6 +429,8 @@ export const MainLayout: React.FC = React.memo(() => {
               onCancel={cancelRequest}
               isProcessing={isProcessing}
               focusRequestId={inputFocusRequestId}
+              initialExecutionMode={executionMode}
+              onExecutionModeChange={setExecutionMode}
             />
           </>
         ) : (

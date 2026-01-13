@@ -53,6 +53,9 @@ export interface DiffPanelState {
 // Panel status type - mirrors session status but at panel level
 export type PanelStatus = 'idle' | 'running' | 'waiting' | 'stopped' | 'completed_unviewed' | 'error';
 
+// Execution mode for AI panels
+export type ExecutionMode = 'execute' | 'plan';
+
 // Base interface for AI panel states (Claude, Codex, etc.)
 export interface BaseAIPanelState {
   // Common state for all AI tools
@@ -65,6 +68,9 @@ export interface BaseAIPanelState {
   // Panel-level status tracking (independent per panel)
   panelStatus?: PanelStatus;     // Current panel execution status
   hasUnviewedContent?: boolean;  // Whether panel has content not yet viewed
+
+  // Execution mode (plan vs execute) - persisted per session
+  executionMode?: ExecutionMode; // 'execute' (default) or 'plan'
 
   // Generic agent session ID for resume functionality (used by all AI agents)
   agentSessionId?: string;        // The AI agent's session ID for resuming conversations
