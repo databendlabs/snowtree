@@ -277,7 +277,7 @@ index 1234567..abcdefg 100644
     expect(filePaths[1]).toBe('b.txt');
   });
 
-  it('renders a distinct gutter style for staged hunks', () => {
+  it('renders a distinct gutter style for staged hunks (hollow bar with border)', () => {
     const { container } = render(
       <ZedDiffViewer
         diff={SAMPLE_DIFF_TWO_HUNKS}
@@ -289,7 +289,9 @@ index 1234567..abcdefg 100644
     const css = container.querySelector('style')?.textContent || '';
     expect(css).toContain('st-hunk-status--staged');
     expect(css).toContain('td.diff-gutter:first-of-type::before');
-    expect(css).toContain('opacity: 0.75');
+    // Zed-style: staged hunks show hollow bar (30% opacity background + border)
+    expect(css).toContain('border: 1px solid');
+    expect(css).toContain('box-sizing: border-box');
   });
 
   it('keeps unified gutters sticky for horizontal scroll', () => {

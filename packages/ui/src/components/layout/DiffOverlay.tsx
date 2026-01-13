@@ -258,7 +258,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
   // Keep overlay in sync with staging actions triggered outside the overlay (e.g. Stage/Unstage All in RightPanel).
   useEffect(() => {
     if (!isOpen || !sessionId || !target) return;
-    if (target.kind !== 'working' || !filePath) return;
+    if (target.kind !== 'working') return;
     const unsub = window.electronAPI?.events?.onGitStatusUpdated?.((data) => {
       if (!data || data.sessionId !== sessionId) return;
       if (overlayRefreshTimerRef.current) {
@@ -282,7 +282,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
   // This keeps the overlay in sync when users stage/unstage via the RightPanel checkboxes.
   useEffect(() => {
     if (!isOpen || !sessionId || !target) return;
-    if (target.kind !== 'working' || !filePath) return;
+    if (target.kind !== 'working') return;
     const unsub = window.electronAPI?.events?.onTimelineEvent?.((data) => {
       if (!data || data.sessionId !== sessionId) return;
       const e = data.event as { kind?: unknown; status?: unknown; meta?: unknown } | undefined;

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, FolderPlus, Plus, Trash2, Loader2 } from 'lucide-react';
+import { ChevronDown, FolderPlus, Plus, Trash2, Loader2, Download, RotateCw, Sun, Moon } from 'lucide-react';
 import { API } from '../utils/api';
 import { useErrorStore } from '../stores/errorStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { formatDistanceToNow } from '../utils/timestampUtils';
 import { StageBadge } from './layout/StageBadge';
+import { useThemeStore } from '../stores/themeStore';
 
 type Project = {
   id: number;
@@ -43,6 +44,14 @@ export function Sidebar() {
   const [draftWorktreeName, setDraftWorktreeName] = useState<string>('');
   const refreshTimersRef = useRef<Record<number, number | null>>({});
   const hasInitializedRenameInputRef = useRef(false);
+  const { theme, toggleTheme } = useThemeStore();
+  const [appVersion, setAppVersion] = useState<string>('');
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateVersion, setUpdateVersion] = useState<string>('');
+  const [updateDownloading, setUpdateDownloading] = useState(false);
+  const [updateDownloaded, setUpdateDownloaded] = useState(false);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateError, setUpdateError] = useState<string>('');
 
   const loadProjects = useCallback(async () => {
     const res = await API.projects.getAll();
@@ -114,6 +123,97 @@ export function Sidebar() {
   useEffect(() => {
     loadProjects().catch(() => undefined);
   }, [loadProjects]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      if (!window.electronAPI?.invoke) return;
+      try {
+        const version = await window.electronAPI.invoke('get-app-version');
+        if (!mounted) return;
+        if (typeof version === 'string') setAppVersion(version);
+      } catch {
+        // ignore
+      }
+    })();
+
+    const events = window.electronAPI?.events;
+    if (
+      !events ||
+      typeof events.onUpdateAvailable !== 'function' ||
+      typeof events.onUpdateDownloaded !== 'function'
+    ) {
+      return () => {
+        mounted = false;
+      };
+    }
+
+    const unsubscribes = [
+      events.onUpdateAvailable((version) => {
+        setUpdateAvailable(true);
+        setUpdateVersion(version);
+        setUpdateDownloaded(false);
+        setUpdateInstalling(false);
+        setUpdateError('');
+      }),
+      events.onUpdateDownloaded(() => {
+        setUpdateDownloading(false);
+        setUpdateDownloaded(true);
+        setUpdateInstalling(false);
+      }),
+    ];
+
+    return () => {
+      mounted = false;
+      unsubscribes.forEach((u) => u());
+    };
+  }, []);
+
+  const handleDownloadUpdate = useCallback(async () => {
+    if (!window.electronAPI?.updater) return;
+    setUpdateDownloading(true);
+    setUpdateError('');
+    try {
+      const res = await window.electronAPI.updater.download();
+      if (!res?.success) {
+        setUpdateDownloading(false);
+        setUpdateError(res?.error || 'Failed to download update');
+      }
+    } catch (e) {
+      setUpdateDownloading(false);
+      setUpdateError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const handleInstallUpdate = useCallback(async () => {
+    if (!window.electronAPI?.updater) return;
+    try {
+      setUpdateInstalling(true);
+      setUpdateError('');
+      const res = await window.electronAPI.updater.install();
+      if (!res?.success) {
+        setUpdateInstalling(false);
+        setUpdateError(res?.error || 'Failed to install update');
+      }
+    } catch (e) {
+      setUpdateInstalling(false);
+      setUpdateError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const handleOpenReleases = useCallback(async () => {
+    const tag = appVersion ? `v${appVersion.replace(/^v/, '')}` : '';
+    const url = tag
+      ? `https://github.com/bohutang/snowtree/releases/tag/${tag}`
+      : 'https://github.com/bohutang/snowtree/releases';
+    try {
+      await window.electronAPI?.invoke?.('shell:openExternal', url);
+    } catch {
+      // ignore
+    }
+  }, [appVersion]);
+
 
   const handleAddRepository = useCallback(async () => {
     try {
@@ -376,12 +476,15 @@ export function Sidebar() {
     >
       <div
         className="border-b st-hairline"
-        style={{ backgroundColor: 'color-mix(in srgb, var(--st-surface) 75%, transparent)' }}
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--st-surface) 75%, transparent)',
+          // @ts-expect-error - webkit vendor prefix for electron drag region
+          WebkitAppRegion: 'drag',
+        }}
       >
         <div
-          className="px-3 py-2 flex items-center justify-between"
-          // @ts-expect-error - webkit vendor prefix for electron drag region
-          style={{ WebkitAppRegion: 'no-drag' }}
+          className="py-2 flex items-center justify-between"
+          style={{ paddingLeft: 'calc(70px + 0.75rem)', paddingRight: '0.75rem' }}
         >
           <div className="min-w-0">
             <div className="text-[15px] font-semibold tracking-tight truncate" style={{ color: 'var(--st-text)' }}>
@@ -393,7 +496,8 @@ export function Sidebar() {
             onClick={handleAddRepository}
             className="st-icon-button st-focus-ring"
             title="Add repository"
-            style={{ color: 'var(--st-text-muted)' }}
+            // @ts-expect-error - webkit vendor prefix
+            style={{ color: 'var(--st-text-muted)', WebkitAppRegion: 'no-drag' }}
           >
             <FolderPlus className="w-4 h-4" />
           </button>
@@ -636,6 +740,60 @@ export function Sidebar() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+      <div
+        className="border-t st-hairline px-3 py-2 flex flex-col gap-1.5"
+        style={{ backgroundColor: 'color-mix(in srgb, var(--st-surface) 85%, transparent)' }}
+      >
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleOpenReleases}
+            className="text-[11px] font-mono truncate st-hoverable st-focus-ring px-2 py-1 rounded"
+            style={{ color: 'var(--st-text-muted)' }}
+          >
+            {appVersion ? `snowtree v${appVersion}` : 'snowtree'}
+          </button>
+          {updateAvailable && (
+            <button
+              type="button"
+              onClick={updateDownloaded ? handleInstallUpdate : handleDownloadUpdate}
+              disabled={updateDownloaded ? updateInstalling : updateDownloading}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors st-hoverable st-focus-ring disabled:opacity-50"
+              style={{ color: 'var(--st-accent)' }}
+            >
+              {updateDownloaded ? (
+                updateInstalling ? <RotateCw className="w-3 h-3 animate-spin" /> : null
+              ) : updateDownloading ? (
+                <RotateCw className="w-3 h-3 animate-spin" />
+              ) : (
+                <Download className="w-3 h-3" />
+              )}
+              {updateDownloaded
+                ? (updateVersion ? `Restart v${updateVersion}` : 'Restart')
+                : (updateVersion ? `Update v${updateVersion}` : 'Update')}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="ml-auto w-7 h-7 flex items-center justify-center rounded st-hoverable st-focus-ring"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{ color: 'var(--st-text-muted)' }}
+          >
+            {theme === 'light' ? (
+              <Moon className="w-3.5 h-3.5" />
+            ) : (
+              <Sun className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
+        {updateError && (
+          <div className="text-[10px] leading-snug" style={{ color: 'var(--st-text-muted)' }}>
+            {updateError}
           </div>
         )}
       </div>

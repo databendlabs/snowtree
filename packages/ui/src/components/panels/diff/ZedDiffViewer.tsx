@@ -989,6 +989,21 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
     return () => observer.disconnect();
   }, [files, onVisibleFileChange]);
 
+  // Apply status classes directly to tbody.diff-hunk elements based on the anchor inside
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    // Find all diff-hunk tbodies and update their status class
+    const hunks = root.querySelectorAll('tbody.diff-hunk');
+    for (const hunk of hunks) {
+      const anchor = hunk.querySelector('.st-diff-hunk-actions-anchor');
+      const isStaged = anchor?.classList.contains('st-hunk-status--staged');
+      hunk.classList.remove('st-hunk-status--staged', 'st-hunk-status--unstaged');
+      hunk.classList.add(isStaged ? 'st-hunk-status--staged' : 'st-hunk-status--unstaged');
+    }
+  }, [files, stagedDiff, unstagedDiff]);
+
   if (!diff || diff.trim() === '' || files.length === 0) {
     return <div className={`h-full flex items-center justify-center text-sm ${className ?? ''}`}>No changes</div>;
   }
@@ -1669,7 +1684,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             --st-hunk-color: var(--st-diff-modified-marker);
           }
           /* Zed-like hunk_style: staged is hollow by default (bordered, faded). */
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete) {
+          .st-diff-table tbody.diff-hunk.st-hunk-status--staged:has(.diff-code-insert, .diff-code-delete) {
             --st-hunk-bg: var(--st-hunk-hollow-bg);
           }
           .st-diff-table .diff-hunk:has(.st-hunk-status--unknown) {
@@ -1677,7 +1692,8 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             --st-hunk-bg: var(--st-diff-hunk-bg);
             --st-hunk-frame-color: var(--st-text-faint);
           }
-          /* Zed-like: indicate hunks via a narrow gutter strip on changed rows (not full block backgrounds). */
+          /* Zed-like: indicate hunks via a narrow gutter strip on changed rows. */
+          /* Unstaged (default): solid filled bar - full opacity background */
           .st-diff-table tr.diff-line:has(.diff-code-insert, .diff-code-delete) td.diff-gutter:first-of-type::before {
             content: '';
             position: absolute;
@@ -1689,8 +1705,11 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             opacity: 1;
             pointer-events: none;
           }
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged) tr.diff-line:has(.diff-code-insert, .diff-code-delete) td.diff-gutter:first-of-type::before {
-            opacity: 0.75;
+          /* Staged: hollow bar - 30% opacity background + 1px solid border (Zed style) */
+          .st-diff-table tbody.diff-hunk.st-hunk-status--staged tr.diff-line:has(.diff-code-insert, .diff-code-delete) td.diff-gutter:first-of-type::before {
+            background: color-mix(in srgb, var(--st-hunk-marker-color) 30%, transparent);
+            border: 1px solid var(--st-hunk-marker-color);
+            box-sizing: border-box;
           }
 
           .st-diff-table .diff-hunk:has(.st-hunk-focused) {
