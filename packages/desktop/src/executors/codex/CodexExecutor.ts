@@ -44,6 +44,7 @@ export class CodexExecutor extends AbstractExecutor {
   private turnIdleTimerByPanel = new Map<string, NodeJS.Timeout>();
   private lastTurnActivityMsByPanel = new Map<string, number>();
   private recentCodexActivityByPanel = new Map<string, string[]>();
+  private jsonFragmentByPanel = new Map<string, { buf: string; startedAtMs: number }>();
   private pendingRequests: Map<string | number, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
@@ -191,24 +192,124 @@ export class CodexExecutor extends AbstractExecutor {
   }
 
   parseOutput(data: string, panelId: string, sessionId: string): void {
-    const trimmed = data.trim();
+    const trimmed = String(data ?? '').trim();
     if (!trimmed) return;
 
     this.trackRecentCodexActivity(panelId, trimmed);
 
+    // Codex runs under a PTY; long JSON-RPC requests can be echoed back and occasionally include
+    // terminal control bytes or get split across lines. Maintain a small per-panel buffer and
+    // parse any complete JSON objects we can extract.
+    const prior = this.jsonFragmentByPanel.get(panelId);
+    const combined = prior ? `${prior.buf}\n${trimmed}` : trimmed;
+    const processed = this.processCodexMixedOutput(combined, panelId, sessionId);
+
+    if (processed.partialJson) {
+      const startedAtMs = prior?.startedAtMs ?? Date.now();
+      // Prevent unbounded growth if output is not actually JSON.
+      if (processed.partialJson.length > 256_000) {
+        this.logger?.warn(`[Codex] Dropping oversized JSON fragment (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)} len=${processed.partialJson.length})`);
+        this.jsonFragmentByPanel.delete(panelId);
+      } else {
+        // If we keep buffering for a while, surface a single warning.
+        const ageMs = Date.now() - startedAtMs;
+        if (ageMs > 2000 && !prior) {
+          const snippet = processed.partialJson.length > 220 ? `${processed.partialJson.slice(0, 220)}…` : processed.partialJson;
+          this.logger?.warn(`[Codex] Buffering partial JSON (${Math.round(ageMs)}ms) (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
+        }
+        this.jsonFragmentByPanel.set(panelId, { buf: processed.partialJson, startedAtMs });
+      }
+    } else {
+      this.jsonFragmentByPanel.delete(panelId);
+    }
+  }
+
+  // ============================================================================
+  // JSON-RPC Protocol Methods
+  // ============================================================================
+
+  private stripAnsiAndControlNoise(text: string): string {
+    // Remove ANSI CSI sequences (e.g. \x1b[...m, \x1b[?2004h) and stray NULs that can appear in PTY echo.
+    // Keep it conservative to avoid changing real JSON content.
+    return text
+      .replace(/\u0000/g, '')
+      .replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, '');
+  }
+
+  private processCodexMixedOutput(
+    raw: string,
+    panelId: string,
+    sessionId: string
+  ): { partialJson?: string } {
+    const cleaned = this.stripAnsiAndControlNoise(raw).trim();
+    if (!cleaned) return {};
+
+    const extracted = this.extractTopLevelJsonObjects(cleaned);
+    if (extracted.objects.length > 0) {
+      for (const obj of extracted.objects) {
+        if (!this.tryHandleCodexJson(obj, panelId, sessionId)) {
+          // Not JSON; emit as stdout for visibility
+          const out = obj.trim();
+          if (out) {
+            this.emit('output', {
+              panelId,
+              sessionId,
+              type: 'stdout',
+              data: out,
+              timestamp: new Date(),
+            } as ExecutorOutputEvent);
+          }
+        }
+      }
+
+      const noise = extracted.noise.trim();
+      if (noise) {
+        this.emit('output', {
+          panelId,
+          sessionId,
+          type: 'stdout',
+          data: noise,
+          timestamp: new Date(),
+        } as ExecutorOutputEvent);
+      }
+
+      return extracted.partial ? { partialJson: extracted.partial } : {};
+    }
+
+    if (this.tryHandleCodexJson(cleaned, panelId, sessionId)) {
+      return {};
+    }
+
+    // Likely a partial JSON object; keep buffering only for lines that look like JSON-RPC.
+    if (cleaned.startsWith('{') && cleaned.includes("\"method\"")) {
+      return { partialJson: cleaned };
+    }
+
+    this.emit('output', {
+      panelId,
+      sessionId,
+      type: 'stdout',
+      data: cleaned,
+      timestamp: new Date(),
+    } as ExecutorOutputEvent);
+
+    return {};
+  }
+
+  private tryHandleCodexJson(payload: string, panelId: string, sessionId: string): boolean {
     try {
-      const message = JSON.parse(trimmed);
+      const message = JSON.parse(payload);
 
       // Handle JSON-RPC response
       if ('id' in message && (message.result !== undefined || message.error)) {
         this.handleRpcResponse(message as JsonRpcResponse);
-        return;
+        return true;
       }
 
       // Handle JSON-RPC notification
       if ('method' in message && !('id' in message)) {
         this.handleRpcNotification(message as JsonRpcNotification, panelId, sessionId);
-        return;
+        return true;
       }
 
       // Handle JSON-RPC request (from server)
@@ -224,13 +325,13 @@ export class CodexExecutor extends AbstractExecutor {
           'addConversationListener',
           'sendUserMessage',
         ]);
-        if (clientMethods.has(m.method)) return;
-        if (this.pendingRequests.has(m.id) || this.pendingRequests.has(normalizedId)) return;
+        if (clientMethods.has(m.method)) return true;
+        if (this.pendingRequests.has(m.id) || this.pendingRequests.has(normalizedId)) return true;
         this.handleRpcRequest(message as JsonRpcRequest, panelId, sessionId);
-        return;
+        return true;
       }
 
-      // Generic message
+      // Generic JSON message
       this.emit('output', {
         panelId,
         sessionId,
@@ -238,27 +339,82 @@ export class CodexExecutor extends AbstractExecutor {
         data: message,
         timestamp: new Date(),
       } as ExecutorOutputEvent);
+      return true;
     } catch {
       // If this looks like JSON-RPC but failed to parse, emit a warning with a short snippet.
       // This helps diagnose protocol desync or partial-line issues without flooding the logs.
-      if (trimmed.startsWith('{') && trimmed.includes('"method"')) {
-        const snippet = trimmed.length > 220 ? `${trimmed.slice(0, 220)}…` : trimmed;
+      const t = payload.trim();
+      if (t.startsWith('{') && t.includes('"method"')) {
+        const snippet = t.length > 220 ? `${t.slice(0, 220)}…` : t;
         this.logger?.warn(`[Codex] Failed to parse JSON line (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
       }
-      // Not JSON, emit as stdout
-      this.emit('output', {
-        panelId,
-        sessionId,
-        type: 'stdout',
-        data: trimmed,
-        timestamp: new Date(),
-      } as ExecutorOutputEvent);
+      return false;
     }
   }
 
-  // ============================================================================
-  // JSON-RPC Protocol Methods
-  // ============================================================================
+  private extractTopLevelJsonObjects(input: string): { objects: string[]; noise: string; partial?: string } {
+    const objects: string[] = [];
+    let noise = '';
+    let start = -1;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+
+      if (start === -1) {
+        if (ch === '{') {
+          start = i;
+          depth = 1;
+          inString = false;
+          escape = false;
+        } else {
+          noise += ch;
+        }
+        continue;
+      }
+
+      if (inString) {
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === '\\\\') {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (ch === '{') {
+        depth++;
+        continue;
+      }
+
+      if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          objects.push(input.slice(start, i + 1));
+          start = -1;
+        }
+      }
+    }
+
+    if (start !== -1) {
+      return { objects, noise, partial: input.slice(start) };
+    }
+
+    return { objects, noise };
+  }
 
   private nextRequestId(): string {
     return String(++this.requestId);
