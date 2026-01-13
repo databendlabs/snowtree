@@ -277,7 +277,7 @@ index 1234567..abcdefg 100644
     expect(filePaths[1]).toBe('b.txt');
   });
 
-  it('renders a distinct gutter style for staged hunks', () => {
+  it('renders a distinct gutter style for staged hunks (hollow bar with border)', () => {
     const { container } = render(
       <ZedDiffViewer
         diff={SAMPLE_DIFF_TWO_HUNKS}
@@ -289,7 +289,10 @@ index 1234567..abcdefg 100644
     const css = container.querySelector('style')?.textContent || '';
     expect(css).toContain('st-hunk-status--staged');
     expect(css).toContain('td.diff-gutter:first-of-type::before');
-    expect(css).toContain('opacity: 0.75');
+    // Zed-style: staged hunks show hollow bar (30% opacity background + left/right border)
+    expect(css).toContain('border-left: 1px solid');
+    expect(css).toContain('border-right: 1px solid');
+    expect(css).toContain('box-sizing: border-box');
   });
 
   it('keeps unified gutters sticky for horizontal scroll', () => {
@@ -304,8 +307,8 @@ index 1234567..abcdefg 100644
     expect(css).not.toContain('td.diff-gutter:first-of-type {');
   });
 
-  it('shows a persistent staged badge for staged hunks', () => {
-    render(
+  it('shows a persistent staged badge for staged hunks via CSS ::after', () => {
+    const { container } = render(
       <ZedDiffViewer
         diff={SAMPLE_DIFF_TWO_HUNKS}
         sessionId="s1"
@@ -313,7 +316,10 @@ index 1234567..abcdefg 100644
         stagedDiff={SAMPLE_DIFF_TWO_HUNKS}
       />
     );
-    expect(screen.getAllByLabelText('Hunk staged').length).toBeGreaterThan(0);
+    const css = container.querySelector('style')?.textContent || '';
+    // Badge is rendered via CSS ::after on first changed row of staged hunks
+    expect(css).toContain('tbody.diff-hunk.st-hunk-status--staged tr.diff-line.st-hunk-row-first td.diff-gutter:first-of-type::after');
+    expect(css).toContain("content: '✓'");
   });
 
   it('renders per-file horizontal scrollers with a global horizontal scrollbar', () => {

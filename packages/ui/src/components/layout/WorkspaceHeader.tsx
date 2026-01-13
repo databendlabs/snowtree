@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { GitBranch, Copy, Check, Sun, Moon } from 'lucide-react';
+import { GitBranch, Copy, Check } from 'lucide-react';
 import type { WorkspaceHeaderProps } from './types';
-import { useThemeStore } from '../../stores/themeStore';
 
 // Extract repository name from worktree path
 // e.g., /Users/bohu/github/blog-hexo/worktrees/montreal-wphnwwp9 → blog-hexo
@@ -58,7 +57,6 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = React.memo(({
   }, [session.worktreePath, session.name]);
 
   const [copied, setCopied] = useState(false);
-  const { theme, toggleTheme } = useThemeStore();
 
   const handleCopyPath = async () => {
     if (session.worktreePath) {
@@ -112,18 +110,6 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = React.memo(({
             <Check className="w-3.5 h-3.5" style={{ color: 'var(--st-success)' }} />
           ) : (
             <Copy className="w-3.5 h-3.5" style={{ color: 'var(--st-text-muted)' }} />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="p-1.5 rounded st-hoverable st-focus-ring"
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {theme === 'light' ? (
-            <Moon className="w-3.5 h-3.5" style={{ color: 'var(--st-text-muted)' }} />
-          ) : (
-            <Sun className="w-3.5 h-3.5" style={{ color: 'var(--st-text-muted)' }} />
           )}
         </button>
       </div>

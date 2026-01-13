@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, ChevronDown, GitCommit, GitPullRequest, Download, RotateCw, Check, ArrowUp, ArrowDown } from 'lucide-react';
+import React, { useState, useCallback, useMemo } from 'react';
+import { RefreshCw, ChevronDown, GitCommit, GitPullRequest, Check, ArrowUp, ArrowDown, RotateCw } from 'lucide-react';
 import { useRightPanelData, type Commit } from '../useRightPanelData';
 import type { FileChange, RightPanelProps } from '../types';
 import type { DiffTarget } from '../../../types/diff';
@@ -23,14 +23,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
     onSyncPR,
     isSyncPRDisabled,
   }) => {
-    const [appVersion, setAppVersion] = useState<string>('');
-    const [updateAvailable, setUpdateAvailable] = useState(false);
-    const [updateVersion, setUpdateVersion] = useState<string>('');
-    const [updateDownloading, setUpdateDownloading] = useState(false);
-    const [updateDownloaded, setUpdateDownloaded] = useState(false);
-    const [updateInstalling, setUpdateInstalling] = useState(false);
-    const [updateError, setUpdateError] = useState<string>('');
-
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
     const [selectedFileScope, setSelectedFileScope] = useState<
       WorkingTreeScope | 'commit' | null
@@ -58,96 +50,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
       stageAll,
       stageFile,
     } = useRightPanelData(session.id);
-
-    useEffect(() => {
-      let mounted = true;
-
-      (async () => {
-        if (!window.electronAPI?.invoke) return;
-        try {
-          const version = await window.electronAPI.invoke('get-app-version');
-          if (!mounted) return;
-          if (typeof version === 'string') setAppVersion(version);
-        } catch {
-          // ignore
-        }
-      })();
-
-      const events = window.electronAPI?.events;
-      if (
-        !events ||
-        typeof events.onUpdateAvailable !== 'function' ||
-        typeof events.onUpdateDownloaded !== 'function'
-      ) {
-        return () => {
-          mounted = false;
-        };
-      }
-
-      const unsubscribes = [
-        events.onUpdateAvailable((version) => {
-          setUpdateAvailable(true);
-          setUpdateVersion(version);
-          setUpdateDownloaded(false);
-          setUpdateInstalling(false);
-          setUpdateError('');
-        }),
-        events.onUpdateDownloaded(() => {
-          setUpdateDownloading(false);
-          setUpdateDownloaded(true);
-          setUpdateInstalling(false);
-        }),
-      ];
-
-      return () => {
-        mounted = false;
-        unsubscribes.forEach((u) => u());
-      };
-    }, [session.id]);
-
-    const handleDownloadUpdate = useCallback(async () => {
-      if (!window.electronAPI?.updater) return;
-      setUpdateDownloading(true);
-      setUpdateError('');
-      try {
-        const res = await window.electronAPI.updater.download();
-        if (!res?.success) {
-          setUpdateDownloading(false);
-          setUpdateError(res?.error || 'Failed to download update');
-        }
-      } catch (e) {
-        setUpdateDownloading(false);
-        setUpdateError(e instanceof Error ? e.message : String(e));
-      }
-    }, []);
-
-    const handleInstallUpdate = useCallback(async () => {
-      if (!window.electronAPI?.updater) return;
-      try {
-        setUpdateInstalling(true);
-        setUpdateError('');
-        const res = await window.electronAPI.updater.install();
-        if (!res?.success) {
-          setUpdateInstalling(false);
-          setUpdateError(res?.error || 'Failed to install update');
-        }
-      } catch (e) {
-        setUpdateInstalling(false);
-        setUpdateError(e instanceof Error ? e.message : String(e));
-      }
-    }, []);
-
-    const handleOpenReleases = useCallback(async () => {
-      const tag = appVersion ? `v${appVersion.replace(/^v/, '')}` : '';
-      const url = tag
-        ? `https://github.com/bohutang/snowtree/releases/tag/${tag}`
-        : 'https://github.com/bohutang/snowtree/releases';
-      try {
-        await window.electronAPI?.invoke?.('shell:openExternal', url);
-      } catch {
-        // ignore
-      }
-    }, [appVersion]);
 
     const handleOpenRemotePullRequest = useCallback(async () => {
       if (!remotePullRequest?.url) return;
@@ -734,68 +636,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
           </div>
         </div>
 
-        {/* Spacer for future use */}
-        <div className="flex-1" />
-
-        {/* 4. Footer (flex-shrink-0) */}
-        <div
-          className="flex-shrink-0 px-3 py-2"
-          style={{
-            borderTop: `1px solid ${colors.border}`,
-            backgroundColor: colors.bg.secondary,
-          }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            {updateAvailable && (
-              <div className="flex items-center gap-1.5">
-                {!updateDownloaded ? (
-                  <button
-                    type="button"
-                    onClick={handleDownloadUpdate}
-                    disabled={updateDownloading}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                    style={{ color: colors.accent }}
-                  >
-                    {updateDownloading ? (
-                      <RotateCw className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Download className="w-3 h-3" />
-                    )}
-                    {updateVersion ? `Update v${updateVersion}` : 'Update'}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleInstallUpdate}
-                    disabled={updateInstalling}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring"
-                    style={{ color: colors.accent }}
-                  >
-                    {updateInstalling ? (
-                      <RotateCw className="w-3 h-3 animate-spin" />
-                    ) : null}
-                    {updateVersion ? `Restart v${updateVersion}` : 'Restart'}
-                  </button>
-                )}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={handleOpenReleases}
-              className="ml-auto text-[10px] font-mono truncate st-hoverable st-focus-ring px-1.5 py-0.5 rounded"
-              style={{ color: colors.text.muted }}
-            >
-              {appVersion ? `snowtree v${appVersion}` : 'snowtree'}
-            </button>
-          </div>
-
-          {updateError && (
-            <div className="mt-1 text-[10px] leading-snug" style={{ color: colors.text.muted }}>
-              {updateError}
-            </div>
-          )}
-        </div>
       </div>
     );
   }

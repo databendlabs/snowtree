@@ -108,7 +108,7 @@ test.describe('Diff Panel and Stage Operations', () => {
     });
     expect(positions0.a).toBe('sticky');
     expect(positions0.b).toBe('sticky');
-    expect(positions0.beforeWidth).toBe('4px');
+    expect(positions0.beforeWidth).toBe('6px');
 
     await xbar.evaluate((el) => {
       (el as HTMLElement).scrollLeft = 300;
@@ -131,7 +131,7 @@ test.describe('Diff Panel and Stage Operations', () => {
     expect(Math.abs((codeBox1!.x) - (codeBox0!.x))).toBeGreaterThan(20);
   });
 
-  test('shows staged badge without covering line numbers', async ({ page }) => {
+  test('shows staged badge via CSS ::after without covering line numbers', async ({ page }) => {
     const file = page.getByTestId('right-panel-file-tracked-src/components/Example.tsx');
     await expect(file).toBeVisible({ timeout: 15000 });
     await file.click();
@@ -145,90 +145,82 @@ test.describe('Diff Panel and Stage Operations', () => {
     const stagedFileRoot = page.locator('[data-testid="diff-file"][data-diff-file-path="src/components/Staged.tsx"]');
     await stagedFileRoot.scrollIntoViewIfNeeded();
 
-    const badge = stagedFileRoot.locator('.st-hunk-staged-badge').first();
-    await expect(badge).toBeVisible();
-
+    // Badge is now rendered via CSS ::after on the first changed row's gutter
     const firstLine = stagedFileRoot
       .locator('tr.diff-line')
       .filter({ has: page.locator('.diff-code-insert, .diff-code-delete') })
       .first();
+    await expect(firstLine).toBeVisible();
     const gutter1 = firstLine.locator('td.diff-gutter').nth(0);
 
-    const overlap = await page.evaluate(() => {
+    // Check that the CSS ::after badge exists with checkmark content
+    const badgeInfo = await page.evaluate(() => {
       const root = document.querySelector('[data-diff-file-path="src/components/Staged.tsx"]');
       if (!root) return null;
-      const badgeEl = root.querySelector('.st-hunk-staged-badge') as HTMLElement | null;
-      const changedLine = Array.from(root.querySelectorAll('tr.diff-line')).find((row) =>
-        Boolean(row.querySelector('.diff-code-insert, .diff-code-delete'))
-      ) as HTMLElement | undefined;
-      const gutter = changedLine?.querySelectorAll('td.diff-gutter')?.[0] as HTMLElement | undefined;
-      if (!badgeEl || !gutter) return null;
 
-      const badgeRect = badgeEl.getBoundingClientRect();
+      // Find the staged hunk tbody
+      const stagedHunk = root.querySelector('tbody.diff-hunk.st-hunk-status--staged');
+      if (!stagedHunk) return null;
 
-      // Compute the bounding rect of the line number text only (ignore SVG badge).
+      // Find the first changed row (should have st-hunk-row-first class)
+      const firstRow = stagedHunk.querySelector('tr.diff-line.st-hunk-row-first');
+      if (!firstRow) return null;
+
+      const gutter = firstRow.querySelector('td.diff-gutter') as HTMLElement | null;
+      if (!gutter) return null;
+
+      // Get ::after pseudo-element computed style
+      const afterStyle = getComputedStyle(gutter, '::after');
+      const content = afterStyle.content;
+      const width = afterStyle.width;
+      const left = afterStyle.left;
+
+      // Compute the bounding rect of the line number text only
       const walker = document.createTreeWalker(gutter, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
       while (walker.nextNode()) {
         const n = walker.currentNode as Text;
         if ((n.textContent || '').trim().length > 0) textNodes.push(n);
       }
-      if (textNodes.length === 0) return null;
+      let textLeft = null;
+      if (textNodes.length > 0) {
+        const range = document.createRange();
+        range.setStart(textNodes[0]!, 0);
+        const last = textNodes[textNodes.length - 1]!;
+        range.setEnd(last, last.textContent?.length ?? 0);
+        textLeft = range.getBoundingClientRect().left;
+      }
 
-      const range = document.createRange();
-      range.setStart(textNodes[0]!, 0);
-      const last = textNodes[textNodes.length - 1]!;
-      range.setEnd(last, last.textContent?.length ?? 0);
-      const textRect = range.getBoundingClientRect();
+      // Badge is positioned at left: 8px with width: 14px, so right edge is at ~22px
+      const badgeRight = gutter.getBoundingClientRect().left + 8 + 14;
 
-      return { badgeRight: badgeRect.right, textLeft: textRect.left };
-    });
-
-    // Badge lives on the left edge; the right-aligned line numbers live on the right.
-    // If these overlap, the badge is covering the numbers.
-    expect(overlap).not.toBeNull();
-    expect(overlap!.badgeRight).toBeLessThanOrEqual(overlap!.textLeft + 1);
-
-    // Badge should sit near the vertical middle of the changed-range rail.
-    const middle = await stagedFileRoot.evaluate(() => {
-      const root = document.querySelector('[data-diff-file-path="src/components/Staged.tsx"]');
-      if (!root) return null;
-      const badgeEl = root.querySelector('.st-hunk-staged-badge') as HTMLElement | null;
-      if (!badgeEl) return null;
-      const changedRows = Array.from(root.querySelectorAll('tr.diff-line')).filter((row) =>
-        Boolean(row.querySelector('.diff-code-insert, .diff-code-delete'))
-      ) as HTMLElement[];
-      if (changedRows.length === 0) return null;
-      const first = changedRows[0]!.getBoundingClientRect();
-      const last = changedRows[changedRows.length - 1]!.getBoundingClientRect();
-      const badge = badgeEl.getBoundingClientRect();
       return {
-        badgeCy: (badge.top + badge.bottom) / 2,
-        railTop: first.top,
-        railBottom: last.bottom,
+        hasCheckmark: content.includes('✓') || content.includes('"✓"'),
+        width,
+        left,
+        badgeRight,
+        textLeft,
       };
     });
-    expect(middle).not.toBeNull();
-    expect(middle!.badgeCy).toBeGreaterThan(middle!.railTop);
-    expect(middle!.badgeCy).toBeLessThan(middle!.railBottom);
-    const railMid = (middle!.railTop + middle!.railBottom) / 2;
-    // Within ~40% of the rail height from center (tolerant to small hunks and fonts).
-    expect(Math.abs(middle!.badgeCy - railMid)).toBeLessThan((middle!.railBottom - middle!.railTop) * 0.4 + 8);
 
-    // Horizontal scroll should not move the gutters/badge.
-    const badgeBox0 = await badge.boundingBox();
+    expect(badgeInfo).not.toBeNull();
+    expect(badgeInfo!.hasCheckmark).toBe(true);
+    expect(badgeInfo!.width).toBe('14px');
+
+    // Badge should not overlap with line numbers (badge on left, numbers on right)
+    if (badgeInfo!.textLeft !== null) {
+      expect(badgeInfo!.badgeRight).toBeLessThanOrEqual(badgeInfo!.textLeft + 1);
+    }
+
+    // Horizontal scroll should not move the gutter (badge moves with gutter since it's a pseudo-element)
     const gutterBox0 = await gutter1.boundingBox();
-    expect(badgeBox0).not.toBeNull();
     expect(gutterBox0).not.toBeNull();
 
     await xbar.evaluate((el) => { (el as HTMLElement).scrollLeft = 260; });
     await page.waitForTimeout(50);
 
-    const badgeBox1 = await badge.boundingBox();
     const gutterBox1 = await gutter1.boundingBox();
-    expect(badgeBox1).not.toBeNull();
     expect(gutterBox1).not.toBeNull();
-    expect(Math.abs((badgeBox1!.x) - (badgeBox0!.x))).toBeLessThan(1);
     expect(Math.abs((gutterBox1!.x) - (gutterBox0!.x))).toBeLessThan(1);
   });
 

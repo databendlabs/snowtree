@@ -989,6 +989,33 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
     return () => observer.disconnect();
   }, [files, onVisibleFileChange]);
 
+  // Apply status classes directly to tbody.diff-hunk elements based on the anchor inside
+  // Also mark first/last changed rows for proper border rendering
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    // Find all diff-hunk tbodies and update their status class
+    const hunks = root.querySelectorAll('tbody.diff-hunk');
+    for (const hunk of hunks) {
+      const anchor = hunk.querySelector('.st-diff-hunk-actions-anchor');
+      const isStaged = anchor?.classList.contains('st-hunk-status--staged');
+      hunk.classList.remove('st-hunk-status--staged', 'st-hunk-status--unstaged');
+      hunk.classList.add(isStaged ? 'st-hunk-status--staged' : 'st-hunk-status--unstaged');
+
+      // Mark first and last changed rows for border caps
+      const changedRows = hunk.querySelectorAll('tr.diff-line:has(.diff-code-insert, .diff-code-delete)');
+      const allRows = hunk.querySelectorAll('tr.diff-line');
+      allRows.forEach((row) => {
+        row.classList.remove('st-hunk-row-first', 'st-hunk-row-last');
+      });
+      if (changedRows.length > 0) {
+        changedRows[0]?.classList.add('st-hunk-row-first');
+        changedRows[changedRows.length - 1]?.classList.add('st-hunk-row-last');
+      }
+    }
+  }, [files, stagedDiff, unstagedDiff]);
+
   if (!diff || diff.trim() === '' || files.length === 0) {
     return <div className={`h-full flex items-center justify-center text-sm ${className ?? ''}`}>No changes</div>;
   }
@@ -1179,9 +1206,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                         // so we prefer the line *before* the first changed line when available (i.e. the last context
                         // line right above the hunk), otherwise fall back to the first changed line.
                         const firstChangedIdx = changes.findIndex((c) => c.type === 'insert' || c.type === 'delete');
-                        const changedIndices = changes
-                          .map((c, idx) => ((c.type === 'insert' || c.type === 'delete') ? idx : -1))
-                          .filter((idx) => idx >= 0);
                         const anchorChange =
                           firstChangedIdx > 0
                             ? changes[firstChangedIdx - 1]!
@@ -1200,39 +1224,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                           </div>
                         );
 
-                        const out: Array<readonly [string, React.ReactElement | null]> = [[changeKey, anchorElement] as const];
-
-                        // Persistent staged badge: place it near the vertical middle of the changed range so it
-                        // visually sits in the middle of the left change rail (Zed-like).
-                        if (!isCommitView && hunkStatus === 'staged' && changedIndices.length > 0) {
-                          const midIdx = changedIndices[Math.floor(changedIndices.length / 2)]!;
-                          const badgeChange = changes[midIdx]!;
-                          const badgeKey = getChangeKey(badgeChange);
-
-                          const badgeElement = (
-                            <div data-testid="diff-hunk-staged-badge-anchor" className="st-diff-hunk-staged-badge-anchor">
-                              <div className="st-hunk-staged-badge-sticky" aria-label="Hunk staged">
-                                <div className="st-hunk-staged-badge" title="Staged" aria-hidden="true">
-                                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none">
-                                    <path
-                                      d="M3.5 8.2l2.6 2.6L12.6 4.6"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                </div>
-                              </div>
-                            </div>
-                          );
-
-                          // Avoid colliding with the controls anchor when the hunk is only one changed line.
-                          if (badgeKey !== changeKey) out.push([badgeKey, badgeElement] as const);
-                          else out[0] = [changeKey, <>{anchorElement}{badgeElement}</>] as const;
-                        }
-
-                        return out;
+                        return [[changeKey, anchorElement] as const];
                       })
                       .filter((e): e is readonly [string, React.ReactElement | null] => e !== null)
                   ) as Record<string, React.ReactElement | null>}
@@ -1669,7 +1661,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             --st-hunk-color: var(--st-diff-modified-marker);
           }
           /* Zed-like hunk_style: staged is hollow by default (bordered, faded). */
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete) {
+          .st-diff-table tbody.diff-hunk.st-hunk-status--staged:has(.diff-code-insert, .diff-code-delete) {
             --st-hunk-bg: var(--st-hunk-hollow-bg);
           }
           .st-diff-table .diff-hunk:has(.st-hunk-status--unknown) {
@@ -1677,20 +1669,33 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             --st-hunk-bg: var(--st-diff-hunk-bg);
             --st-hunk-frame-color: var(--st-text-faint);
           }
-          /* Zed-like: indicate hunks via a narrow gutter strip on changed rows (not full block backgrounds). */
+          /* Zed-like: indicate hunks via a narrow gutter strip on changed rows. */
+          /* Unstaged (default): solid filled bar - full opacity background */
           .st-diff-table tr.diff-line:has(.diff-code-insert, .diff-code-delete) td.diff-gutter:first-of-type::before {
             content: '';
             position: absolute;
             left: 0;
             top: 0;
             bottom: 0;
-            width: 4px;
+            width: 6px;
             background: var(--st-hunk-marker-color);
             opacity: 1;
             pointer-events: none;
           }
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged) tr.diff-line:has(.diff-code-insert, .diff-code-delete) td.diff-gutter:first-of-type::before {
-            opacity: 0.75;
+          /* Staged: hollow bar - 30% opacity background + border forming a complete rectangle (Zed style) */
+          .st-diff-table tbody.diff-hunk.st-hunk-status--staged tr.diff-line:has(.diff-code-insert, .diff-code-delete) td.diff-gutter:first-of-type::before {
+            background: color-mix(in srgb, var(--st-hunk-marker-color) 30%, transparent);
+            border-left: 1px solid var(--st-hunk-marker-color);
+            border-right: 1px solid var(--st-hunk-marker-color);
+            box-sizing: border-box;
+          }
+          /* Top border cap on first changed row */
+          .st-diff-table tbody.diff-hunk.st-hunk-status--staged tr.diff-line.st-hunk-row-first td.diff-gutter:first-of-type::before {
+            border-top: 1px solid var(--st-hunk-marker-color);
+          }
+          /* Bottom border cap on last changed row */
+          .st-diff-table tbody.diff-hunk.st-hunk-status--staged tr.diff-line.st-hunk-row-last td.diff-gutter:first-of-type::before {
+            border-bottom: 1px solid var(--st-hunk-marker-color);
           }
 
           .st-diff-table .diff-hunk:has(.st-hunk-focused) {
@@ -1745,34 +1750,27 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             pointer-events: none;
           }
 
-          /* Persistent staged badge (not hover-only). */
-          /* Sticky wrapper so the badge stays in the left rail while horizontally scrolling. */
-          .st-diff-table .st-hunk-staged-badge-sticky {
-            position: sticky;
-            /* Inside the first gutter, numbers are right-aligned, so a small badge on the left won't cover them. */
-            left: 6px;
-            z-index: 60;
-            width: 0;
-            height: 0;
-            pointer-events: none;
-          }
-          .st-diff-table .st-hunk-staged-badge {
+          /* Persistent staged badge via CSS ::after on first changed row (professional approach). */
+          .st-diff-table tbody.diff-hunk.st-hunk-status--staged tr.diff-line.st-hunk-row-first td.diff-gutter:first-of-type::after {
+            content: '✓';
             position: absolute;
-            /* Widgets are rendered after the keyed line; offset upward by half a line height so the badge
-               visually centers on the line (and therefore the change rail), not between lines. */
-            top: calc(var(--st-diff-line-height) / -2);
-            transform: translateY(-50%);
-            left: 0;
+            top: 3px;
+            left: 8px;
             width: 14px;
             height: 14px;
             border-radius: 999px;
-            display: inline-flex;
+            display: flex;
             align-items: center;
             justify-content: center;
+            font-size: 9px;
+            font-weight: bold;
+            line-height: 1;
             border: 1px solid color-mix(in srgb, var(--st-hunk-frame-color) 70%, var(--st-border-variant));
             background: color-mix(in srgb, var(--st-hunk-frame-color) 18%, var(--st-surface));
             color: color-mix(in srgb, var(--st-hunk-frame-color) 85%, var(--st-text));
             box-shadow: 0 0 0 2px color-mix(in srgb, var(--st-bg) 60%, transparent);
+            z-index: 61;
+            pointer-events: none;
           }
 
 
