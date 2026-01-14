@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install run dev dev-ui dev-desktop
+.PHONY: help install run dev dev-ui dev-desktop clean-run
 .PHONY: typecheck lint check test test-ui test-desktop
 .PHONY: e2e e2e-electron build ci rebuild-electron
 
@@ -9,7 +9,8 @@ help:
 	@echo ""
 	@echo "Run:"
 	@echo "  make install         Install dependencies"
-	@echo "  make run             Start dev app (UI + desktop + Electron)"
+	@echo "  make run             Start dev app (install + rebuild native deps + dev)"
+	@echo "  make clean-run       Clean start (rm node_modules + run)"
 	@echo "  make dev-ui          Start UI only (Vite)"
 	@echo "  make dev-desktop     Watch-build desktop only (tsc -w)"
 	@echo ""
@@ -37,6 +38,14 @@ lint:
 check: typecheck lint test
 
 run:
+	pnpm install
+	pnpm exec electron-builder install-app-deps
+	pnpm dev
+
+clean-run:
+	rm -rf node_modules
+	pnpm install
+	pnpm exec electron-builder install-app-deps
 	pnpm dev
 
 dev: run

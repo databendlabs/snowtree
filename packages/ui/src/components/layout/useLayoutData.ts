@@ -17,6 +17,8 @@ interface UseLayoutDataResult {
   reload: () => void;
   setSelectedTool: (tool: CLITool) => void;
   setExecutionMode: (mode: ExecutionMode) => void;
+  toggleExecutionMode: () => void;
+  cycleSelectedTool: () => void;
   sendMessage: (message: string, images?: ImageAttachment[], planMode?: boolean) => Promise<void>;
   sendMessageToTool: (tool: CLITool, message: string, options?: { skipCheckpointAutoCommit?: boolean }) => Promise<void>;
   cancelRequest: () => Promise<void>;
@@ -25,6 +27,7 @@ interface UseLayoutDataResult {
 export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
   const [session, setSession] = useState<Session | null>(null);
   const [aiPanel, setAiPanel] = useState<ToolPanel | null>(null);
+  const aiPanelRef = useRef<ToolPanel | null>(null);
   const [branchName, setBranchName] = useState<string>('main');
   const [selectedTool, setSelectedTool] = useState<CLITool>('claude');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -35,22 +38,32 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
   const branchPollTimerRef = useRef<number | null>(null);
   const branchPollInFlightRef = useRef(false);
 
+  useEffect(() => {
+    aiPanelRef.current = aiPanel;
+  }, [aiPanel]);
+
   // Derive executionMode from aiPanel state
   const executionMode = useMemo<ExecutionMode>(() => {
     const customState = aiPanel?.state?.customState as BaseAIPanelState | undefined;
     return customState?.executionMode || 'execute';
   }, [aiPanel]);
+  const executionModeRef = useRef<ExecutionMode>(executionMode);
+
+  useEffect(() => {
+    executionModeRef.current = executionMode;
+  }, [executionMode]);
 
   // Update execution mode and persist to panel state
   const setExecutionMode = useCallback(async (mode: ExecutionMode) => {
-    if (!aiPanel) return;
+    const panel = aiPanelRef.current;
+    if (!panel) return;
 
     try {
-      const currentState = aiPanel.state || { isActive: true };
+      const currentState = panel.state || { isActive: true };
       const currentCustomState = (currentState.customState as BaseAIPanelState) || {};
 
       const updatedPanel = {
-        ...aiPanel,
+        ...panel,
         state: {
           ...currentState,
           customState: {
@@ -64,13 +77,28 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
       setAiPanel(updatedPanel);
 
       // Persist to backend
-      await window.electronAPI?.panels?.update(aiPanel.id, {
+      await window.electronAPI?.panels?.update(panel.id, {
         state: updatedPanel.state
       });
     } catch (error) {
       console.error('Failed to update execution mode:', error);
     }
-  }, [aiPanel]);
+  }, [setAiPanel]);
+
+  const toggleExecutionMode = useCallback(() => {
+    const currentMode = executionModeRef.current;
+    const nextMode: ExecutionMode = currentMode === 'execute' ? 'plan' : 'execute';
+    void setExecutionMode(nextMode);
+  }, [setExecutionMode]);
+
+  const cycleSelectedTool = useCallback(() => {
+    setSelectedTool((prev) => {
+      const tools: CLITool[] = ['claude', 'codex'];
+      const currentIndex = tools.indexOf(prev);
+      const nextIndex = (currentIndex + 1) % tools.length;
+      return tools[nextIndex];
+    });
+  }, [setSelectedTool]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -338,6 +366,8 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     reload: () => setReloadToken((v) => v + 1),
     setSelectedTool,
     setExecutionMode,
+    toggleExecutionMode,
+    cycleSelectedTool,
     sendMessage,
     sendMessageToTool,
     cancelRequest

@@ -5,6 +5,7 @@ import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { TimelineEvent } from '../../types/timeline';
 import { clearSessionDraft, getSessionDraft, setSessionDraft } from './sessionDraftCache';
+import { useEditorAutoFocus } from './useEditorAutoFocus';
 
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/tiff'];
 const IS_MAC =
@@ -1094,180 +1095,14 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     };
   }, [isRunning, escPending, onCancel]);
 
-  useEffect(() => {
-    if (!focusRequestId) return;
-    editorRef.current?.focus();
-  }, [focusRequestId]);
-
-  useEffect(() => {
-    editorRef.current?.focus();
-  }, []);
-
-  // Auto-focus on typing (keyboard input auto-focuses the input field)
-  useEffect(() => {
-    const handleGlobalKeyPress = (e: KeyboardEvent) => {
-      // Skip if already focused
-      if (document.activeElement === editorRef.current) return;
-
-      // Skip if focus is in another input/textarea/contenteditable
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      ) {
-        return;
-      }
-
-      // Ctrl/Cmd+A should select the input contents (chat-style UX), not the whole page.
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        const editor = editorRef.current;
-        if (!editor) return;
-        editor.focus();
-        try {
-          const selection = window.getSelection();
-          if (!selection) return;
-          const range = document.createRange();
-          range.selectNodeContents(editor);
-          selection.removeAllRanges();
-          selection.addRange(range);
-          emitSelectionChange();
-        } catch {
-          // best-effort
-        }
-        return;
-      }
-
-      // Handle Ctrl+V / Cmd+V specially (check clipboard for images)
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
-        e.preventDefault();
-        const editor = editorRef.current;
-        if (!editor) return;
-
-        editor.focus();
-        setTimeout(async () => {
-          await pasteFromNavigatorClipboard();
-        }, 0);
-        return;
-      }
-
-      // Handle Delete/Backspace specially
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        e.preventDefault();
-        const editor = editorRef.current;
-        if (!editor) return;
-
-        editor.focus();
-        setTimeout(() => {
-          const selection = window.getSelection();
-          if (!selection || selection.rangeCount === 0) {
-            return;
-          }
-
-          const range = selection.getRangeAt(0);
-          if (!editor.contains(range.startContainer)) {
-            return;
-          }
-
-          if (!range.collapsed) {
-            range.deleteContents();
-          } else if (e.key === 'Backspace') {
-            const startContainer = range.startContainer;
-            const startOffset = range.startOffset;
-
-            if (startOffset > 0 && startContainer.nodeType === Node.TEXT_NODE) {
-              const textNode = startContainer as Text;
-              textNode.deleteData(startOffset - 1, 1);
-              range.setStart(textNode, startOffset - 1);
-              range.collapse(true);
-            }
-          } else if (e.key === 'Delete') {
-            const startContainer = range.startContainer;
-            const startOffset = range.startOffset;
-
-            if (startContainer.nodeType === Node.TEXT_NODE) {
-              const textNode = startContainer as Text;
-              if (startOffset < textNode.length) {
-                textNode.deleteData(startOffset, 1);
-              }
-            }
-          }
-
-          selection.removeAllRanges();
-          selection.addRange(range);
-          editor.dispatchEvent(new Event('input', { bubbles: true }));
-        }, 0);
-        return;
-      }
-
-      // Skip if modifier keys are pressed
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-      // Skip special keys (removed Backspace and Delete, now handled above)
-      const skipKeys = [
-        'Escape', 'Tab', 'Enter',
-        'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-        'Home', 'End', 'PageUp', 'PageDown',
-        'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'
-      ];
-      if (skipKeys.includes(e.key)) return;
-
-      // Handle printable key press - focus and insert at saved position
-      e.preventDefault();
-      const editor = editorRef.current;
-      if (!editor) return;
-
-      editor.focus();
-      setTimeout(() => {
-        insertTextAtCursor(e.key);
-      }, 0);
-    };
-
-    // Also handle paste events directly (backup for when Ctrl+V doesn't trigger)
-    const handleGlobalPasteCapture = (e: ClipboardEvent) => {
-      if (document.activeElement === editorRef.current) return;
-
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        return;
-      }
-
-      e.preventDefault();
-      const editor = editorRef.current;
-      if (!editor) return;
-
-      const clipboardData = e.clipboardData;
-      if (!clipboardData) return;
-
-      editor.focus();
-      setTimeout(async () => {
-        const items = Array.from(clipboardData.items);
-        const imageItems = items.filter((item) => ACCEPTED_IMAGE_TYPES.includes(item.type));
-
-        if (imageItems.length > 0) {
-          for (const item of imageItems) {
-            const file = item.getAsFile();
-            if (file) await addImageAttachment(file);
-          }
-        }
-
-        if (clipboardData.types.includes('text/plain')) {
-          const text = clipboardData.getData('text/plain');
-          if (text) insertTextAtCursor(text);
-        }
-      }, 0);
-    };
-
-    document.addEventListener('keydown', handleGlobalKeyPress, { capture: true });
-    document.addEventListener('paste', handleGlobalPasteCapture, { capture: true });
-    return () => {
-      document.removeEventListener('keydown', handleGlobalKeyPress, { capture: true });
-      document.removeEventListener('paste', handleGlobalPasteCapture, { capture: true });
-    };
-  }, [pasteFromNavigatorClipboard, emitSelectionChange]);
+  useEditorAutoFocus(editorRef, {
+    focusRequestId,
+    acceptedImageTypes: ACCEPTED_IMAGE_TYPES,
+    emitSelectionChange,
+    insertTextAtCursor,
+    pasteFromNavigatorClipboard,
+    addImageAttachment
+  });
 
   const loadAvailability = useCallback(async (force?: boolean) => {
     setAiToolsLoading(true);

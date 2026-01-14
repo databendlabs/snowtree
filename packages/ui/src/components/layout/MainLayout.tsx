@@ -7,7 +7,7 @@ import { InputBar } from './InputBar';
 import { RightPanel } from './RightPanel/index';
 import { DiffOverlay } from './DiffOverlay';
 import { useLayoutData } from './useLayoutData';
-import type { PendingMessage, FileChange, CLITool } from './types';
+import type { PendingMessage, FileChange } from './types';
 import type { DiffTarget } from '../../types/diff';
 
 const RIGHT_PANEL_WIDTH_KEY = 'snowtree-right-panel-width';
@@ -70,8 +70,8 @@ export const MainLayout: React.FC = React.memo(() => {
     loadError,
     executionMode,
     reload,
-    setSelectedTool,
-    setExecutionMode,
+    toggleExecutionMode,
+    cycleSelectedTool,
     sendMessage,
     sendMessageToTool,
     cancelRequest
@@ -111,6 +111,7 @@ export const MainLayout: React.FC = React.memo(() => {
     return DEFAULT_RIGHT_PANEL_WIDTH;
   });
   const [isResizing, setIsResizing] = useState(false);
+  const sessionId = session?.id ?? null;
 
   useEffect(() => {
     localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, rightPanelWidth.toString());
@@ -387,10 +388,14 @@ export const MainLayout: React.FC = React.memo(() => {
     }
   }, [isProcessing, pendingMessage]);
 
+  const focusInputAfterHotkey = useCallback(() => {
+    setInputFocusRequestId((prev) => prev + 1);
+  }, [setInputFocusRequestId]);
+
   // Conversation-level keybinding: Tab only switches agent (Shift+Tab toggles plan/execute).
   // Prevent using Tab for focus traversal while a session conversation is active.
   useEffect(() => {
-    if (!session) return;
+    if (!sessionId) return;
 
     const handleTabKey = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
@@ -399,23 +404,18 @@ export const MainLayout: React.FC = React.memo(() => {
       e.stopImmediatePropagation();
 
       if (e.shiftKey) {
-        setExecutionMode(executionMode === 'execute' ? 'plan' : 'execute');
-        // Keep chat-style focus on the input after hotkeys, even if a button stole focus.
-        setInputFocusRequestId((prev) => prev + 1);
+        toggleExecutionMode();
+        focusInputAfterHotkey();
         return;
       }
 
-      const tools: CLITool[] = ['claude', 'codex'];
-      const currentIndex = tools.indexOf(selectedTool);
-      const nextIndex = (currentIndex + 1) % tools.length;
-      setSelectedTool(tools[nextIndex]);
-      // Keep chat-style focus on the input after hotkeys, even if a button stole focus.
-      setInputFocusRequestId((prev) => prev + 1);
+      cycleSelectedTool();
+      focusInputAfterHotkey();
     };
 
     window.addEventListener('keydown', handleTabKey, { capture: true });
     return () => window.removeEventListener('keydown', handleTabKey, { capture: true });
-  }, [session, selectedTool, executionMode, setSelectedTool, setExecutionMode]);
+  }, [sessionId, toggleExecutionMode, cycleSelectedTool, focusInputAfterHotkey]);
 
   if (!activeSessionId) {
     return (
