@@ -21,7 +21,7 @@ export const WorkingFileRow: React.FC<WorkingFileRowProps> = React.memo(
         onClick={onClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors duration-75"
+        className="w-full flex items-center justify-start gap-2 px-3 py-1.5 text-xs transition-colors duration-75"
         style={{
           backgroundColor: bg,
           borderLeft: isSelected
@@ -43,7 +43,7 @@ export const WorkingFileRow: React.FC<WorkingFileRowProps> = React.memo(
           {typeInfo.label}
         </span>
         <span
-          className="truncate min-w-0 flex-1"
+          className="truncate min-w-0 flex-1 text-left"
           style={{
             color:
               isSelected || isHovered
