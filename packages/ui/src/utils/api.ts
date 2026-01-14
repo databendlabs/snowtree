@@ -29,6 +29,11 @@ export class API {
       return window.electronAPI.sessions.create(request);
     },
 
+    async update(sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'none'; executionMode?: 'plan' | 'execute' }) {
+      requireElectron();
+      return window.electronAPI.sessions.update(sessionId, updates);
+    },
+
     async stop(sessionId: string) {
       requireElectron();
       return window.electronAPI.sessions.stop(sessionId);

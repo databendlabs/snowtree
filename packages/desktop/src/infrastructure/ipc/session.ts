@@ -186,6 +186,15 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
     }
   });
 
+  ipcMain.handle('sessions:update', async (_event, sessionId: string, updates: import('@snowtree/core/types/session').SessionUpdate) => {
+    try {
+      sessionManager.updateSession(sessionId, updates);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to update session' };
+    }
+  });
+
   ipcMain.handle('sessions:set-active-session', async (_event, sessionId: string | null) => {
     try {
       gitStatusManager.setActiveSession(sessionId);

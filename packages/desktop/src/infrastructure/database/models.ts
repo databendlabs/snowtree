@@ -34,6 +34,7 @@ export interface Session {
   commit_mode_settings?: string | null;
   skip_continue_next?: boolean | null;
   archived?: boolean | null;
+  execution_mode?: 'plan' | 'execute' | null;
 }
 
 export interface Project {

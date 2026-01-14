@@ -34,6 +34,7 @@ export interface Session {
   skipContinueNext?: boolean;
   archived?: boolean;
   claudeSessionId?: string;
+  executionMode?: 'plan' | 'execute';
 }
 
 export interface SessionUpdate {
@@ -47,6 +48,8 @@ export interface SessionUpdate {
   baseCommit?: string | null;
   baseBranch?: string | null;
   skipContinueNext?: boolean;
+  toolType?: 'claude' | 'codex' | 'none';
+  executionMode?: 'plan' | 'execute';
 }
 
 export interface GitStatus {

@@ -40,86 +40,61 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
   const branchPollTimerRef = useRef<number | null>(null);
   const branchPollInFlightRef = useRef(false);
 
-  // Local execution mode state - used when no panel exists yet
-  const [localExecutionMode, setLocalExecutionMode] = useState<ExecutionMode>('execute');
+  // Local execution mode state - derived from session
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('execute');
+  const executionModeRef = useRef<ExecutionMode>(executionMode);
 
   useEffect(() => {
     aiPanelRef.current = aiPanel;
   }, [aiPanel]);
 
-  // Derive executionMode from aiPanel state, fallback to local state
-  const executionMode = useMemo<ExecutionMode>(() => {
-    const customState = aiPanel?.state?.customState as BaseAIPanelState | undefined;
-    const panelMode = customState?.executionMode;
-    // Use panel mode if available, otherwise use local state
-    return panelMode || localExecutionMode;
-  }, [aiPanel, localExecutionMode]);
-  const executionModeRef = useRef<ExecutionMode>(executionMode);
-
   useEffect(() => {
     executionModeRef.current = executionMode;
   }, [executionMode]);
 
-  // Sync local mode when panel mode changes
-  useEffect(() => {
-    const customState = aiPanel?.state?.customState as BaseAIPanelState | undefined;
-    if (customState?.executionMode) {
-      setLocalExecutionMode(customState.executionMode);
-    }
-  }, [aiPanel]);
+  // Update execution mode and persist to session
+  const setExecutionModeWithPersist = useCallback(async (mode: ExecutionMode) => {
+    if (!session) return;
 
-  // Update execution mode and persist to panel state
-  const setExecutionMode = useCallback(async (mode: ExecutionMode) => {
-    // Always update local state for immediate UI feedback
-    setLocalExecutionMode(mode);
+    setExecutionMode(mode);
 
-    const panel = aiPanelRef.current;
-    if (!panel) {
-      // No panel yet - local state will be used until panel is created
-      return;
-    }
-
+    // Persist the execution mode by updating the session's executionMode
     try {
-      const currentState = panel.state || { isActive: true };
-      const currentCustomState = (currentState.customState as BaseAIPanelState) || {};
-
-      const updatedPanel = {
-        ...panel,
-        state: {
-          ...currentState,
-          customState: {
-            ...currentCustomState,
-            executionMode: mode
-          }
-        }
-      };
-
-      // Update local state immediately for responsive UI
-      setAiPanel(updatedPanel);
-
-      // Persist to backend
-      await window.electronAPI?.panels?.update(panel.id, {
-        state: updatedPanel.state
-      });
+      await API.sessions.update(session.id, { executionMode: mode });
     } catch (error) {
-      console.error('Failed to update execution mode:', error);
+      console.error('Failed to update session executionMode:', error);
     }
-  }, [setAiPanel]);
+  }, [session]);
 
   const toggleExecutionMode = useCallback(() => {
     const currentMode = executionModeRef.current;
     const nextMode: ExecutionMode = currentMode === 'execute' ? 'plan' : 'execute';
-    void setExecutionMode(nextMode);
-  }, [setExecutionMode]);
+    void setExecutionModeWithPersist(nextMode);
+  }, [setExecutionModeWithPersist]);
 
-  const cycleSelectedTool = useCallback(() => {
-    setSelectedTool((prev) => {
-      const tools: CLITool[] = ['claude', 'codex'];
-      const currentIndex = tools.indexOf(prev);
-      const nextIndex = (currentIndex + 1) % tools.length;
-      return tools[nextIndex];
-    });
-  }, [setSelectedTool]);
+  const setSelectedToolWithPersist = useCallback(async (tool: CLITool) => {
+    if (!session) return;
+
+    setSelectedTool(tool);
+
+    // Persist the tool selection by updating the session's toolType
+    try {
+      await API.sessions.update(session.id, { toolType: tool });
+    } catch (error) {
+      console.error('Failed to update session toolType:', error);
+    }
+  }, [session]);
+
+  const cycleSelectedTool = useCallback(async () => {
+    if (!session) return;
+
+    const tools: CLITool[] = ['claude', 'codex'];
+    const currentIndex = tools.indexOf(selectedTool);
+    const nextIndex = (currentIndex + 1) % tools.length;
+    const nextTool = tools[nextIndex];
+
+    await setSelectedToolWithPersist(nextTool);
+  }, [session, selectedTool, setSelectedToolWithPersist]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -146,6 +121,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
         if (response.success && response.data) {
           setSession(response.data);
           setSelectedTool(response.data.toolType === 'codex' ? 'codex' : 'claude');
+          setExecutionMode(response.data.executionMode === 'plan' ? 'plan' : 'execute');
           setIsProcessing(
             response.data.status === 'running' || response.data.status === 'initializing'
           );
@@ -167,10 +143,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
 
           const ai = panels.find(p => p.type === 'claude' || p.type === 'codex') || null;
           setAiPanel(ai);
-
-          if (ai) {
-            setSelectedTool(ai.type as CLITool);
-          }
+          // Note: Do NOT override selectedTool here - it's already set from session.toolType
         }
       } catch (error) {
         console.error('Failed to load panels:', error);
@@ -308,7 +281,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
         panelToUse = createResponse.data;
 
         // Apply local execution mode to newly created panel
-        const currentLocalMode = localExecutionMode;
+        const currentLocalMode = executionMode;
         if (currentLocalMode !== 'execute') {
           const panelWithMode = {
             ...panelToUse,
@@ -336,7 +309,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     }
 
     return panelToUse;
-  }, [session, aiPanel, localExecutionMode]);
+  }, [session, aiPanel, executionMode]);
 
   const sendMessage = useCallback(async (message: string, images?: ImageAttachment[], planMode?: boolean) => {
     if (!session) return;
@@ -412,7 +385,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     loadError,
     executionMode,
     reload: () => setReloadToken((v) => v + 1),
-    setSelectedTool,
+    setSelectedTool: setSelectedToolWithPersist,
     setExecutionMode,
     toggleExecutionMode,
     cycleSelectedTool,

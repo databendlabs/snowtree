@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('sessions:get', sessionId),
     create: (request: { projectId: number; prompt?: string; toolType?: 'claude' | 'codex' | 'none'; baseBranch?: string }): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:create', request),
+    update: (sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'none'; executionMode?: 'plan' | 'execute' }): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:update', sessionId, updates),
     stop: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('sessions:stop', sessionId),
     delete: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('sessions:delete', sessionId),
     openWorktree: (request: { projectId: number; worktreePath: string; branch?: string | null }): Promise<IPCResponse> =>

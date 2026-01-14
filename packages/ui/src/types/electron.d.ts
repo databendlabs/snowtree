@@ -94,6 +94,7 @@ export interface ElectronAPI {
     getAll: () => Promise<IPCResponse<Session[]>>;
     get: (sessionId: string) => Promise<IPCResponse<Session>>;
     create: (request: { projectId: number; prompt?: string; toolType?: 'claude' | 'codex' | 'none'; baseBranch?: string }) => Promise<IPCResponse<{ id: string }>>;
+    update: (sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'none'; executionMode?: 'plan' | 'execute' }) => Promise<IPCResponse<unknown>>;
     stop: (sessionId: string) => Promise<IPCResponse<unknown>>;
     delete: (sessionId: string) => Promise<IPCResponse<unknown>>;
     openWorktree: (request: { projectId: number; worktreePath: string; branch?: string | null }) => Promise<IPCResponse<{ id: string }>>;
