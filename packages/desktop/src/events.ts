@@ -44,6 +44,7 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
 
       // When a turn completes (running -> waiting), refresh git status so the right panel updates.
       if ((prev === 'running' || prev === 'initializing') && status === 'waiting') {
+        console.log('[events.ts] Agent completed, sending agent:completed event for session:', id);
         send('agent:completed', { sessionId: id });
         gitStatusManager.refreshSessionGitStatus(id, false).catch(() => {
           // best-effort

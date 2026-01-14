@@ -70,10 +70,13 @@ export function useIPCEvents() {
 
     const maybeOnAgentCompleted = window.electronAPI.events.onAgentCompleted;
     if (maybeOnAgentCompleted) {
-      unsubscribes.push(maybeOnAgentCompleted(() => {
+      unsubscribes.push(maybeOnAgentCompleted((data: { sessionId: string }) => {
+        console.log('[useIPCEvents] Agent completed event received for session:', data.sessionId);
         const audio = new Audio(notificationSound);
         audio.volume = 0.3;
-        audio.play().catch(() => {});
+        audio.play().catch((err) => {
+          console.error('[useIPCEvents] Failed to play notification sound:', err);
+        });
       }));
     }
 
