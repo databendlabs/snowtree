@@ -3,6 +3,7 @@ import { API } from '../utils/api';
 import { useErrorStore } from '../stores/errorStore';
 import { useSessionStore } from '../stores/sessionStore';
 import type { GitStatus, Session } from '../types/session';
+import notificationSound from '../assets/sounds/notification.wav';
 
 export function useIPCEvents() {
   const { loadSessions, addSession, updateSession, deleteSession, setGitStatusLoading, updateSessionGitStatus } = useSessionStore();
@@ -64,6 +65,15 @@ export function useIPCEvents() {
       unsubscribes.push(maybeOnLoading((data: { sessionId: string }) => {
         setGitStatusLoading(data.sessionId, true);
         window.dispatchEvent(new CustomEvent('git-status-loading', { detail: { sessionId: data.sessionId } }));
+      }));
+    }
+
+    const maybeOnAgentCompleted = window.electronAPI.events.onAgentCompleted;
+    if (maybeOnAgentCompleted) {
+      unsubscribes.push(maybeOnAgentCompleted(() => {
+        const audio = new Audio(notificationSound);
+        audio.volume = 0.3;
+        audio.play().catch(() => {});
       }));
     }
 

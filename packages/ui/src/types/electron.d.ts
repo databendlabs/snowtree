@@ -157,6 +157,7 @@ export interface ElectronAPI {
     onAssistantStream: (callback: (data: { sessionId: string; panelId: string; content: string }) => void) => () => void;
     onUpdateAvailable: (callback: (version: string) => void) => () => void;
     onUpdateDownloaded: (callback: () => void) => () => void;
+    onAgentCompleted: (callback: (data: { sessionId: string }) => void) => () => void;
   };
 }
 

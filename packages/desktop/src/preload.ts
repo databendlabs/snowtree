@@ -120,5 +120,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onAssistantStream: (cb: (data: { sessionId: string; panelId: string; content: string }) => void) => on('assistant:stream', cb),
     onUpdateAvailable: (cb: (version: string) => void) => on('update:available', cb),
     onUpdateDownloaded: (cb: () => void) => on('update:downloaded', cb),
+    onAgentCompleted: (cb: (data: { sessionId: string }) => void) => on('agent:completed', cb),
   },
 });
