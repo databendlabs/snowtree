@@ -1,9 +1,4 @@
 import type { Session, GitStatus } from './session';
-
-declare module '*.wav' {
-  const src: string;
-  export default src;
-}
 import type { TimelineEvent } from './timeline';
 import type { DiffTarget } from './diff';
 import type { ToolPanel } from '@snowtree/core/types/panels';
