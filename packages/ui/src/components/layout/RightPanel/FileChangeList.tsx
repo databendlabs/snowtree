@@ -64,7 +64,7 @@ export const FileChangeList: React.FC<FileChangeListProps> = React.memo(
     if (showLoading) {
       return (
         <div
-          className="flex flex-col items-center justify-center py-8 gap-2"
+          className="flex flex-col items-start py-8 px-3 gap-2"
           style={{ color: colors.text.muted }}
         >
           <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
@@ -81,7 +81,7 @@ export const FileChangeList: React.FC<FileChangeListProps> = React.memo(
 
     if (error && !isIgnorableError) {
       return (
-        <div className="flex flex-col items-center justify-center py-6 gap-2">
+        <div className="flex flex-col items-start py-6 px-3 gap-2">
           <span className="text-xs" style={{ color: colors.text.deleted }}>
             {error}
           </span>
@@ -111,7 +111,7 @@ export const FileChangeList: React.FC<FileChangeListProps> = React.memo(
       if (isEmpty) {
         return (
           <div
-            className="flex items-center justify-center py-8 text-xs"
+            className="flex items-start py-8 px-3 text-xs"
             style={{ color: colors.text.muted }}
           >
             {!hasSelection ? 'Select a commit' : 'Working tree clean'}
@@ -206,7 +206,7 @@ export const FileChangeList: React.FC<FileChangeListProps> = React.memo(
     if (commitFiles.length === 0) {
       return (
         <div
-          className="flex items-center justify-center py-8 text-xs"
+          className="flex items-start py-8 px-3 text-xs"
           style={{ color: colors.text.muted }}
         >
           {!hasSelection ? 'Select a commit' : 'No changes'}
