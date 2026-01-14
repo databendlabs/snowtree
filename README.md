@@ -1,22 +1,28 @@
 # Snowtree
 
-**AI generates code. You must review. You can't review all or rollback safely.**
+Snowtree is Databend Labs' review-driven workflow for keeping AI coding sessions safe, auditable, and merge-ready.
 
-Snowtree fixes this: **Worktree isolation + Incremental review + Stage as snapshot**.
+> 📦 **New home:** The project is moving from the personal `bohutang` org to [`databendlabs/snowtree`](https://github.com/databendlabs/snowtree). All new issues/releases will live there.
+
+AI generates code. You must review. You can't review everything or roll back safely.  
+Snowtree fixes this with **worktree isolation**, **incremental review**, and **staging snapshots**.
 
 ![Snowtree Demo](assets/snowtree-show.gif)
 
-## How It Works
+## Highlights
 
-- **Isolated Worktrees** — Each AI session runs in its own worktree. Work in parallel without conflicts.
-- **Native CLI** — Runs Claude Code or Codex directly. No wrapper overhead.
-- **Incremental Review** — Review each round, stage approved code. Next round reviews only new changes.
+- **Worktree isolation** – every AI session runs in its own Git worktree, so you can spike multiple ideas in parallel with zero merge headaches.
+- **Incremental review loop** – review, stage, and lock in vetted changes after each AI round; subsequent rounds only diff against staged code.
+- **Native CLI agents** – run Claude Code or Codex directly without wrappers, meaning no extra queues or limits.
+- **Stage-as-snapshot** – staged files become the canonical baseline. When you're ready, merge them back and ship the PR.
 
-```
-Round 1: AI codes → Review → Stage
-Round 2: AI continues → Review diff → Stage
-Round N: Done → Commit → Push PR
-```
+## What Snowtree Automates
+
+- **AI agent writes code** – edits live in the isolated worktree while you review.
+- **AI agent commits** – generates messages and commits the staged snapshot.
+- **AI agent syncs PRs** – opens or refreshes pull requests on demand.
+- **AI agent updates from `main`** – rebases/merges the latest upstream changes.
+- **AI agent resolves conflicts** – fixes merge conflicts without touching staged files.
 
 ## Prerequisites
 
@@ -32,10 +38,10 @@ Install at least one AI coding agent:
 **One-line installer (macOS/Linux):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bohutang/snowtree/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/databendlabs/snowtree/main/install.sh | sh
 ```
 
-**Manual download:** [GitHub Releases](https://github.com/bohutang/snowtree/releases)
+**Manual download:** [GitHub Releases](https://github.com/databendlabs/snowtree/releases)
 
 | Platform | Format |
 |----------|--------|
@@ -51,7 +57,7 @@ make check     # Typecheck, lint, and test
 make build     # Build packages
 ```
 
-## Blog
+## Learn More
 
 [Snowtree: Review-Driven Safe AI Coding](https://www.bohutang.me/2026/01/10/snowtree-review-driven-safe-ai-coding/)
 
