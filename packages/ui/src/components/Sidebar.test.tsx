@@ -21,6 +21,7 @@ vi.mock('../stores/sessionStore', () => ({
     ],
     activeSessionId: 's1',
     setActiveSession: vi.fn(),
+    sessionTodos: {},
   }),
 }));
 
