@@ -16,6 +16,11 @@
   background: var(--st-surface, #252525);
   border-bottom: 1px solid var(--st-border, #333);
   font-size: 11px;
+  transition: border-bottom-color 0.2s ease;
+}
+
+.inline-diff-viewer .diff-header:hover {
+  background: color-mix(in srgb, var(--st-surface, #252525) 95%, var(--st-accent, #3b82f6));
 }
 
 .inline-diff-viewer .diff-file-path {
@@ -69,6 +74,21 @@
 
 .inline-diff-viewer .diff-stats-removed {
   color: var(--st-danger, #f87171);
+}
+
+.inline-diff-viewer .diff-content-wrapper {
+  overflow: hidden;
+  transition: max-height 0.25s ease-out, opacity 0.2s ease-out;
+}
+
+.inline-diff-viewer .diff-content-wrapper.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+.inline-diff-viewer .diff-content-wrapper.expanded {
+  max-height: 400px;
+  opacity: 1;
 }
 
 .inline-diff-viewer .diff-content {

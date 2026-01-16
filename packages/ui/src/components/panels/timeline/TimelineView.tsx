@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle, Terminal, Edit3, File, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -9,7 +9,7 @@ import type { TimelineEvent, UserQuestionEvent } from '../../../types/timeline';
 import type { Session } from '../../../types/session';
 import { formatDistanceToNow, parseTimestamp } from '../../../utils/timestampUtils';
 import { ThinkingMessage } from './ThinkingMessage';
-import { ToolCallMessage } from './ToolCallMessage';
+import { ToolCallMessage, getToolIcon } from './ToolCallMessage';
 import { UserQuestionDialog, type Question } from './UserQuestionDialog';
 import { InlineDiffViewer } from './InlineDiffViewer';
 import './MessageStyles.css';
@@ -128,6 +128,29 @@ const formatSeconds = (durationMs: number): string => {
   const ms = Number.isFinite(durationMs) ? durationMs : 0;
   const seconds = Math.max(0, ms) / 1000;
   return `${seconds.toFixed(1)}s`;
+};
+
+const getCommandIcon = (_kind: 'cli' | 'git' | 'worktree', command: string, meta?: Record<string, unknown>) => {
+  // Check for tool calls recorded as cli.command (meta.toolName exists)
+  const toolName = typeof meta?.toolName === 'string' ? meta.toolName : null;
+  if (toolName) {
+    return getToolIcon(toolName);
+  }
+
+  // Check for Edit tool (has oldString/newString in meta)
+  if (meta?.oldString !== undefined || meta?.newString !== undefined) {
+    return Edit3;
+  }
+  // Check for Write tool (has isNewFile in meta)
+  if (meta?.isNewFile === true) {
+    return File;
+  }
+  // Check for delete operation
+  if (meta?.isDelete === true || command.includes('rm ')) {
+    return Trash2;
+  }
+  // Default to terminal icon for CLI/git commands
+  return Terminal;
 };
 
 const getAgentModelLabelFromCommands = (commands: CommandInfo[]): string | null => {
@@ -461,18 +484,48 @@ interface ImageAttachment {
   dataUrl: string;
 }
 
-const UserMessage: React.FC<{ content: string; timestamp: string; images?: ImageAttachment[] }> = ({ content, timestamp }) => (
-  <div className="user-message-container">
-    <div className="user-message-content">
-      <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
-        {content}
-      </div>
-      <div className="message-timestamp">
-        {formatDistanceToNow(parseTimestamp(timestamp))}
+const UserMessage: React.FC<{ content: string; timestamp: string; images?: ImageAttachment[] }> = ({ content, timestamp }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const lines = content.split('\n');
+  const MAX_LINES = 5;
+  const shouldCollapse = lines.length > MAX_LINES;
+  const displayContent = shouldCollapse && !isExpanded
+    ? lines.slice(0, MAX_LINES).join('\n')
+    : content;
+
+  return (
+    <div className="user-message-container">
+      <div className="user-message-content">
+        <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
+          {displayContent}
+        </div>
+        {shouldCollapse && (
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="mt-2 text-xs flex items-center gap-1 transition-colors hover:opacity-80"
+            style={{ color: colors.text.muted }}
+          >
+            {isExpanded ? (
+              <>
+                <ChevronDown size={14} />
+                <span>Show less</span>
+              </>
+            ) : (
+              <>
+                <ChevronRight size={14} />
+                <span>Show more ({lines.length - MAX_LINES} more lines)</span>
+              </>
+            )}
+          </button>
+        )}
+        <div className="message-timestamp">
+          {formatDistanceToNow(parseTimestamp(timestamp))}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const AgentResponse: React.FC<{
   messages: Array<{ content: string; timestamp: string; isStreaming?: boolean }>;
@@ -484,6 +537,7 @@ const AgentResponse: React.FC<{
   const [showCommands, setShowCommands] = useState(true);
   const userToggledRef = useRef(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [expandedOutputs, setExpandedOutputs] = useState<Set<string>>(new Set());
   const agentLabel = useMemo(() => getAgentModelLabelFromCommands(commands), [commands]);
 
   const handleCopy = useCallback(async (text: string, key: string) => {
@@ -578,8 +632,8 @@ const AgentResponse: React.FC<{
                 const stdout = typeof meta.stdout === 'string' ? meta.stdout : '';
                 const stderr = typeof meta.stderr === 'string' ? meta.stderr : '';
                 const commandCopy = typeof meta.commandCopy === 'string' ? meta.commandCopy : display;
-                const showStdout = c.kind === 'cli' && stdout.length > 0;
-                const showStderr = c.kind === 'cli' && stderr.length > 0;
+                const showStdout = stdout.length > 0;
+                const showStderr = stderr.length > 0;
                 const cmdStatus = c.status;
                 const metaTermination = typeof meta.termination === 'string' ? meta.termination : undefined;
                 const isInterrupted = metaTermination === 'interrupted';
@@ -604,6 +658,22 @@ const AgentResponse: React.FC<{
                 // Multiple file diffs (e.g., rm file1 file2)
                 const hasMultipleDiffs = Array.isArray(diffFiles) && diffFiles.length > 0;
 
+                const CommandIcon = getCommandIcon(c.kind, display, meta);
+                const hasOutput = showStdout || showStderr;
+                const isOutputExpanded = expandedOutputs.has(key);
+
+                const toggleOutput = () => {
+                  setExpandedOutputs(prev => {
+                    const next = new Set(prev);
+                    if (next.has(key)) {
+                      next.delete(key);
+                    } else {
+                      next.add(key);
+                    }
+                    return next;
+                  });
+                };
+
                 return (
                   <div key={key}>
                     <div className="command-item">
@@ -618,8 +688,34 @@ const AgentResponse: React.FC<{
                           <Check className="status-done" style={{ width: 14, height: 14 }} />
                         )}
                       </span>
+                      <CommandIcon className="command-type-icon" style={{ width: 13, height: 13, marginRight: 8, flexShrink: 0, opacity: 0.6 }} />
                       <span className="command-text">{display}</span>
                       <div className="command-actions">
+                        {hasOutput && (
+                          <button
+                            onClick={toggleOutput}
+                            className="text-xs px-2 py-0.5 rounded flex items-center gap-1 transition-colors hover:opacity-80"
+                            style={{
+                              backgroundColor: isOutputExpanded ? colors.command.hover : colors.command.bg,
+                              border: `1px solid ${colors.border}`,
+                              color: colors.text.secondary,
+                              marginRight: 6
+                            }}
+                            title={isOutputExpanded ? 'Hide output' : 'Show output'}
+                          >
+                            {isOutputExpanded ? (
+                              <>
+                                <ChevronDown style={{ width: 11, height: 11 }} />
+                                <span>Hide</span>
+                              </>
+                            ) : (
+                              <>
+                                <ChevronRight style={{ width: 11, height: 11 }} />
+                                <span>Output</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                         <button
                           className="command-copy-btn"
                           onClick={() => handleCopy(commandCopy, key)}
@@ -661,10 +757,10 @@ const AgentResponse: React.FC<{
                         />
                       </div>
                     ))}
-                    {showStdout && (
+                    {isOutputExpanded && showStdout && (
                       <pre className="command-output stdout">{stdout}</pre>
                     )}
-                    {showStderr && (
+                    {isOutputExpanded && showStderr && (
                       <pre className="command-output stderr">{stderr}</pre>
                     )}
                   </div>

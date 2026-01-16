@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
 import './InlineDiffViewer.css';
 import { MarkdownPreview } from '../diff/MarkdownPreview';
 import { isMarkdownFile } from '../diff/utils/fileUtils';
@@ -155,6 +155,7 @@ export function InlineDiffViewer({
   className,
 }: InlineDiffViewerProps) {
   const [showPreview, setShowPreview] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
   const isMarkdown = useMemo(() => isMarkdownFile(filePath || ''), [filePath]);
 
   const diffLines = useMemo(() => {
@@ -172,9 +173,16 @@ export function InlineDiffViewer({
   return (
     <div className={`inline-diff-viewer ${className || ''}`}>
       {filePath && (
-        <div className="diff-header">
-          <span className="diff-file-path">{filePath}</span>
-          <div className="diff-header-actions">
+        <div className="diff-header" style={{ cursor: 'pointer' }} onClick={() => setIsExpanded(!isExpanded)}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {isExpanded ? (
+              <ChevronDown size={14} style={{ flexShrink: 0 }} />
+            ) : (
+              <ChevronRight size={14} style={{ flexShrink: 0 }} />
+            )}
+            <span className="diff-file-path">{filePath}</span>
+          </div>
+          <div className="diff-header-actions" onClick={(e) => e.stopPropagation()}>
             {isMarkdown && (
               <button
                 type="button"
@@ -192,30 +200,32 @@ export function InlineDiffViewer({
           </div>
         </div>
       )}
-      {showPreview && isMarkdown ? (
-        <MarkdownPreview content={newString} className="inline-diff-preview" />
-      ) : (
-        <div className="diff-content">
-          {diffLines.map((line, idx) => (
-            <div key={idx} className={`diff-line diff-line-${line.type}`}>
-              <span
-                className="diff-line-number"
-                style={{ minWidth: `${lineNumWidth + 1}ch` }}
-              >
-                {line.type === 'delete'
-                  ? line.oldLineNumber
-                  : line.type === 'insert'
-                  ? line.newLineNumber
-                  : line.newLineNumber}
-              </span>
-              <span className="diff-line-sign">
-                {line.type === 'delete' ? '-' : line.type === 'insert' ? '+' : ' '}
-              </span>
-              <span className="diff-line-content">{line.content || ' '}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className={`diff-content-wrapper ${isExpanded ? 'expanded' : 'collapsed'}`}>
+        {showPreview && isMarkdown ? (
+          <MarkdownPreview content={newString} className="inline-diff-preview" />
+        ) : (
+          <div className="diff-content">
+            {diffLines.map((line, idx) => (
+              <div key={idx} className={`diff-line diff-line-${line.type}`}>
+                <span
+                  className="diff-line-number"
+                  style={{ minWidth: `${lineNumWidth + 1}ch` }}
+                >
+                  {line.type === 'delete'
+                    ? line.oldLineNumber
+                    : line.type === 'insert'
+                    ? line.newLineNumber
+                    : line.newLineNumber}
+                </span>
+                <span className="diff-line-sign">
+                  {line.type === 'delete' ? '-' : line.type === 'insert' ? '+' : ' '}
+                </span>
+                <span className="diff-line-content">{line.content || ' '}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

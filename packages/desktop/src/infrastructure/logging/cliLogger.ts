@@ -99,12 +99,10 @@ export class CliLogger {
   }
 
   // Compatibility methods - these just log to file, no console output
-  /* eslint-disable @typescript-eslint/no-unused-vars */
   response(_res: unknown): void {}
   state(_tool: CliTool, _panelId: string, _from: string, _to: string): void {}
   event(_evt: unknown): void {}
   debug(_tool: CliTool, _panelId: string, _message: string): void {}
-  /* eslint-enable @typescript-eslint/no-unused-vars */
 }
 
 export const cliLogger = CliLogger.getInstance();

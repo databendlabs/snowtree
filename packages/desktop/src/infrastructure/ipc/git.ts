@@ -278,8 +278,23 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const session = sessionManager.getSession(sessionId);
       if (!session?.worktreePath) return { success: false, error: 'Session worktree not found' };
 
-      // Get remote URL to extract owner/repo (workaround for gh CLI worktree issue)
-      const remoteRes = await gitExecutor.run({
+      // Get current branch name
+      const branchRes = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['git', 'branch', '--show-current'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'get-branch' },
+      });
+      const branch = branchRes.stdout?.trim();
+      if (!branch) return { success: true, data: null };
+
+      // Get origin owner for fork workflow
+      let originOwner: string | null = null;
+      const originRes = await gitExecutor.run({
         sessionId,
         cwd: session.worktreePath,
         argv: ['git', 'remote', 'get-url', 'origin'],
@@ -287,61 +302,75 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         recordTimeline: false,
         throwOnError: false,
         timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'get-remote-url' },
+        meta: { source: 'ipc.git', operation: 'get-origin-url' },
       });
-
-      let repoArgs: string[] = [];
-      if (remoteRes.exitCode === 0 && remoteRes.stdout?.trim()) {
-        const url = remoteRes.stdout.trim();
-        // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
-        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-        if (match) {
-          // Get current branch name (required when using --repo)
-          const branchRes = await gitExecutor.run({
-            sessionId,
-            cwd: session.worktreePath,
-            argv: ['git', 'branch', '--show-current'],
-            op: 'read',
-            recordTimeline: false,
-            throwOnError: false,
-            timeoutMs: 3_000,
-            meta: { source: 'ipc.git', operation: 'get-branch' },
-          });
-          const branch = branchRes.stdout?.trim();
-          if (branch) {
-            repoArgs = ['--repo', match[1], branch];
-          }
+      if (originRes.exitCode === 0 && originRes.stdout?.trim()) {
+        const originUrl = originRes.stdout.trim();
+        const originMatch = originUrl.match(/github\.com[:/]([^/]+)\//);
+        if (originMatch) {
+          originOwner = originMatch[1];
         }
       }
 
-      const res = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['gh', 'pr', 'view', ...repoArgs, '--json', 'number,url,state'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 8_000,
-        meta: { source: 'ipc.git', operation: 'remote-pr' },
-      });
+      // Try to find PR in multiple remotes (upstream first for fork workflow, then origin)
+      const remoteNames = ['upstream', 'origin'];
 
-      if (res.exitCode !== 0) return { success: true, data: null };
+      for (const remoteName of remoteNames) {
+        const remoteRes = await gitExecutor.run({
+          sessionId,
+          cwd: session.worktreePath,
+          argv: ['git', 'remote', 'get-url', remoteName],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 3_000,
+          meta: { source: 'ipc.git', operation: 'get-remote-url' },
+        });
 
-      const raw = (res.stdout || '').trim();
-      if (!raw) return { success: true, data: null };
+        if (remoteRes.exitCode !== 0 || !remoteRes.stdout?.trim()) continue;
 
-      try {
-        const parsed = JSON.parse(raw) as { number?: unknown; url?: unknown; state?: unknown } | null;
-        const number = parsed && typeof parsed.number === 'number' ? parsed.number : null;
-        const url = parsed && typeof parsed.url === 'string' ? parsed.url : '';
-        const state = parsed && typeof parsed.state === 'string' ? parsed.state : '';
-        const merged = state === 'MERGED';
-        if (!number || !url) return { success: true, data: null };
-        const out: RemotePullRequest = { number, url, merged };
-        return { success: true, data: out };
-      } catch {
-        return { success: true, data: null };
+        const url = remoteRes.stdout.trim();
+        // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        if (!match) continue;
+
+        // For upstream repo in fork workflow, use "owner:branch" format
+        // For origin repo, use just "branch"
+        const branchArg = remoteName === 'upstream' && originOwner ? `${originOwner}:${branch}` : branch;
+        const repoArgs = ['--repo', match[1], branchArg];
+
+        const res = await gitExecutor.run({
+          sessionId,
+          cwd: session.worktreePath,
+          argv: ['gh', 'pr', 'view', ...repoArgs, '--json', 'number,url,state'],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 8_000,
+          meta: { source: 'ipc.git', operation: 'remote-pr' },
+        });
+
+        if (res.exitCode !== 0) continue; // Try next remote
+
+        const raw = (res.stdout || '').trim();
+        if (!raw) continue; // Try next remote
+
+        try {
+          const parsed = JSON.parse(raw) as { number?: unknown; url?: unknown; state?: unknown } | null;
+          const number = parsed && typeof parsed.number === 'number' ? parsed.number : null;
+          const url = parsed && typeof parsed.url === 'string' ? parsed.url : '';
+          const state = parsed && typeof parsed.state === 'string' ? parsed.state : '';
+          const merged = state === 'MERGED';
+          if (!number || !url) continue; // Try next remote
+          const out: RemotePullRequest = { number, url, merged };
+          return { success: true, data: out }; // Found PR, return immediately
+        } catch {
+          continue; // Try next remote
+        }
       }
+
+      // No PR found in any remote
+      return { success: true, data: null };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to load remote pull request' };
     }
@@ -723,11 +752,31 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const cwd = session.worktreePath;
       const baseBranch = session.baseBranch || 'main';
 
-      // Fetch origin to ensure we have latest refs (lightweight, does not record timeline)
+      // Determine which remote to use for the base branch
+      // In fork workflows, we want to compare with upstream/main, not origin/main
+      // Try upstream first, fallback to origin
+      let remoteName = 'origin';
+
+      const upstreamCheck = await gitExecutor.run({
+        sessionId,
+        cwd,
+        argv: ['git', 'remote', 'get-url', 'upstream'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'check-upstream' },
+      });
+
+      if (upstreamCheck.exitCode === 0 && upstreamCheck.stdout?.trim()) {
+        remoteName = 'upstream';
+      }
+
+      // Fetch the remote to ensure we have latest refs
       await gitExecutor.run({
         sessionId,
         cwd,
-        argv: ['git', 'fetch', 'origin', baseBranch],
+        argv: ['git', 'fetch', remoteName, baseBranch],
         op: 'read',
         recordTimeline: false,
         throwOnError: false,
@@ -735,12 +784,12 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         meta: { source: 'ipc.git', operation: 'fetch-main' },
       });
 
-      // Count commits that origin/main has but current branch doesn't
-      // git rev-list HEAD..origin/main --count
+      // Count commits that remote/baseBranch has but current branch doesn't
+      // git rev-list HEAD..{remote}/{baseBranch} --count
       const result = await gitExecutor.run({
         sessionId,
         cwd,
-        argv: ['git', 'rev-list', 'HEAD..origin/' + baseBranch, '--count'],
+        argv: ['git', 'rev-list', `HEAD..${remoteName}/${baseBranch}`, '--count'],
         op: 'read',
         recordTimeline: false,
         throwOnError: false,
@@ -749,7 +798,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       });
 
       if (result.exitCode !== 0) {
-        // May fail if origin/main doesn't exist, return 0
+        // May fail if remote/baseBranch doesn't exist, return 0
         return { success: true, data: { behind: 0, baseBranch } };
       }
 
@@ -790,11 +839,51 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         return { success: true, data: { ahead: 0, behind: 0, branch: null } };
       }
 
-      // Fetch origin branch to get latest refs
+      // For PR sync, we want to compare with the push destination (origin)
+      // Not the upstream tracking branch (which might be upstream/main)
+      // Get the push remote for this branch
+      const pushRemoteRes = await gitExecutor.run({
+        sessionId,
+        cwd,
+        argv: ['git', 'config', `branch.${branch}.pushRemote`],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'get-push-remote' },
+      });
+
+      let remoteName = 'origin';
+      const pushRemote = pushRemoteRes.stdout?.trim();
+
+      if (pushRemote && pushRemoteRes.exitCode === 0) {
+        remoteName = pushRemote;
+      } else {
+        // Fallback: check branch.{branch}.remote
+        const branchRemoteRes = await gitExecutor.run({
+          sessionId,
+          cwd,
+          argv: ['git', 'config', `branch.${branch}.remote`],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 3_000,
+          meta: { source: 'ipc.git', operation: 'get-branch-remote' },
+        });
+
+        const branchRemote = branchRemoteRes.stdout?.trim();
+        if (branchRemote && branchRemoteRes.exitCode === 0) {
+          remoteName = branchRemote;
+        }
+      }
+
+      const remoteRef = `${remoteName}/${branch}`;
+
+      // Fetch the remote branch to get latest refs
       await gitExecutor.run({
         sessionId,
         cwd,
-        argv: ['git', 'fetch', 'origin', branch],
+        argv: ['git', 'fetch', remoteName, branch],
         op: 'read',
         recordTimeline: false,
         throwOnError: false,
@@ -802,11 +891,11 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         meta: { source: 'ipc.git', operation: 'fetch-branch' },
       });
 
-      // Check if origin/branch exists
+      // Check if remote branch exists
       const refCheckRes = await gitExecutor.run({
         sessionId,
         cwd,
-        argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
+        argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/${remoteRef}`],
         op: 'read',
         recordTimeline: false,
         throwOnError: false,
@@ -819,13 +908,12 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         return { success: true, data: { ahead: 0, behind: 0, branch } };
       }
 
-      // Count commits: local ahead of remote (HEAD..origin/branch)
-      // and remote ahead of local (origin/branch..HEAD)
+      // Count commits: local ahead of remote and remote ahead of local
       const [aheadRes, behindRes] = await Promise.all([
         gitExecutor.run({
           sessionId,
           cwd,
-          argv: ['git', 'rev-list', `origin/${branch}..HEAD`, '--count'],
+          argv: ['git', 'rev-list', `${remoteRef}..HEAD`, '--count'],
           op: 'read',
           recordTimeline: false,
           throwOnError: false,
@@ -835,7 +923,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         gitExecutor.run({
           sessionId,
           cwd,
-          argv: ['git', 'rev-list', `HEAD..origin/${branch}`, '--count'],
+          argv: ['git', 'rev-list', `HEAD..${remoteRef}`, '--count'],
           op: 'read',
           recordTimeline: false,
           throwOnError: false,

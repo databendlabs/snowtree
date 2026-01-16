@@ -1,4 +1,6 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useState } from 'react';
+import { FileText, Terminal, Search, ListTodo, Edit3, FileInput, Globe, Wrench, CheckCircle2, XCircle, Clock, FolderSearch } from 'lucide-react';
 import './ToolCallMessage.css';
 import { InlineDiffViewer } from './InlineDiffViewer';
 
@@ -10,6 +12,21 @@ export interface ToolCallMessageProps {
   timestamp: string;
   exitCode?: number;
 }
+
+export const getToolIcon = (toolName: string) => {
+  switch (toolName) {
+    case 'Read': return FileText;
+    case 'Bash': return Terminal;
+    case 'Grep': return Search;
+    case 'Glob': return FolderSearch;
+    case 'TodoWrite': return ListTodo;
+    case 'Edit': return Edit3;
+    case 'Write': return FileInput;
+    case 'WebFetch':
+    case 'WebSearch': return Globe;
+    default: return Wrench;
+  }
+};
 
 export function ToolCallMessage({
   toolName,
@@ -50,7 +67,7 @@ export function ToolCallMessage({
       const limit = input.limit as string | number | undefined;
       return (
         <div className="tool-params">
-          <span className="param-label">📄 File:</span>{' '}
+          <span className="param-label">File:</span>{' '}
           <code className="param-value">{String(input.file_path)}</code>
           {offset && (
             <span className="param-meta">
@@ -97,17 +114,30 @@ export function ToolCallMessage({
     }
 
     if (toolName === 'TodoWrite' && input.todos) {
-      const todos = input.todos as Array<{ status: string; content: string }>;
+      const todos = input.todos as Array<{ status: string; content: string; activeForm?: string }>;
       const completedCount = todos.filter(t => t.status === 'completed').length;
-      const inProgressCount = todos.filter(t => t.status === 'in_progress').length;
+      const inProgressTasks = todos.filter(t => t.status === 'in_progress');
       const pendingCount = todos.filter(t => t.status === 'pending').length;
 
       return (
         <div className="tool-params">
-          <span className="param-label">📋 Tasks:</span>{' '}
-          <span className="param-value">
-            {todos.length} total ({completedCount} completed, {inProgressCount} in progress, {pendingCount} pending)
-          </span>
+          <div className="param-header">
+            <span className="param-label">Tasks:</span>{' '}
+            <span className="param-value">
+              {completedCount}/{todos.length} completed
+              {pendingCount > 0 && `, ${pendingCount} pending`}
+            </span>
+          </div>
+          {inProgressTasks.length > 0 && (
+            <div className="todo-in-progress" style={{ marginTop: '8px', paddingLeft: '12px', borderLeft: '2px solid var(--st-accent)' }}>
+              {inProgressTasks.map((task, idx) => (
+                <div key={idx} style={{ fontSize: '0.9em', color: 'var(--st-text-secondary)', marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--st-accent)', marginRight: '6px' }}>▸</span>
+                  {task.activeForm || task.content}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       );
     }
@@ -122,7 +152,7 @@ export function ToolCallMessage({
         return (
           <div className="tool-params">
             <div className="param-header">
-              <span className="param-label">📝 File:</span>{' '}
+              <span className="param-label">File:</span>{' '}
               <code className="param-value">{String(filePath || 'unknown')}</code>
             </div>
             <InlineDiffViewer
@@ -139,7 +169,7 @@ export function ToolCallMessage({
       return (
         <div className="tool-params">
           <div>
-            <span className="param-label">📝 File:</span>{' '}
+            <span className="param-label">File:</span>{' '}
             <code className="param-value">{String(filePath || 'unknown')}</code>
           </div>
           {oldString && (
@@ -164,9 +194,9 @@ export function ToolCallMessage({
   };
 
   const getStatusIcon = () => {
-    if (!toolResult) return '⏳'; // Pending
-    if (isError) return '✗'; // Error
-    return '✓'; // Success
+    if (!toolResult) return Clock; // Pending
+    if (isError) return XCircle; // Error
+    return CheckCircle2; // Success
   };
 
   const getStatusClass = () => {
@@ -174,6 +204,9 @@ export function ToolCallMessage({
     if (isError) return 'error';
     return 'success';
   };
+
+  const ToolIcon = getToolIcon(toolName);
+  const StatusIcon = getStatusIcon();
 
   return (
     <div className={`tool-call-message ${getStatusClass()}`}>
@@ -189,11 +222,9 @@ export function ToolCallMessage({
           }
         }}
       >
-        <span className="tool-icon">🔧</span>
+        <ToolIcon className="tool-icon" size={14} style={{ flexShrink: 0, marginRight: 8 }} />
         <span className="tool-name">{toolName}</span>
-        <span className={`tool-status ${getStatusClass()}`} title={getStatusClass()}>
-          {getStatusIcon()}
-        </span>
+        <StatusIcon className={`tool-status ${getStatusClass()}`} size={12} style={{ flexShrink: 0, marginLeft: 8 }} />
         <span className="tool-timestamp">{formatTime(timestamp)}</span>
         <span className="expand-icon">{expanded ? '▼' : '▶'}</span>
       </div>
