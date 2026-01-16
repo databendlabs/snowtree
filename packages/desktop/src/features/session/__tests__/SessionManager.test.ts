@@ -321,7 +321,10 @@ describe('SessionManager', () => {
       });
     });
 
-    it('should capture Claude session ID from system.init message', async () => {
+    it('should not persist session ID from init message (handled by AbstractAIPanelManager)', async () => {
+      // Session ID persistence is now handled by AbstractAIPanelManager.confirmAndPersistSessionId()
+      // which waits for the first assistant message before persisting.
+      // This prevents overwriting valid session IDs when a resumed session fails.
       const session = await sessionManager.createSession({
         name: 'Test',
         worktreePath: '/tmp/test',
@@ -341,8 +344,9 @@ describe('SessionManager', () => {
         timestamp: new Date().toISOString(),
       });
 
+      // Session ID should NOT be persisted by addSessionOutput anymore
       const updated = sessionManager.getSession(session.id);
-      expect(updated.claudeSessionId).toBe('claude-session-123');
+      expect(updated.claudeSessionId).toBeUndefined();
     });
 
     it('should handle non-JSON output gracefully', async () => {
@@ -460,6 +464,129 @@ describe('SessionManager', () => {
       const ids = sessions.map(s => s.id);
 
       expect(new Set(ids).size).toBe(1);
+    });
+  });
+
+  describe('persistPanelAgentSessionId', () => {
+    it('should persist agent session ID to panel state', async () => {
+      const session = await sessionManager.createSession({
+        name: 'Test',
+        worktreePath: '/tmp/test',
+        prompt: 'Test',
+        toolType: 'claude',
+      });
+
+      const panelId = 'test-panel-id';
+      // Create a panel (createPanel returns void)
+      mockDb.createPanel({
+        id: panelId,
+        sessionId: session.id,
+        type: 'claude',
+        title: 'Test Panel',
+        state: { isActive: true, hasBeenViewed: false, customState: {} },
+        metadata: { createdAt: new Date().toISOString(), lastActiveAt: new Date().toISOString(), position: 0 },
+      });
+
+      // Persist agent session ID
+      sessionManager.persistPanelAgentSessionId(panelId, 'agent-session-123');
+
+      // Verify it's persisted
+      const retrievedId = sessionManager.getPanelAgentSessionId(panelId);
+      expect(retrievedId).toBe('agent-session-123');
+    });
+
+    it('should preserve existing session ID when not overwritten', async () => {
+      const session = await sessionManager.createSession({
+        name: 'Test',
+        worktreePath: '/tmp/test',
+        prompt: 'Test',
+        toolType: 'claude',
+      });
+
+      const panelId = 'test-panel-id-2';
+      // Create panel with existing session ID
+      mockDb.createPanel({
+        id: panelId,
+        sessionId: session.id,
+        type: 'claude',
+        title: 'Test Panel',
+        state: {
+          isActive: true,
+          hasBeenViewed: false,
+          customState: { agentSessionId: 'old-session-id' }
+        },
+        metadata: { createdAt: new Date().toISOString(), lastActiveAt: new Date().toISOString(), position: 0 },
+      });
+
+      // Verify old ID is readable
+      const oldId = sessionManager.getPanelAgentSessionId(panelId);
+      expect(oldId).toBe('old-session-id');
+
+      // Persist new ID
+      sessionManager.persistPanelAgentSessionId(panelId, 'new-session-id');
+
+      // Verify new ID is persisted
+      const newId = sessionManager.getPanelAgentSessionId(panelId);
+      expect(newId).toBe('new-session-id');
+    });
+
+    it('should also set legacy claudeSessionId for backward compatibility', async () => {
+      const session = await sessionManager.createSession({
+        name: 'Test',
+        worktreePath: '/tmp/test',
+        prompt: 'Test',
+        toolType: 'claude',
+      });
+
+      const panelId = 'test-panel-id-3';
+      mockDb.createPanel({
+        id: panelId,
+        sessionId: session.id,
+        type: 'claude',
+        title: 'Test Panel',
+        state: { isActive: true, hasBeenViewed: false, customState: {} },
+        metadata: { createdAt: new Date().toISOString(), lastActiveAt: new Date().toISOString(), position: 0 },
+      });
+
+      sessionManager.persistPanelAgentSessionId(panelId, 'agent-session-456');
+
+      // Check legacy field via getPanelClaudeSessionId
+      const claudeId = sessionManager.getPanelClaudeSessionId(panelId);
+      expect(claudeId).toBe('agent-session-456');
+    });
+  });
+
+  describe('getPanelAgentSessionId', () => {
+    it('should return undefined for non-existent panel', () => {
+      const id = sessionManager.getPanelAgentSessionId('non-existent-panel');
+      expect(id).toBeUndefined();
+    });
+
+    it('should fallback to claudeSessionId if agentSessionId is not set', async () => {
+      const session = await sessionManager.createSession({
+        name: 'Test',
+        worktreePath: '/tmp/test',
+        prompt: 'Test',
+        toolType: 'claude',
+      });
+
+      const panelId = 'legacy-panel';
+      // Create panel with only legacy claudeSessionId
+      mockDb.createPanel({
+        id: panelId,
+        sessionId: session.id,
+        type: 'claude',
+        title: 'Legacy Panel',
+        state: {
+          isActive: true,
+          hasBeenViewed: false,
+          customState: { claudeSessionId: 'legacy-id' }
+        },
+        metadata: { createdAt: new Date().toISOString(), lastActiveAt: new Date().toISOString(), position: 0 },
+      });
+
+      const id = sessionManager.getPanelAgentSessionId(panelId);
+      expect(id).toBe('legacy-id');
     });
   });
 });

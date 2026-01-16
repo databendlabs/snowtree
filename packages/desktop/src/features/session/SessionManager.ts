@@ -925,18 +925,9 @@ export class SessionManager extends EventEmitter {
       }
     }
 
-    // Check if this is the initial system message with Claude's session ID
-    if (isJson && isJSONMessage(parsedData as unknown as Record<string, unknown>, 'system', 'init') && (parsedData as unknown as GenericMessageData).session_id) {
-      // Store Claude's actual session ID
-      const claudeSessionId = (parsedData as unknown as GenericMessageData).session_id;
-      this.db.updateSession(id, { claude_session_id: claudeSessionId });
-
-      // Also update the cached session
-      const cachedSession = this.activeSessions.get(id);
-      if (cachedSession) {
-        cachedSession.claudeSessionId = claudeSessionId;
-      }
-    }
+    // NOTE: Session ID persistence is handled by AbstractAIPanelManager.confirmAndPersistSessionId()
+    // which waits for the first assistant message to confirm CLI success before persisting.
+    // This prevents overwriting valid session IDs when a resumed session fails before completion.
 
     // Check if this is a system result message indicating Claude has completed
     if (output.type === 'json' && isJSONMessage(output.data as unknown as Record<string, unknown>, 'system', 'result')) {
@@ -1183,18 +1174,8 @@ export class SessionManager extends EventEmitter {
     
     this.db.addPanelOutput(panelId, output.type, dataToStore);
 
-    // Capture Claude's session ID from init/system messages for proper --resume handling
-    try {
-      if (output.type === 'json' && output.data && typeof output.data === 'object') {
-        const data = output.data as unknown as GenericMessageData;
-        const sessionIdFromMsg = (data.type === 'system' && data.subtype === 'init' && data.session_id) || data.session_id;
-        if (sessionIdFromMsg && panel?.sessionId) {
-          this.db.updateSession(panel.sessionId, { claude_session_id: sessionIdFromMsg });
-        }
-      }
-    } catch (e) {
-      console.warn('[SessionManager] Failed to capture Claude session_id from panel output:', e);
-    }
+    // NOTE: Session ID persistence is handled by AbstractAIPanelManager.confirmAndPersistSessionId()
+    // which waits for the first assistant message to confirm CLI success before persisting.
 
     // Check if this is a system result message indicating panel execution has completed
     if (output.type === 'json' && isJSONMessage(output.data as unknown as Record<string, unknown>, 'system', 'result')) {
@@ -1246,31 +1227,9 @@ export class SessionManager extends EventEmitter {
     // NOTE: User messages are recorded at the moment the user submits input (IPC handlers),
     // so we intentionally avoid extracting and duplicating them from JSON output here.
 
-    // Capture Claude session ID per panel for proper --resume usage
-    try {
-      if (output.type === 'json' && output.data && typeof output.data === 'object') {
-        const data = output.data as unknown as GenericMessageData;
-        const sessionIdFromMsg = (data.type === 'system' && data.subtype === 'init' && data.session_id) || data.session_id;
-        if (sessionIdFromMsg) {
-          const panel = this.db.getPanel(panelId);
-          if (panel) {
-            const currentState = panel.state as PanelStateWithCustomData || {};
-            const customState = currentState.customState || {};
-            const updatedState = {
-              ...currentState,
-              customState: { 
-                ...customState, 
-                agentSessionId: sessionIdFromMsg, // Use new generic field
-                claudeSessionId: sessionIdFromMsg  // Keep legacy field for backward compatibility
-              }
-            };
-            this.db.updatePanel(panelId, { state: updatedState });
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[SessionManager] Failed to persist panel-level Claude session_id:', e);
-    }
+    // NOTE: Session ID persistence is handled by AbstractAIPanelManager.confirmAndPersistSessionId()
+    // which waits for the first assistant message to confirm CLI success before persisting.
+    // This prevents overwriting valid session IDs when a resumed session fails before completion.
   }
 
   getPanelOutputs(panelId: string, limit?: number): SessionOutput[] {
