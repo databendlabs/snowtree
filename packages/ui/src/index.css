@@ -792,7 +792,8 @@ body {
   height: 1em;
   border-radius: 1px;
   background: currentColor;
-  animation: st-block-caret-blink var(--st-caret-blink, 1s) step-start infinite;
+  animation: none;
+  opacity: 0.7;
 }
 
 @media (prefers-reduced-motion: reduce) {
