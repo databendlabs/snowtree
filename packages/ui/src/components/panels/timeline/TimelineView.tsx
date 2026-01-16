@@ -906,8 +906,8 @@ export const TimelineView: React.FC<{
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
       <div ref={scrollRef} className="flex-1 overflow-y-auto relative" onScroll={handleScroll}>
-        <div ref={contentRef} className="px-4 py-4">
-          <div className="mx-auto max-w-[800px] flex flex-col gap-6">
+        <div ref={contentRef} className="px-6 py-4">
+          <div className="flex flex-col gap-6">
             {error && (
               <div className="rounded px-3 py-2" style={{ backgroundColor: 'rgba(224, 108, 117, 0.1)', border: `1px solid ${colors.status.error}33` }}>
                 <div className="text-[12px] font-medium mb-1" style={{ color: colors.status.error }}>Failed to load timeline</div>
@@ -1065,8 +1065,8 @@ export const TimelineView: React.FC<{
 
       {/* Pending user question - rendered outside scrollbox for direct keyboard access */}
       {pendingQuestion && (
-        <div className="flex-shrink-0 px-4">
-          <div className="mx-auto max-w-[800px]">
+        <div className="flex-shrink-0 px-6">
+          <div>
             <UserQuestionDialog
               questions={pendingQuestion.questions}
               onSubmit={(answers) => {

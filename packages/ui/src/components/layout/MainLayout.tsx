@@ -59,6 +59,7 @@ const LoadingState: React.FC<{ title: string; subtitle?: string; onRetry?: () =>
 export const MainLayout: React.FC = React.memo(() => {
   const activeSessionId = useSessionStore(state => state.activeSessionId);
   const sessions = useSessionStore(state => state.sessions);
+  const sessionTodos = useSessionStore(state => state.sessionTodos);
 
   const {
     session,
@@ -94,6 +95,11 @@ export const MainLayout: React.FC = React.memo(() => {
       createdAt: new Date().toISOString(),
     };
   }, [session, sessionFromStore, activeSessionId]);
+
+  const activeTodos = useMemo(() => {
+    if (!activeSessionId) return [];
+    return sessionTodos[activeSessionId] || [];
+  }, [activeSessionId, sessionTodos]);
 
   const [showDiffOverlay, setShowDiffOverlay] = useState(false);
   const [selectedDiffFile, setSelectedDiffFile] = useState<string | null>(null);
@@ -536,6 +542,7 @@ export const MainLayout: React.FC = React.memo(() => {
         <RightPanel
           key={displaySession.id}
           session={displaySession}
+          todos={activeTodos}
           onFileClick={handleFileClick}
           onCommitUncommittedChanges={isCliAgent ? handleOpenCommitReview : undefined}
           isCommitDisabled={isProcessing}

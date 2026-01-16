@@ -6,7 +6,6 @@ import { useSessionStore } from '../stores/sessionStore';
 import { formatDistanceToNow } from '../utils/timestampUtils';
 import { StageBadge } from './layout/StageBadge';
 import { useThemeStore } from '../stores/themeStore';
-import { TodoList } from './TodoList';
 
 type Project = {
   id: number;
@@ -33,7 +32,7 @@ type Worktree = {
 
 export function Sidebar() {
   const { showError } = useErrorStore();
-  const { sessions, activeSessionId, setActiveSession, sessionTodos } = useSessionStore();
+  const { sessions, activeSessionId, setActiveSession } = useSessionStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [collapsedProjects, setCollapsedProjects] = useState<Set<number>>(() => new Set());
@@ -55,12 +54,6 @@ export function Sidebar() {
   const [updateError, setUpdateError] = useState<string>('');
   const sidebarPollingTimerRef = useRef<number | null>(null);
   const worktreePollInFlightRef = useRef<Set<number>>(new Set());
-
-  // Get todos for the active session
-  const activeTodos = useMemo(() => {
-    if (!activeSessionId) return [];
-    return sessionTodos[activeSessionId] || [];
-  }, [activeSessionId, sessionTodos]);
 
   const getWorktreeDisplayName = useCallback((worktree: Worktree): string => {
     const branch = typeof worktree.branch === 'string' ? worktree.branch.trim() : '';
@@ -802,7 +795,6 @@ export function Sidebar() {
           </div>
         )}
       </div>
-      <TodoList todos={activeTodos} />
       <div
         className="border-t st-hairline px-3 py-2 flex flex-col gap-1.5"
         style={{ backgroundColor: 'color-mix(in srgb, var(--st-surface) 85%, transparent)' }}

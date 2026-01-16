@@ -1,5 +1,6 @@
 import type { Session } from '../../types/session';
 import type { DiffTarget } from '../../types/diff';
+import type { TodoItem } from '../../stores/sessionStore';
 
 export type CLITool = 'claude' | 'codex';
 
@@ -55,6 +56,7 @@ export interface InputBarProps {
 
 export interface RightPanelProps {
   session: Session;
+  todos: TodoItem[];
   onFileClick: (filePath: string, target: DiffTarget, files?: FileChange[]) => void;
   onCommitUncommittedChanges?: () => void;
   isCommitDisabled?: boolean;
