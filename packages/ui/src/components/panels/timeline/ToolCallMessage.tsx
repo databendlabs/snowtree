@@ -96,6 +96,22 @@ export function ToolCallMessage({
       );
     }
 
+    if (toolName === 'TodoWrite' && input.todos) {
+      const todos = input.todos as Array<{ status: string; content: string }>;
+      const completedCount = todos.filter(t => t.status === 'completed').length;
+      const inProgressCount = todos.filter(t => t.status === 'in_progress').length;
+      const pendingCount = todos.filter(t => t.status === 'pending').length;
+
+      return (
+        <div className="tool-params">
+          <span className="param-label">📋 Tasks:</span>{' '}
+          <span className="param-value">
+            {todos.length} total ({completedCount} completed, {inProgressCount} in progress, {pendingCount} pending)
+          </span>
+        </div>
+      );
+    }
+
     if (toolName === 'Edit') {
       const oldString = input.old_string as string | undefined;
       const newString = input.new_string as string | undefined;
