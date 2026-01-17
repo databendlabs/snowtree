@@ -50,6 +50,35 @@ export const InputBarEditor = forwardRef<InputBarEditorHandle, InputBarEditorPro
     },
     ref
   ) => {
+    const scrollSelectionIntoView = (activeEditor: Editor) => {
+      setTimeout(() => {
+        if (activeEditor.isDestroyed) return;
+        const view = activeEditor.view;
+        if (!view.hasFocus()) return;
+        if (!(view.dom instanceof HTMLElement)) return;
+
+        const { from } = view.state.selection;
+        let coords;
+        try {
+          coords = view.coordsAtPos(from);
+        } catch {
+          return;
+        }
+
+        const dom = view.dom;
+        const domRect = dom.getBoundingClientRect();
+        const top = coords.top - domRect.top + dom.scrollTop;
+        const bottom = coords.bottom - domRect.top + dom.scrollTop;
+        const padding = 4;
+
+        if (top < dom.scrollTop) {
+          dom.scrollTop = Math.max(0, top - padding);
+        } else if (bottom > dom.scrollTop + dom.clientHeight) {
+          dom.scrollTop = bottom - dom.clientHeight + padding;
+        }
+      }, 0);
+    };
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -110,6 +139,10 @@ export const InputBarEditor = forwardRef<InputBarEditorHandle, InputBarEditorPro
         if (onUpdate) {
           onUpdate(editor.getText());
         }
+        scrollSelectionIntoView(editor);
+      },
+      onSelectionUpdate: ({ editor }) => {
+        scrollSelectionIntoView(editor);
       },
       onFocus,
       onBlur,
