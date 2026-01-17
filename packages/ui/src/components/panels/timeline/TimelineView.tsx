@@ -154,7 +154,7 @@ const getCommandIcon = (_kind: 'cli' | 'git' | 'worktree', command: string, meta
 };
 
 const getAgentModelLabelFromCommands = (commands: CommandInfo[]): string | null => {
-  const modelsByAgent = new Map<'Codex' | 'Claude', Set<string>>();
+  const labelsByAgent = new Map<'Codex' | 'Claude', Set<string>>();
   for (const c of commands) {
     if (c.kind !== 'cli') continue;
     const rawTool = typeof c.tool === 'string' ? c.tool : '';
@@ -169,16 +169,25 @@ const getAgentModelLabelFromCommands = (commands: CommandInfo[]): string | null 
     const model = typeof (meta as { cliModel?: unknown }).cliModel === 'string'
       ? String((meta as { cliModel: string }).cliModel).trim()
       : '';
-    const set = modelsByAgent.get(agent) || new Set<string>();
-    if (model) set.add(model);
-    modelsByAgent.set(agent, set);
+    const level = typeof (meta as { cliReasoningEffort?: unknown }).cliReasoningEffort === 'string'
+      ? String((meta as { cliReasoningEffort: string }).cliReasoningEffort).trim()
+      : '';
+    const descriptor = model
+      ? `${model}${level ? ` ${level}` : ''}`
+      : level
+        ? level
+        : '';
+
+    const set = labelsByAgent.get(agent) || new Set<string>();
+    if (descriptor) set.add(descriptor);
+    labelsByAgent.set(agent, set);
   }
 
-  if (modelsByAgent.size === 0) return null;
-  if (modelsByAgent.size > 1) return 'Mixed';
+  if (labelsByAgent.size === 0) return null;
+  if (labelsByAgent.size > 1) return 'Mixed';
 
-  const [agent, models] = Array.from(modelsByAgent.entries())[0];
-  const arr = Array.from(models.values());
+  const [agent, labels] = Array.from(labelsByAgent.entries())[0];
+  const arr = Array.from(labels.values());
   if (arr.length === 0) return agent;
   if (arr.length === 1) return `${agent} ${arr[0]}`;
   return `${agent} ${arr[0]} (+${arr.length - 1})`;
