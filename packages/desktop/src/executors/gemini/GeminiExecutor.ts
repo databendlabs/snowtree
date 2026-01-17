@@ -4,6 +4,8 @@
  */
 
 import { exec } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 
@@ -89,7 +91,7 @@ export class GeminiExecutor extends AbstractExecutor {
 
   buildCommandArgs(options: ExecutorSpawnOptions): string[] {
     const geminiOptions = options as GeminiSpawnOptions;
-    const { prompt, isResume, agentSessionId, planMode } = options;
+    const { prompt, isResume, agentSessionId, planMode, panelId, sessionId, worktreePath } = options;
     const imagePaths =
       Array.isArray((options as unknown as { imagePaths?: unknown }).imagePaths)
         ? ((options as unknown as { imagePaths: unknown[] }).imagePaths.filter((p): p is string => typeof p === 'string' && p.trim().length > 0))
@@ -99,9 +101,24 @@ export class GeminiExecutor extends AbstractExecutor {
       '--output-format', 'stream-json',
     ];
 
-    const approvalMode = planMode
-      ? 'plan'
-      : geminiOptions.approvalMode || 'yolo';
+    const requestedApprovalMode = planMode ? 'plan' : geminiOptions.approvalMode;
+    const planAvailability = requestedApprovalMode === 'plan'
+      ? this.resolvePlanAvailability(worktreePath)
+      : null;
+    const approvalMode = requestedApprovalMode === 'plan'
+      ? planAvailability?.enabled
+        ? 'plan'
+        : 'default'
+      : requestedApprovalMode || 'yolo';
+    if (requestedApprovalMode === 'plan' && planAvailability && !planAvailability.enabled) {
+      this.maybeEmitInternalWarning(
+        panelId,
+        sessionId,
+        'gemini-plan-disabled',
+        planAvailability.reason ||
+          'Gemini plan mode is unavailable. Enable experimental.plan in ~/.gemini/settings.json or the workspace .gemini/settings.json.'
+      );
+    }
     if (approvalMode) {
       args.push('--approval-mode', approvalMode);
     }
@@ -122,7 +139,7 @@ export class GeminiExecutor extends AbstractExecutor {
             '',
             'Attached images:',
             ...imagePaths.map((p, i) => {
-              const rel = path.relative(options.worktreePath, p);
+              const rel = path.relative(worktreePath, p);
               const displayPath = rel.startsWith('..') ? p : rel;
               return `[img${i + 1}] @${displayPath}`;
             }),
@@ -132,7 +149,7 @@ export class GeminiExecutor extends AbstractExecutor {
         : basePrompt;
 
     if (promptWithAttachments.length > 0 || imagePaths.length > 0) {
-      args.push('--prompt', promptWithAttachments);
+      args.push(promptWithAttachments);
     }
 
     return args;
@@ -271,6 +288,146 @@ export class GeminiExecutor extends AbstractExecutor {
       content,
       metadata: { streaming: false, internal: true, code },
     });
+  }
+
+  private resolvePlanAvailability(worktreePath: string): { enabled: boolean; reason?: string } {
+    const userSettingsPath = path.join(os.homedir(), '.gemini', 'settings.json');
+    const workspaceSettingsPath = path.join(worktreePath, '.gemini', 'settings.json');
+
+    const userSettings = this.readSettingsFile(userSettingsPath);
+    const workspaceSettings = this.readSettingsFile(workspaceSettingsPath);
+
+    const folderTrustEnabled = this.getFolderTrustEnabled(userSettings);
+    const workspaceTrusted = folderTrustEnabled
+      ? this.isWorkspaceTrusted(worktreePath, this.readTrustedFoldersConfig())
+      : true;
+
+    const workspacePlan = this.getExperimentalPlan(workspaceSettings);
+    if (workspacePlan !== undefined) {
+      if (!workspaceTrusted) {
+        return {
+          enabled: false,
+          reason: 'Gemini plan mode is disabled because the workspace is not trusted.',
+        };
+      }
+      return {
+        enabled: workspacePlan,
+        reason: workspacePlan
+          ? undefined
+          : 'Gemini plan mode is disabled in the workspace .gemini/settings.json.',
+      };
+    }
+
+    if (!workspaceTrusted) {
+      return {
+        enabled: false,
+        reason: 'Gemini plan mode is disabled because the workspace is not trusted.',
+      };
+    }
+
+    const userPlan = this.getExperimentalPlan(userSettings);
+    if (userPlan !== undefined) {
+      return {
+        enabled: userPlan,
+        reason: userPlan
+          ? undefined
+          : 'Gemini plan mode requires experimental.plan=true in ~/.gemini/settings.json.',
+      };
+    }
+
+    return {
+      enabled: false,
+      reason: 'Gemini plan mode requires experimental.plan=true in ~/.gemini/settings.json.',
+    };
+  }
+
+  private readSettingsFile(filePath: string): Record<string, unknown> | null {
+    try {
+      if (!fs.existsSync(filePath)) return null;
+      const raw = fs.readFileSync(filePath, 'utf8');
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        const stripped = raw
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/^\s*\/\/.*$/gm, '');
+        parsed = JSON.parse(stripped);
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+      return parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  private getExperimentalPlan(settings: Record<string, unknown> | null): boolean | undefined {
+    if (!settings) return undefined;
+    const experimental = settings.experimental;
+    if (!experimental || typeof experimental !== 'object') return undefined;
+    const plan = (experimental as Record<string, unknown>).plan;
+    return typeof plan === 'boolean' ? plan : undefined;
+  }
+
+  private getFolderTrustEnabled(settings: Record<string, unknown> | null): boolean {
+    if (!settings) return false;
+    const security = settings.security;
+    if (!security || typeof security !== 'object') return false;
+    const folderTrust = (security as Record<string, unknown>).folderTrust;
+    if (!folderTrust || typeof folderTrust !== 'object') return false;
+    const enabled = (folderTrust as Record<string, unknown>).enabled;
+    return typeof enabled === 'boolean' ? enabled : false;
+  }
+
+  private readTrustedFoldersConfig(): Record<string, unknown> | null {
+    const customPath = process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH;
+    const trustedPath = customPath || path.join(os.homedir(), '.gemini', 'trustedFolders.json');
+    return this.readSettingsFile(trustedPath);
+  }
+
+  private isWorkspaceTrusted(worktreePath: string, trustConfig: Record<string, unknown> | null): boolean {
+    if (!trustConfig) return false;
+    const trustedPaths: string[] = [];
+    const untrustedPaths: string[] = [];
+
+    for (const [rulePath, trustLevel] of Object.entries(trustConfig)) {
+      if (trustLevel === 'TRUST_FOLDER') {
+        trustedPaths.push(rulePath);
+      } else if (trustLevel === 'TRUST_PARENT') {
+        trustedPaths.push(path.dirname(rulePath));
+      } else if (trustLevel === 'DO_NOT_TRUST') {
+        untrustedPaths.push(rulePath);
+      }
+    }
+
+    const normalizedWorktree = path.resolve(worktreePath);
+    for (const trustedPath of trustedPaths) {
+      if (this.isWithinRoot(normalizedWorktree, trustedPath)) {
+        return true;
+      }
+    }
+
+    for (const untrustedPath of untrustedPaths) {
+      if (path.resolve(untrustedPath) === normalizedWorktree) {
+        return false;
+      }
+    }
+
+    return false;
+  }
+
+  private isWithinRoot(pathToCheck: string, rootDirectory: string): boolean {
+    const normalizedPathToCheck = path.resolve(pathToCheck);
+    const normalizedRootDirectory = path.resolve(rootDirectory);
+    const rootWithSeparator =
+      normalizedRootDirectory === path.sep || normalizedRootDirectory.endsWith(path.sep)
+        ? normalizedRootDirectory
+        : `${normalizedRootDirectory}${path.sep}`;
+
+    return (
+      normalizedPathToCheck === normalizedRootDirectory ||
+      normalizedPathToCheck.startsWith(rootWithSeparator)
+    );
   }
 }
 
