@@ -130,7 +130,11 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
             return;
           }
 
-          console.log('[events.ts] assistant_message:', { isStreaming, contentLen: content.length, panelId: panelId.slice(0, 8) });
+          console.log('[events.ts] assistant_message:', {
+            isStreaming,
+            contentLen: content.length,
+            panelId: panelId.slice(0, 8),
+          });
           streamingAssistantBufferByPanel.set(panelId, { content, timestamp: entry.timestamp });
           if (!pendingStreamFlushByPanel.has(panelId)) {
             const t = setTimeout(() => {
@@ -160,7 +164,11 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
           return;
         }
 
-        console.log('[events.ts] assistant_message:', { isStreaming, contentLen: content.length, panelId: panelId.slice(0, 8) });
+        console.log('[events.ts] assistant_message:', {
+          isStreaming,
+          contentLen: content.length,
+          panelId: panelId.slice(0, 8),
+        });
         const pending = pendingStreamFlushByPanel.get(panelId);
         if (pending) clearTimeout(pending);
         pendingStreamFlushByPanel.delete(panelId);
@@ -202,6 +210,16 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
           // best-effort
         }
         return;
+      }
+
+      if (entry.entryType === 'tool_use') {
+        console.log('[events.ts] tool_use:', {
+          toolName: entry.toolName,
+          toolUseId: entry.toolUseId,
+          content: entry.content,
+          metadata: entry.metadata,
+          panelId: panelId.slice(0, 8),
+        });
       }
 
       if (entry.entryType === 'error_message') {

@@ -82,10 +82,20 @@
 
 .expand-icon {
   color: #6c757d;
-  font-size: 0.7em;
+  width: 12px;
+  height: 12px;
   min-width: 16px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: transform 0.2s;
+}
+
+.todo-progress-icon {
+  color: var(--st-accent);
+  margin-right: 6px;
+  flex-shrink: 0;
+  opacity: 0.9;
 }
 
 .tool-call-details {

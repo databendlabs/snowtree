@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
-import type { TodoItem } from '../stores/sessionStore';
+import type { TodoItem } from '../../../stores/sessionStore';
 
 interface TodoListProps {
   todos: TodoItem[];

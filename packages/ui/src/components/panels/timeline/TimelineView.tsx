@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle, Terminal, Edit3, File, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle, Terminal, Edit3, File, Trash2, Circle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -134,7 +134,7 @@ const getCommandIcon = (_kind: 'cli' | 'git' | 'worktree', command: string, meta
   // Check for tool calls recorded as cli.command (meta.toolName exists)
   const toolName = typeof meta?.toolName === 'string' ? meta.toolName : null;
   if (toolName) {
-    return getToolIcon(toolName);
+    return getToolIcon(toolName, { command, commandActions: meta?.commandActions });
   }
 
   // Check for Edit tool (has oldString/newString in meta)
@@ -151,6 +151,42 @@ const getCommandIcon = (_kind: 'cli' | 'git' | 'worktree', command: string, meta
   }
   // Default to terminal icon for CLI/git commands
   return Terminal;
+};
+
+const formatCommandDisplay = (command: string, meta?: Record<string, unknown>) => {
+  const toolName = typeof meta?.toolName === 'string' ? meta.toolName.toLowerCase() : '';
+  if (toolName === 'commandexecution') {
+    const actions = Array.isArray(meta?.commandActions) ? meta?.commandActions as Array<Record<string, unknown>> : [];
+    if (actions.length > 0) {
+      const actionLabels = actions
+        .map((action) => {
+          const actionCommand = typeof action.command === 'string' ? action.command.trim() : '';
+          if (actionCommand) return actionCommand;
+          const type = typeof action.type === 'string' ? action.type.trim() : '';
+          const path = typeof action.path === 'string' ? action.path.trim() : '';
+          if (type && path) return `${type}: ${path}`;
+          return type || path;
+        })
+        .filter(Boolean);
+      if (actionLabels.length > 0) return actionLabels.join(' ; ');
+    }
+    const rawCommand = typeof meta?.command === 'string' ? meta.command.trim() : '';
+    if (rawCommand) return rawCommand;
+  }
+  if (toolName === 'filechange') {
+    const changes = Array.isArray(meta?.changes) ? meta?.changes as Array<Record<string, unknown>> : [];
+    if (changes.length > 0) {
+      const paths = changes
+        .map((change) => typeof change.path === 'string' ? change.path : '')
+        .filter(Boolean);
+      if (paths.length > 0) {
+        const preview = paths.slice(0, 3).join(', ');
+        const suffix = paths.length > 3 ? ` (+${paths.length - 3} more)` : '';
+        return `Apply patch: ${preview}${suffix}`;
+      }
+    }
+  }
+  return command;
 };
 
 const getAgentModelLabelFromCommands = (commands: CommandInfo[]): string | null => {
@@ -659,7 +695,7 @@ const AgentResponse: React.FC<{
           {showCommands && (
             <div className="commands-body">
               {commands.map((c, idx) => {
-                const display = String(c.command ?? '');
+                const display = formatCommandDisplay(String(c.command ?? ''), c.meta);
                 const key = `${idx}-${display}`;
                 const meta = c.meta || {};
                 const stdout = typeof meta.stdout === 'string' ? meta.stdout : '';
@@ -1110,7 +1146,7 @@ export const TimelineView: React.FC<{
                       }}
                     >
                       <div className="flex items-center gap-2 mb-2">
-                        <span>✓</span>
+                        <Check className="question-answered-icon" size={12} />
                         <span style={{ color: colors.text.primary, fontWeight: 500 }}>
                           Question Answered
                         </span>
@@ -1159,7 +1195,7 @@ export const TimelineView: React.FC<{
                 <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: colors.text.muted }}>
                   <Spinner />
                   <span>Sending...</span>
-                  <span className="opacity-40">·</span>
+                  <Circle className="opacity-40" size={4} />
                   <span className="opacity-60">Press Esc to cancel</span>
                 </div>
               </div>

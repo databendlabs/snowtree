@@ -307,11 +307,11 @@ describe('UserQuestionDialog', () => {
 
       // Select TypeScript
       fireEvent.keyDown(window, { key: 'Enter' });
-      expect(screen.getByText('✓')).toBeInTheDocument();
+      expect(screen.getAllByTestId('check-mark').length).toBeGreaterThan(0);
 
       // Toggle it off
       fireEvent.keyDown(window, { key: 'Enter' });
-      expect(screen.queryByText('✓')).not.toBeInTheDocument();
+      expect(screen.queryAllByTestId('check-mark')).toHaveLength(0);
     });
 
     it('should show Review tab content', () => {
@@ -467,7 +467,7 @@ describe('UserQuestionDialog', () => {
         />
       );
 
-      expect(screen.getByText('↑↓')).toBeInTheDocument();
+      expect(screen.getByTestId('nav-keys-icon')).toBeInTheDocument();
       expect(screen.getByText('select')).toBeInTheDocument();
       expect(screen.getByText('enter')).toBeInTheDocument();
       expect(screen.getByText('esc')).toBeInTheDocument();

@@ -1,6 +1,23 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useState } from 'react';
-import { FileText, Terminal, Search, ListTodo, Edit3, FileInput, Globe, Wrench, CheckCircle2, XCircle, Clock, FolderSearch } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Terminal,
+  Search,
+  ListTodo,
+  Edit3,
+  FileInput,
+  Globe,
+  Wrench,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  FolderSearch,
+  ArrowRight,
+  Trash2
+} from 'lucide-react';
 import './ToolCallMessage.css';
 import { InlineDiffViewer } from './InlineDiffViewer';
 
@@ -13,17 +30,48 @@ export interface ToolCallMessageProps {
   exitCode?: number;
 }
 
-export const getToolIcon = (toolName: string) => {
-  switch (toolName) {
-    case 'Read': return FileText;
-    case 'Bash': return Terminal;
-    case 'Grep': return Search;
-    case 'Glob': return FolderSearch;
-    case 'TodoWrite': return ListTodo;
-    case 'Edit': return Edit3;
-    case 'Write': return FileInput;
-    case 'WebFetch':
-    case 'WebSearch': return Globe;
+const parseToolInput = (toolInput?: string | Record<string, unknown>) => {
+  if (!toolInput) return null;
+  if (typeof toolInput !== 'string') return toolInput;
+  try {
+    return JSON.parse(toolInput) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+export const getToolIcon = (toolName: string, toolInput?: string | Record<string, unknown>) => {
+  const normalized = toolName.toLowerCase();
+  switch (normalized) {
+    case 'read': return FileText;
+    case 'bash':
+    case 'commandexecution': {
+      const input = parseToolInput(toolInput);
+      const actions = Array.isArray(input?.commandActions) ? input.commandActions as Array<Record<string, unknown>> : [];
+      const actionTypes = new Set(
+        actions
+          .map((action) => typeof action.type === 'string' ? action.type.toLowerCase() : '')
+          .filter(Boolean)
+      );
+      if (actionTypes.size > 0) {
+        if (actionTypes.has('delete') || actionTypes.has('remove') || actionTypes.has('rm') || actionTypes.has('file_delete')) return Trash2;
+        if (actionTypes.has('file_edit') || actionTypes.has('edit') || actionTypes.has('apply_patch') || actionTypes.has('patch') || actionTypes.has('update') || actionTypes.has('file_change')) return Edit3;
+        if (actionTypes.has('file_write') || actionTypes.has('write') || actionTypes.has('create') || actionTypes.has('file_create') || actionTypes.has('add')) return FileInput;
+        if (actionTypes.has('file_read') || actionTypes.has('read')) return FileText;
+        if (actionTypes.has('search') || actionTypes.has('grep') || actionTypes.has('find') || actionTypes.has('glob')) return Search;
+      }
+      return Terminal;
+    }
+    case 'grep': return Search;
+    case 'glob': return FolderSearch;
+    case 'todowrite': return ListTodo;
+    case 'edit':
+    case 'apply_patch':
+    case 'applypatch':
+    case 'filechange': return Edit3;
+    case 'write': return FileInput;
+    case 'webfetch':
+    case 'websearch': return Globe;
     default: return Wrench;
   }
 };
@@ -132,7 +180,7 @@ export function ToolCallMessage({
             <div className="todo-in-progress" style={{ marginTop: '8px', paddingLeft: '12px', borderLeft: '2px solid var(--st-accent)' }}>
               {inProgressTasks.map((task, idx) => (
                 <div key={idx} style={{ fontSize: '0.9em', color: 'var(--st-text-secondary)', marginBottom: '4px' }}>
-                  <span style={{ color: 'var(--st-accent)', marginRight: '6px' }}>▸</span>
+                  <ArrowRight className="todo-progress-icon" size={12} />
                   {task.activeForm || task.content}
                 </div>
               ))}
@@ -205,7 +253,7 @@ export function ToolCallMessage({
     return 'success';
   };
 
-  const ToolIcon = getToolIcon(toolName);
+  const ToolIcon = getToolIcon(toolName, toolInput);
   const StatusIcon = getStatusIcon();
 
   return (
@@ -226,7 +274,11 @@ export function ToolCallMessage({
         <span className="tool-name">{toolName}</span>
         <StatusIcon className={`tool-status ${getStatusClass()}`} size={12} style={{ flexShrink: 0, marginLeft: 8 }} />
         <span className="tool-timestamp">{formatTime(timestamp)}</span>
-        <span className="expand-icon">{expanded ? '▼' : '▶'}</span>
+        {expanded ? (
+          <ChevronDown className="expand-icon" size={12} />
+        ) : (
+          <ChevronRight className="expand-icon" size={12} />
+        )}
       </div>
 
       {expanded && (

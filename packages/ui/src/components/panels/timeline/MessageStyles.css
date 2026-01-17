@@ -28,6 +28,11 @@
   padding: 8px 0;
 }
 
+.question-answered-icon {
+  color: var(--st-success, #22c55e);
+  flex-shrink: 0;
+}
+
 /* Commands section with improved collapsible design */
 .commands-section {
   margin-top: 8px;

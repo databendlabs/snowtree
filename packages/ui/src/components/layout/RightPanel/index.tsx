@@ -9,7 +9,7 @@ import { CommitList } from './CommitList';
 import { FileChangeList } from './FileChangeList';
 import type { WorkingTreeScope } from './types';
 import { CIStatusBadge, CIStatusDetails } from '../../../features/ci-status';
-import { TodoList } from '../../TodoList';
+import { TodoList } from './TodoList';
 import { useSessionStore } from '../../../stores/sessionStore';
 
 export const RightPanel: React.FC<RightPanelProps> = React.memo(
@@ -229,7 +229,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
 
     return (
       <div
-        className="h-full flex flex-col"
+        className="h-full flex flex-col overflow-hidden"
         style={{
           backgroundColor: colors.bg.primary,
           borderLeft: `1px solid ${colors.border}`,
@@ -529,8 +529,8 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
           </div>
         </div>
 
-        {/* 3. Changes Section (below Commits, max-height with scroll) */}
-        <div className="flex flex-col min-h-0 max-h-[50%]">
+        {/* 3. Changes Section (below Commits, scrolls within panel) */}
+        <div className="flex flex-col min-h-0 flex-1">
           <div
             style={{
               backgroundColor: colors.bg.secondary,
@@ -692,7 +692,9 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
         </div>
 
         {/* 4. Tasks Section (at bottom) */}
-        <TodoList todos={todos} onClear={handleClearTodos} />
+        <div className="mt-auto">
+          <TodoList todos={todos} onClear={handleClearTodos} />
+        </div>
       </div>
     );
   }

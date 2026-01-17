@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { ArrowUpDown, Check } from 'lucide-react';
 import './UserQuestionDialog.css';
 
 export interface QuestionOption {
@@ -295,7 +296,7 @@ export function UserQuestionDialog({ questions, onSubmit, onCancel }: UserQuesti
                   <div className="option-label">
                     <span className="option-number">{i + 1}.</span>
                     <span className="option-text">{opt.label}</span>
-                    {isPicked && <span className="check-mark">✓</span>}
+                    {isPicked && <Check className="check-mark" size={12} data-testid="check-mark" />}
                   </div>
                   <div className="option-description">{opt.description}</div>
                 </div>
@@ -309,7 +310,7 @@ export function UserQuestionDialog({ questions, onSubmit, onCancel }: UserQuesti
               <div className="option-label">
                 <span className="option-number">{options.length + 1}.</span>
                 <span className="option-text">Type your own answer</span>
-                {isCustomPicked && <span className="check-mark">✓</span>}
+                {isCustomPicked && <Check className="check-mark" size={12} data-testid="check-mark" />}
               </div>
               {editingCustom && (
                 <div className="custom-input-container">
@@ -355,9 +356,12 @@ export function UserQuestionDialog({ questions, onSubmit, onCancel }: UserQuesti
       {/* Keyboard shortcuts help */}
       <div className="keyboard-shortcuts">
         {!isConfirmTab && (
-          <span className="shortcut">
-            <span className="key">↑↓</span> <span className="hint">select</span>
-          </span>
+            <span className="shortcut">
+              <span className="key">
+                <ArrowUpDown className="key-icon" size={12} data-testid="nav-keys-icon" />
+              </span>
+              <span className="hint">select</span>
+            </span>
         )}
         <span className="shortcut">
           <span className="key">enter</span>{' '}

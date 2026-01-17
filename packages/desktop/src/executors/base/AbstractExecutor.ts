@@ -621,7 +621,44 @@ export abstract class AbstractExecutor extends EventEmitter {
       const operationId = enriched.id || randomUUID();
       // Use toolUseId from Claude's message for linking with tool_result
       const toolUseId = enriched.toolUseId || operationId;
-      const display = (enriched.content || '').trim();
+      const entryToolName = (enriched.toolName || '').toLowerCase();
+      const metaCommand = typeof meta.command === 'string' ? meta.command : undefined;
+      const metaCommandActions = Array.isArray(meta.commandActions) ? meta.commandActions : undefined;
+      const metaChanges = Array.isArray(meta.changes) ? meta.changes : undefined;
+      const display = (() => {
+        const base = (enriched.content || '').trim();
+        if (entryToolName === 'commandexecution') {
+          const actions = metaCommandActions as Array<Record<string, unknown>> | undefined;
+          if (actions && actions.length > 0) {
+            const actionLabels = actions
+              .map((action) => {
+                const command = typeof action.command === 'string' ? action.command.trim() : '';
+                if (command) return command;
+                const type = typeof action.type === 'string' ? action.type.trim() : '';
+                const path = typeof action.path === 'string' ? action.path.trim() : '';
+                if (type && path) return `${type}: ${path}`;
+                return type || path;
+              })
+              .filter(Boolean);
+            if (actionLabels.length > 0) return actionLabels.join(' ; ');
+          }
+          return metaCommand?.trim() || base;
+        }
+        if (entryToolName === 'filechange') {
+          const changes = metaChanges as Array<Record<string, unknown>> | undefined;
+          if (changes && changes.length > 0) {
+            const paths = changes
+              .map((change) => typeof change.path === 'string' ? change.path : '')
+              .filter(Boolean);
+            if (paths.length > 0) {
+              const preview = paths.slice(0, 3).join(', ');
+              const suffix = paths.length > 3 ? ` (+${paths.length - 3} more)` : '';
+              return `Apply patch: ${preview}${suffix}`;
+            }
+          }
+        }
+        return base;
+      })();
       if (!display) return;
 
       const kind: 'git.command' | 'cli.command' =
@@ -682,6 +719,9 @@ export abstract class AbstractExecutor extends EventEmitter {
           agentPath: 'path' in action ? (action as { path?: string }).path : undefined,
           agentQuery: 'query' in action ? (action as { query?: string }).query : undefined,
           agentUrl: 'url' in action ? (action as { url?: string }).url : undefined,
+          commandCopy: metaCommand,
+          commandActions: metaCommandActions,
+          changes: metaChanges,
           ...runtime,
           ...diffMeta,
         }
