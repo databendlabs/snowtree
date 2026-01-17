@@ -136,7 +136,7 @@ export const BlockCaret = Extension.create({
       new Plugin<BlockCaretState>({
         key: BlockCaretPluginKey,
         state: {
-          init: () => ({ isFocused: false, isComposing: false }),
+          init: () => ({ isFocused: true, isComposing: false }),
           apply: (tr, value) => {
             const meta = tr.getMeta(BlockCaretPluginKey) as Partial<BlockCaretState> | undefined;
             if (meta) {
@@ -148,7 +148,8 @@ export const BlockCaret = Extension.create({
         props: {
           decorations: state => {
             const pluginState = BlockCaretPluginKey.getState(state);
-            if (!pluginState?.isFocused || pluginState.isComposing) {
+            // Always show caret when not composing (like terminal behavior)
+            if (pluginState?.isComposing) {
               return null;
             }
 

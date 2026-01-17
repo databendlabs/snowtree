@@ -105,6 +105,7 @@ export const InputBarEditor = forwardRef<InputBarEditorHandle, InputBarEditorPro
         },
       },
       editable: !isRunning,
+      autofocus: 'end',
       content: '',
       onUpdate: ({ editor }) => {
         if (onUpdate) {
@@ -119,7 +120,26 @@ export const InputBarEditor = forwardRef<InputBarEditorHandle, InputBarEditorPro
     useImperativeHandle(ref, () => ({
       editor,
       focus: () => editor?.commands.focus(),
-      getText: () => editor?.getText() || '',
+      getText: () => {
+        if (!editor) return '';
+        // Custom getText that includes ImagePill nodes as [img1], [img2], etc.
+        let text = '';
+        editor.state.doc.descendants((node) => {
+          if (node.isText) {
+            text += node.text;
+          } else if (node.type.name === 'imagePill') {
+            const index = node.attrs.index || 1;
+            text += `[img${index}]`;
+          } else if (node.type.name === 'paragraph' || node.type.name === 'hardBreak') {
+            // Only add newline if we have content and this isn't the first paragraph
+            if (text.length > 0 && !text.endsWith('\n')) {
+              text += '\n';
+            }
+          }
+          return true;
+        });
+        return text;
+      },
       getJSON: () => editor?.getJSON() || null,
       setContent: (content: any) => editor?.commands.setContent(content),
       clear: () => editor?.commands.clearContent(),

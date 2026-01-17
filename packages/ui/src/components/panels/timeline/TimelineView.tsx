@@ -484,6 +484,39 @@ interface ImageAttachment {
   dataUrl: string;
 }
 
+const ImagePillInline: React.FC<{ index: number }> = ({ index }) => (
+  <span
+    style={{
+      display: 'inline-block',
+      padding: '2px 6px',
+      margin: '0 2px',
+      borderRadius: '4px',
+      fontFamily: 'monospace',
+      fontSize: '13px',
+      backgroundColor: 'color-mix(in srgb, var(--st-accent) 15%, transparent)',
+      color: 'var(--st-accent)',
+    }}
+  >
+    [img{index}]
+  </span>
+);
+
+// Render text content with [img1], [img2], etc. tags as styled pills
+const renderTextWithImagePills = (text: string): React.ReactNode => {
+  if (!text.includes('[img')) {
+    return text;
+  }
+  const parts = text.split(/(\[img\d+\])/g);
+  return parts.map((part, i) => {
+    const match = part.match(/\[img(\d+)\]/);
+    if (match) {
+      const imgIndex = parseInt(match[1], 10);
+      return <ImagePillInline key={i} index={imgIndex} />;
+    }
+    return part;
+  });
+};
+
 const UserMessage: React.FC<{ content: string; timestamp: string; images?: ImageAttachment[] }> = ({ content, timestamp }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const lines = content.split('\n');
@@ -497,7 +530,7 @@ const UserMessage: React.FC<{ content: string; timestamp: string; images?: Image
     <div className="user-message-container">
       <div className="user-message-content">
         <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
-          {displayContent}
+          {renderTextWithImagePills(displayContent)}
         </div>
         {shouldCollapse && (
           <button
@@ -1121,7 +1154,7 @@ export const TimelineView: React.FC<{
                 }}
               >
                 <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
-                  {visiblePendingMessage.content}
+                  {renderTextWithImagePills(visiblePendingMessage.content)}
                 </div>
                 <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: colors.text.muted }}>
                   <Spinner />

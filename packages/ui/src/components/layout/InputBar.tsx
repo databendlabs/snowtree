@@ -217,6 +217,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   const [escPending, setEscPending] = useState(false);
   const escTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const imageIdCounter = useRef(0);
+  const imageIndexCounter = useRef(0);  // Track next image index for [img1], [img2], etc.
   const inputHistoryRef = useRef<string[]>([]);
   const imageAttachmentsRef = useRef<ImageAttachment[]>([]);
   const restoringDraftRef = useRef(false);
@@ -279,13 +280,19 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     });
   }, [saveDraftNow]);
 
+  // Clear image attachments and reset the index counter
+  const clearImageAttachments = useCallback(() => {
+    setImageAttachments([]);
+    imageIndexCounter.current = 0;
+  }, []);
+
   const addImageAttachment = useCallback((file: File): Promise<void> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
         const id = `img-${Date.now()}-${imageIdCounter.current++}`;
-        const imageIndex = imageAttachments.length + 1;
+        const imageIndex = ++imageIndexCounter.current;  // Increment and use counter for sequential numbering
 
         const newAttachment: ImageAttachment = {
           id,
@@ -328,7 +335,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
             console.warn('[InputBar] Invalid Tiptap JSON format, clearing');
             clearSessionDraft(sessionId);
             editor.clear();
-            setImageAttachments([]);
+            clearImageAttachments();
           }
         }
         // Fallback to legacy HTML format (stored as JSON string)
@@ -356,18 +363,18 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
           }
         } else {
           editor.clear();
-          setImageAttachments([]);
+          clearImageAttachments();
         }
       } else {
         editor.clear();
-        setImageAttachments([]);
+        clearImageAttachments();
       }
     } catch (err) {
       console.error('[InputBar] Failed to restore draft:', err);
       // Delete the corrupted draft to prevent infinite loop
       clearSessionDraft(sessionId);
       editor.clear();
-      setImageAttachments([]);
+      clearImageAttachments();
     } finally {
       // Always set flag back to false in finally block to ensure it happens
       // AFTER all operations (including error handling) complete
@@ -417,8 +424,8 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     onSend(text, imageAttachments.length > 0 ? imageAttachments : undefined, executionMode === 'plan');
     clearSessionDraft(session.id);
     editor.clear();
-    setImageAttachments([]);
-  }, [imageAttachments, isProcessing, onSend, executionMode, session.id]);
+    clearImageAttachments();
+  }, [imageAttachments, isProcessing, onSend, executionMode, session.id, clearImageAttachments]);
 
   const handleFocusHintClick = useCallback(() => {
     editorRef.current?.focus();
@@ -472,6 +479,15 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       editorRef.current?.focus();
     }
   }, [focusRequestId]);
+
+  // Auto-focus on initial mount - ensure input is focused when conversation panel opens
+  useEffect(() => {
+    // Small delay to ensure editor is fully initialized
+    const timer = setTimeout(() => {
+      editorRef.current?.focus();
+    }, 1);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Auto-focus: Global keyboard events that type into editor when not focused
   useEffect(() => {
@@ -680,7 +696,13 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       <div className="flex">
         <div
           className="w-[2px] self-stretch transition-colors duration-150"
-          style={{ backgroundColor: isFocused || isRunning ? 'var(--st-accent)' : 'var(--st-border-variant)' }}
+          style={{
+            backgroundColor: isRunning
+              ? 'var(--st-border-variant)'
+              : isFocused
+                ? 'var(--st-accent)'
+                : 'var(--st-border-variant)'
+          }}
         />
 
         <div className="flex-1 min-w-0 flex flex-col">

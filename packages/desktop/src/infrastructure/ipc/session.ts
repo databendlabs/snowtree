@@ -245,9 +245,8 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         }
       }
 
-      const messageContent = imagePaths.length > 0
-        ? `${input}\n\n[${imagePaths.length} image(s) attached]`
-        : input;
+      // Keep original message content with [img1], [img2] etc. tags intact
+      const messageContent = input;
       sessionManager.addPanelConversationMessage(panelId, 'user', messageContent);
 
       // IMPORTANT: PanelManager caches panel state; agent resume tokens are persisted via SessionManager/db.
