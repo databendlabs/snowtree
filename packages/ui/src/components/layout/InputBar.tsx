@@ -78,6 +78,14 @@ const formatCliVersion = (version?: string): string | undefined => {
   return match ? `v${match[1]}` : trimmed;
 };
 
+const ACCEPTED_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/tiff',
+]);
+
 const CLISelector: React.FC<{
   selected: CLITool;
   onChange: (tool: CLITool) => void;
@@ -530,7 +538,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       // Cmd/Ctrl+V: Paste into editor
       if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
         focusEditor();
-        // Allow native paste so the editor receives the clipboard event
         return;
       }
 
@@ -569,7 +576,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
     const handleGlobalPasteCapture = (e: ClipboardEvent) => {
       const editor = editorRef.current?.editor;
-      if (!editor || editor.view.hasFocus()) return;
+      if (!editor) return;
       if (isTerminalEventTarget(e.target)) return;
 
       const target = e.target as HTMLElement;
@@ -577,9 +584,33 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
         return;
       }
 
+      if (editor.view.hasFocus()) return;
+
+      const clipboardData = e.clipboardData;
+      if (!clipboardData) return;
+
       e.preventDefault();
-      focusEditor();
-      // The editor's PasteImage extension will handle the paste
+      const ed = focusEditor();
+      if (!ed) return;
+
+      setTimeout(() => {
+        const items = Array.from(clipboardData.items);
+        const imageItems = items.filter((item) => ACCEPTED_IMAGE_TYPES.has(item.type));
+
+        imageItems.forEach((item) => {
+          const file = item.getAsFile();
+          if (file) {
+            void addImageAttachment(file);
+          }
+        });
+
+        if (clipboardData.types.includes('text/plain')) {
+          const text = clipboardData.getData('text/plain');
+          if (text) {
+            ed.commands.insertContent(text);
+          }
+        }
+      }, 0);
     };
 
     document.addEventListener('keydown', handleGlobalKeyPress, { capture: true });

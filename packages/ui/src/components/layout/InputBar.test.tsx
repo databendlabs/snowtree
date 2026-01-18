@@ -240,8 +240,6 @@ describe('InputBar - Cursor Position Tests', () => {
     fireEvent.paste(document.body, { clipboardData });
     await waitFor(() => expect(editor).toHaveFocus());
 
-    fireEvent.paste(editor, { clipboardData });
-
     await waitFor(() => {
       const imageTag = editor.querySelector('[data-image-id]');
       expect(imageTag).toBeInTheDocument();
@@ -406,22 +404,14 @@ describe('InputBar - Cursor Position Tests', () => {
     // Blur the editor to save cursor position
     await blurViaFocusSink(editor);
 
-    // Simulate Ctrl+V paste (focuses editor)
-    const pasteKey = new KeyboardEvent('keydown', {
-      key: 'v',
-      ctrlKey: true,
-      bubbles: true,
-    });
-    document.dispatchEvent(pasteKey);
-
-    await waitFor(() => expect(editor).toHaveFocus());
-
     const clipboardData = {
       items: [],
       types: ['text/plain'],
       getData: () => 'PASTED',
     };
-    fireEvent.paste(editor, { clipboardData });
+    fireEvent.paste(document.body, { clipboardData });
+
+    await waitFor(() => expect(editor).toHaveFocus());
 
     await waitFor(() => {
       expect(editor.textContent).toBe('helloPASTEDworld');
