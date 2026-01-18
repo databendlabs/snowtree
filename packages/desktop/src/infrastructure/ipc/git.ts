@@ -78,6 +78,10 @@ function parseOwnerRepoFromRemoteOutput(remoteOutput: string): string | null {
   return null;
 }
 
+function isImageFile(filePath: string): boolean {
+  return /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(filePath);
+}
+
 export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): void {
   const { sessionManager, gitDiffManager, gitStagingManager, gitStatusManager, gitExecutor } = services;
 
@@ -622,13 +626,16 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const ref = typeof options?.ref === 'string' ? options.ref : 'HEAD';
       const maxBytes = typeof options?.maxBytes === 'number' && options.maxBytes > 0 ? options.maxBytes : 1024 * 1024;
 
+      const isImage = isImageFile(filePath);
+
       if (ref === 'WORKTREE') {
         const abs = join(session.worktreePath, filePath);
         const buf = await fs.readFile(abs);
         if (buf.byteLength > maxBytes) {
           return { success: false, error: `File too large (${buf.byteLength} bytes)` };
         }
-        return { success: true, data: { content: buf.toString('utf8') } };
+        const content = isImage ? buf.toString('base64') : buf.toString('utf8');
+        return { success: true, data: { content } };
       }
 
       // Support INDEX, HEAD, and commit refs (e.g., commit hash)
@@ -641,6 +648,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         recordTimeline: false,
         meta: { source: 'ipc.git', operation: 'get-file-content', ref, filePath },
         timeoutMs: 15_000,
+        encoding: isImage ? 'base64' : 'utf8',
       });
 
       if (result.exitCode !== 0) {
@@ -648,8 +656,10 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       }
 
       const content = result.stdout ?? '';
-      if (Buffer.byteLength(content, 'utf8') > maxBytes) {
-        return { success: false, error: `File too large (${Buffer.byteLength(content, 'utf8')} bytes)` };
+      const size = isImage ? Math.floor(content.length * 3 / 4) : Buffer.byteLength(content, 'utf8');
+      
+      if (size > maxBytes) {
+        return { success: false, error: `File too large (${size} bytes)` };
       }
 
       return { success: true, data: { content } };

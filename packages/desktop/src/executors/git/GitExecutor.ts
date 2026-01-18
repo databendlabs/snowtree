@@ -20,6 +20,7 @@ export type GitRunOptions = {
   treatAsSuccessIfOutputIncludes?: string[];
   throwOnError?: boolean;
   meta?: Record<string, unknown>;
+  encoding?: BufferEncoding;
 };
 
 export type GitRunResult = {
@@ -157,7 +158,7 @@ export class GitExecutor {
       proc.on('error', (e) => {
         finalize(
           {
-            stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+            stdout: Buffer.concat(stdoutChunks).toString(options.encoding || 'utf8'),
             stderr: Buffer.concat(stderrChunks).toString('utf8'),
             exitCode: 1,
             error: e instanceof Error ? e.message : String(e),
@@ -168,7 +169,7 @@ export class GitExecutor {
       });
 
       proc.on('close', (code) => {
-        const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+        const stdout = Buffer.concat(stdoutChunks).toString(options.encoding || 'utf8');
         const stderr = Buffer.concat(stderrChunks).toString('utf8');
         const exitCode = typeof code === 'number' ? code : 0;
         if (exitCode === 0) {

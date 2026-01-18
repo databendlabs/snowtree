@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isMarkdownFile } from './fileUtils';
+import { isImageFile, isMarkdownFile, isPreviewableFile } from './fileUtils';
 
 describe('isMarkdownFile', () => {
   it('returns true for .md files', () => {
@@ -42,5 +42,42 @@ describe('isMarkdownFile', () => {
 
   it('returns false for empty string', () => {
     expect(isMarkdownFile('')).toBe(false);
+  });
+});
+
+describe('isImageFile', () => {
+  it('returns true for common image extensions', () => {
+    expect(isImageFile('photo.png')).toBe(true);
+    expect(isImageFile('photo.jpg')).toBe(true);
+    expect(isImageFile('photo.jpeg')).toBe(true);
+    expect(isImageFile('photo.gif')).toBe(true);
+    expect(isImageFile('photo.svg')).toBe(true);
+    expect(isImageFile('photo.webp')).toBe(true);
+    expect(isImageFile('photo.bmp')).toBe(true);
+    expect(isImageFile('photo.ico')).toBe(true);
+  });
+
+  it('is case insensitive', () => {
+    expect(isImageFile('PHOTO.PNG')).toBe(true);
+    expect(isImageFile('PHOTO.SvG')).toBe(true);
+  });
+
+  it('returns false for non-image files', () => {
+    expect(isImageFile('README.md')).toBe(false);
+    expect(isImageFile('file.txt')).toBe(false);
+    expect(isImageFile('image.png.bak')).toBe(false);
+  });
+});
+
+describe('isPreviewableFile', () => {
+  it('returns true for markdown or image files', () => {
+    expect(isPreviewableFile('README.md')).toBe(true);
+    expect(isPreviewableFile('docs/page.mdx')).toBe(true);
+    expect(isPreviewableFile('photo.png')).toBe(true);
+  });
+
+  it('returns false for non-previewable files', () => {
+    expect(isPreviewableFile('file.ts')).toBe(false);
+    expect(isPreviewableFile('notes.txt')).toBe(false);
   });
 });
