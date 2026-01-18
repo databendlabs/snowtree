@@ -4,7 +4,8 @@ import 'react-diff-view/style/index.css';
 import { Eye, EyeOff, Plus, Minus, RotateCcw } from 'lucide-react';
 import { API } from '../../../utils/api';
 import { MarkdownPreview } from './MarkdownPreview';
-import { isMarkdownFile } from './utils/fileUtils';
+import { ImagePreview } from './ImagePreview';
+import { isMarkdownFile, isImageFile } from './utils/fileUtils';
 
 export interface ZedDiffViewerHandle {
   navigateToHunk: (direction: 'prev' | 'next') => void;
@@ -183,8 +184,24 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
   const fileHeaderRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [pendingHunkKeys, setPendingHunkKeys] = useState<Set<string>>(() => new Set());
 
-  // Markdown preview state - tracks which files are in preview mode
+  // Preview state - tracks which files are in preview mode
   const [previewFiles, setPreviewFiles] = useState<Set<string>>(() => new Set());
+
+  // Enable preview for image files by default
+  useEffect(() => {
+    if (!files || files.length === 0) return;
+    setPreviewFiles(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const file of files) {
+        if (isImageFile(file.path) && !next.has(file.path)) {
+          next.add(file.path);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [files]);
 
   const togglePreview = useCallback((path: string) => {
     setPreviewFiles(prev => {
@@ -1074,7 +1091,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                 <div className="st-diff-file-header-content">
                   <span className="st-diff-file-path" data-testid="diff-file-path">{file.path}</span>
                   <div className="st-diff-file-actions">
-                    {isMarkdownFile(file.path) && fileSources?.[file.path] && (
+                    {(isMarkdownFile(file.path) || isImageFile(file.path)) && fileSources?.[file.path] && (
                       <button
                         type="button"
                         className="st-diff-preview-btn"
@@ -1131,7 +1148,11 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
 
               <div className="st-diff-file-body">
                 {previewFiles.has(file.path) && fileSources?.[file.path] ? (
-                  <MarkdownPreview content={fileSources[file.path]} />
+                  isImageFile(file.path) ? (
+                    <ImagePreview content={fileSources[file.path]} filePath={file.path} />
+                  ) : (
+                    <MarkdownPreview content={fileSources[file.path]} />
+                  )
                 ) : (
                 <div
                   data-testid="diff-hscroll-container"
