@@ -295,7 +295,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
         hunks,
       };
     });
-  }, [diff, fileSources, expandFileContext]);
+  }, [diff, fileSources, expandFileContext, fileOrder]);
 
   const scrollToFile = useCallback((filePath: string) => {
     const el = fileHeaderRefs.current.get(filePath);

@@ -236,6 +236,18 @@ export class API {
       requireElectron();
       return window.electronAPI.dialog.openDirectory(options);
     },
+    async listRepositories(): Promise<Array<{ name: string; path: string }> | null> {
+      requireElectron();
+      const handler = window.electronAPI.dialog.listRepositories;
+      if (!handler) {
+        return null;
+      }
+      const response = await handler();
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to load repositories');
+      }
+      return response.data ?? null;
+    },
   };
 
   static aiTools = {

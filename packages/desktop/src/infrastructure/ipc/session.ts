@@ -1,6 +1,5 @@
-import type { IpcMain } from 'electron';
 import * as fs from 'fs';
-import type { AppServices } from './types';
+import type { AppServices, IpcHandlerTarget } from './types';
 import { panelManager } from '../../features/panels/PanelManager';
 import { ClaudePanelManager } from '../../features/panels/ai/ClaudePanelManager';
 import { CodexPanelManager } from '../../features/panels/ai/CodexPanelManager';
@@ -20,7 +19,7 @@ type MinimalCreateSessionRequest = {
   baseBranch?: string;
 };
 
-export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices): void {
+export function registerSessionHandlers(ipcMain: IpcHandlerTarget, services: AppServices): void {
   const {
     sessionManager,
     taskQueue,

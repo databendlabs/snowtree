@@ -7,7 +7,22 @@
  */
 
 import { EventEmitter } from 'events';
-import { mainWindow } from '../..';
+import type { BrowserWindow } from 'electron';
+
+type MainWindowProvider = () => BrowserWindow | null;
+let mainWindowProvider: MainWindowProvider = () => null;
+
+export function setMainWindowGetter(provider: MainWindowProvider | null): void {
+  mainWindowProvider = provider ?? (() => null);
+}
+
+const resolveMainWindow = (): BrowserWindow | null => {
+  try {
+    return mainWindowProvider();
+  } catch {
+    return null;
+  }
+};
 
 export type ScriptType = 'session' | 'project';
 
@@ -110,6 +125,7 @@ export class ScriptExecutionTracker extends EventEmitter {
     this.closingScript = this.runningScript;
 
     // Emit closing event to notify frontend
+    const mainWindow = resolveMainWindow();
     if (mainWindow) {
       if (type === 'session') {
         mainWindow.webContents.send('script-closing', id);
@@ -142,6 +158,7 @@ export class ScriptExecutionTracker extends EventEmitter {
    * Emit state change events to frontend based on type
    */
   private emitStateChange(type: ScriptType, id: string | number | null): void {
+    const mainWindow = resolveMainWindow();
     if (!mainWindow) return;
 
     if (type === 'session') {

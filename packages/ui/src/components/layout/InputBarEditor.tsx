@@ -78,6 +78,10 @@ export const InputBarEditor = forwardRef<InputBarEditorHandle, InputBarEditorPro
         }
       }, 0);
     };
+    const isIOS = typeof navigator !== 'undefined' && (
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    );
 
     const editor = useEditor({
       extensions: [
@@ -105,7 +109,7 @@ export const InputBarEditor = forwardRef<InputBarEditorHandle, InputBarEditorPro
           placeholder,
         }),
         ImagePill,
-        BlockCaret,
+        ...(isIOS ? [] : [BlockCaret]),
         TerminalShortcuts,
         InputHistory.configure({
           getHistory: () => inputHistory.current,
@@ -118,6 +122,10 @@ export const InputBarEditor = forwardRef<InputBarEditorHandle, InputBarEditorPro
         attributes: {
           class: 'tiptap-editor',
           'data-testid': 'input-editor',
+          inputmode: 'text',
+          autocapitalize: 'off',
+          autocorrect: 'off',
+          spellcheck: 'false',
           style: `
             outline: none;
             min-height: 20px;
@@ -130,6 +138,8 @@ export const InputBarEditor = forwardRef<InputBarEditorHandle, InputBarEditorPro
             font-family: var(--st-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, monospace);
             font-size: var(--st-font-base, 13px);
             font-weight: 400;
+            caret-color: ${isIOS ? 'var(--st-accent)' : 'transparent'};
+            padding-right: ${isRunning ? '42px' : '0px'};
           `,
         },
       },

@@ -49,6 +49,8 @@ export interface InputBarProps {
   onSend: (message: string, images?: ImageAttachment[], planMode?: boolean) => void;
   onCancel: () => void;
   isProcessing: boolean;
+  onToggleAgent?: () => void;
+  onToggleExecutionMode?: () => void;
   placeholder?: string;
   focusRequestId?: number;
   initialExecutionMode?: ExecutionMode;
@@ -89,4 +91,5 @@ export interface DiffOverlayProps {
 
 export interface MainLayoutProps {
   session: Session | null;
+  hideRightPanel?: boolean;
 }

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus, Terminal, X } from 'lucide-react';
 import { useSessionStore } from '../../stores/sessionStore';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { ConversationPanel } from './ConversationPanel';
@@ -7,8 +7,10 @@ import { InputBar } from './InputBar';
 import { RightPanel } from './RightPanel/index';
 import { DiffOverlay } from './DiffOverlay';
 import { useLayoutData } from './useLayoutData';
+import { useTerminalSessions } from './useTerminalSessions';
 import type { PendingMessage, FileChange } from './types';
 import type { DiffTarget } from '../../types/diff';
+import { TerminalPanel } from '../panels/terminal/TerminalPanel';
 
 const RIGHT_PANEL_WIDTH_KEY = 'snowtree-right-panel-width';
 const DEFAULT_RIGHT_PANEL_WIDTH = 340;
@@ -56,7 +58,7 @@ const LoadingState: React.FC<{ title: string; subtitle?: string; onRetry?: () =>
   </div>
 );
 
-export const MainLayout: React.FC = React.memo(() => {
+export const MainLayout: React.FC<{ hideRightPanel?: boolean }> = React.memo(({ hideRightPanel = false }) => {
   const activeSessionId = useSessionStore(state => state.activeSessionId);
   const sessions = useSessionStore(state => state.sessions);
   const sessionTodos = useSessionStore(state => state.sessionTodos);
@@ -107,6 +109,7 @@ export const MainLayout: React.FC = React.memo(() => {
   const [diffFiles, setDiffFiles] = useState<FileChange[]>([]);
   const [pendingMessage, setPendingMessage] = useState<PendingMessage | null>(null);
   const [inputFocusRequestId, setInputFocusRequestId] = useState(0);
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     const stored = localStorage.getItem(RIGHT_PANEL_WIDTH_KEY);
     if (stored) {
@@ -119,13 +122,29 @@ export const MainLayout: React.FC = React.memo(() => {
   });
   const [isResizing, setIsResizing] = useState(false);
   const sessionId = session?.id ?? null;
+  const { terminals, createTerminal, closeTerminal } = useTerminalSessions(sessionId);
+  const isConversationActive = activeTerminalId === null;
 
   useEffect(() => {
     localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, rightPanelWidth.toString());
   }, [rightPanelWidth]);
 
   useEffect(() => {
+    setActiveTerminalId(null);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (activeTerminalId && !terminals.some((terminal) => terminal.id === activeTerminalId)) {
+      setActiveTerminalId(null);
+    }
+  }, [activeTerminalId, terminals]);
+
+  useEffect(() => {
     if (!isResizing) return;
+    if (hideRightPanel) {
+      setIsResizing(false);
+      return;
+    }
 
     const handleMouseMove = (e: MouseEvent) => {
       const newWidth = window.innerWidth - e.clientX;
@@ -148,7 +167,7 @@ export const MainLayout: React.FC = React.memo(() => {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isResizing]);
+  }, [isResizing, hideRightPanel]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -170,6 +189,22 @@ export const MainLayout: React.FC = React.memo(() => {
     setSelectedDiffTarget(null);
     setDiffFiles([]);
   }, []);
+
+  const handleCreateTerminal = useCallback(async () => {
+    const terminal = await createTerminal();
+    if (terminal?.id) {
+      setActiveTerminalId(terminal.id);
+    }
+  }, [createTerminal]);
+
+  const handleCloseTerminal = useCallback(async (terminalId: string) => {
+    setActiveTerminalId((current) => {
+      if (current !== terminalId) return current;
+      const remaining = terminals.filter((terminal) => terminal.id !== terminalId);
+      return remaining.length ? remaining[remaining.length - 1].id : null;
+    });
+    await closeTerminal(terminalId);
+  }, [closeTerminal, terminals]);
 
   // Always close diff overlay when switching workspaces to avoid stale commit ids.
   useEffect(() => {
@@ -439,7 +474,7 @@ export const MainLayout: React.FC = React.memo(() => {
   // Conversation-level keybinding: Tab only switches agent (Shift+Tab toggles plan/execute).
   // Prevent using Tab for focus traversal while a session conversation is active.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !isConversationActive) return;
 
     const handleTabKey = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
@@ -459,7 +494,7 @@ export const MainLayout: React.FC = React.memo(() => {
 
     window.addEventListener('keydown', handleTabKey, { capture: true });
     return () => window.removeEventListener('keydown', handleTabKey, { capture: true });
-  }, [sessionId, toggleExecutionMode, cycleSelectedTool, focusInputAfterHotkey]);
+  }, [sessionId, isConversationActive, toggleExecutionMode, cycleSelectedTool, focusInputAfterHotkey]);
 
   if (!activeSessionId) {
     return (
@@ -487,20 +522,100 @@ export const MainLayout: React.FC = React.memo(() => {
           branchName={branchName}
           remoteName={remoteName}
         />
+        <div className="flex items-center justify-between px-3 py-1 border-b st-hairline st-surface">
+          <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTerminalId(null)}
+              className="px-2.5 py-1 rounded-md text-[11px] font-medium st-hoverable st-focus-ring"
+              style={{
+                color: isConversationActive ? 'var(--st-text)' : 'var(--st-text-muted)',
+                backgroundColor: isConversationActive
+                  ? 'color-mix(in srgb, var(--st-selected) 55%, transparent)'
+                  : 'transparent',
+              }}
+            >
+              Chat
+            </button>
+            {terminals.map((terminal) => {
+              const isActive = terminal.id === activeTerminalId;
+              return (
+                <div
+                  key={terminal.id}
+                  className="flex items-center gap-1 rounded-md pr-1"
+                  style={{
+                    backgroundColor: isActive
+                      ? 'color-mix(in srgb, var(--st-selected) 55%, transparent)'
+                      : 'transparent',
+                    color: isActive ? 'var(--st-text)' : 'var(--st-text-muted)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveTerminalId(terminal.id)}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium st-focus-ring"
+                    style={{ color: 'inherit' }}
+                  >
+                    <Terminal className="w-3 h-3" />
+                    <span className="truncate max-w-[140px]">{terminal.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleCloseTerminal(terminal.id);
+                    }}
+                    className="p-0.5 rounded st-hoverable st-focus-ring"
+                    title="Close terminal"
+                  >
+                    <X className="w-3 h-3" style={{ color: 'var(--st-text-faint)' }} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleCreateTerminal()}
+            className="p-1.5 rounded st-hoverable st-focus-ring"
+            title="New terminal"
+            disabled={!sessionId}
+            style={{ opacity: sessionId ? 1 : 0.5 }}
+          >
+            <Plus className="w-3.5 h-3.5" style={{ color: 'var(--st-text-muted)' }} />
+          </button>
+        </div>
 
         {session ? (
           <>
             <div
               key={session.id}
               className="flex-1 flex flex-col min-h-0 overflow-hidden animate-st-panel-in"
-              onClick={handleConversationClick}
             >
-              <ConversationPanel
-                session={session}
-                pendingMessage={pendingMessage}
-              />
-            </div>
+              <div className="relative flex-1 min-h-0 overflow-hidden">
+                <div
+                  className={`absolute inset-0 transition-opacity ${isConversationActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                  onClick={isConversationActive ? handleConversationClick : undefined}
+                >
+                  <ConversationPanel
+                    session={session}
+                    pendingMessage={pendingMessage}
+                  />
+                </div>
+                {terminals.map((terminal) => {
+                  const isActive = terminal.id === activeTerminalId;
+                  return (
+                    <div
+                      key={terminal.id}
+                      className={`absolute inset-0 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    >
+                      <TerminalPanel terminalId={terminal.id} isActive={isActive} />
+                    </div>
+                  );
+                })}
+              </div>
 
+              {isConversationActive && (
             <InputBar
               session={session}
               panelId={aiPanel?.id || null}
@@ -508,9 +623,13 @@ export const MainLayout: React.FC = React.memo(() => {
               onSend={handleSendMessage}
               onCancel={cancelRequest}
               isProcessing={isProcessing}
+              onToggleAgent={cycleSelectedTool}
+              onToggleExecutionMode={toggleExecutionMode}
               focusRequestId={inputFocusRequestId}
               initialExecutionMode={executionMode}
             />
+              )}
+            </div>
           </>
         ) : (
           <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -532,49 +651,53 @@ export const MainLayout: React.FC = React.memo(() => {
         />
       </div>
 
-      <div
-        className="group w-2 flex-shrink-0 cursor-col-resize relative"
-        onMouseDown={handleResizeStart}
-        data-testid="resize-handle"
-      >
-        <div
-          className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px transition-colors"
-          style={{
-            backgroundColor: isResizing
-              ? 'color-mix(in srgb, var(--st-accent) 75%, transparent)'
-              : 'color-mix(in srgb, var(--st-border) 65%, transparent)',
-          }}
-        />
-        <div
-          className="absolute inset-y-0 left-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-          style={{
-            background:
-              'linear-gradient(90deg, transparent, color-mix(in srgb, var(--st-accent) 18%, transparent), transparent)',
-          }}
-        />
-      </div>
+      {!hideRightPanel && (
+        <>
+          <div
+            className="group w-2 flex-shrink-0 cursor-col-resize relative"
+            onMouseDown={handleResizeStart}
+            data-testid="resize-handle"
+          >
+            <div
+              className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px transition-colors"
+              style={{
+                backgroundColor: isResizing
+                  ? 'color-mix(in srgb, var(--st-accent) 75%, transparent)'
+                  : 'color-mix(in srgb, var(--st-border) 65%, transparent)',
+              }}
+            />
+            <div
+              className="absolute inset-y-0 left-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(90deg, transparent, color-mix(in srgb, var(--st-accent) 18%, transparent), transparent)',
+              }}
+            />
+          </div>
 
-      <div
-        className="flex-shrink-0 h-full"
-        style={{ width: rightPanelWidth }}
-        data-testid="right-panel"
-      >
-        <RightPanel
-          key={displaySession.id}
-          session={displaySession}
-          todos={activeTodos}
-          onFileClick={handleFileClick}
-          onCommitUncommittedChanges={isCliAgent ? handleOpenCommitReview : undefined}
-          isCommitDisabled={isProcessing}
-          onCommitClick={handleCommitClick}
-          onPushPR={isCliAgent ? handleRequestPushPR : undefined}
-          isPushPRDisabled={isProcessing}
-          onUpdateBranch={isCliAgent ? handleUpdateBranch : undefined}
-          isUpdateBranchDisabled={isProcessing}
-          onSyncPR={isCliAgent ? handleSyncPR : undefined}
-          isSyncPRDisabled={isProcessing}
-        />
-      </div>
+          <div
+            className="flex-shrink-0 h-full"
+            style={{ width: rightPanelWidth }}
+            data-testid="right-panel"
+          >
+            <RightPanel
+              key={displaySession.id}
+              session={displaySession}
+              todos={activeTodos}
+              onFileClick={handleFileClick}
+              onCommitUncommittedChanges={isCliAgent ? handleOpenCommitReview : undefined}
+              isCommitDisabled={isProcessing}
+              onCommitClick={handleCommitClick}
+              onPushPR={isCliAgent ? handleRequestPushPR : undefined}
+              isPushPRDisabled={isProcessing}
+              onUpdateBranch={isCliAgent ? handleUpdateBranch : undefined}
+              isUpdateBranchDisabled={isProcessing}
+              onSyncPR={isCliAgent ? handleSyncPR : undefined}
+              isSyncPRDisabled={isProcessing}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 });

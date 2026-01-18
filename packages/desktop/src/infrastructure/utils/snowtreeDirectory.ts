@@ -23,7 +23,12 @@ export function getSnowtreeDirectory(): string {
   const envDir = process.env.SNOWTREE_DIR;
   if (envDir) return envDir;
 
-  const isDevelopment = app.commandLine.hasSwitch('snowtree-dev');
+  const isDevelopment = Boolean(
+    (app as { commandLine?: { hasSwitch?: (name: string) => boolean } } | undefined)
+      ?.commandLine
+      ?.hasSwitch
+      ?.('snowtree-dev')
+  );
 
   if (isDevelopment) {
     return join(homedir(), '.snowtree_dev');

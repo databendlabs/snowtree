@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dialog: {
     openDirectory: (options?: Electron.OpenDialogOptions): Promise<IPCResponse<string | null>> =>
       ipcRenderer.invoke('dialog:open-directory', options),
+    listRepositories: undefined
   },
 
   projects: {
@@ -95,6 +96,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:get-ci-status', sessionId),
   },
 
+  terminals: {
+    create: (sessionId: string, options?: { title?: string }): Promise<IPCResponse> =>
+      ipcRenderer.invoke('terminals:create', sessionId, options),
+    list: (sessionId: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('terminals:list', sessionId),
+    input: (terminalId: string, data: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('terminals:input', terminalId, data),
+    resize: (terminalId: string, cols: number, rows: number): Promise<IPCResponse> =>
+      ipcRenderer.invoke('terminals:resize', terminalId, cols, rows),
+    close: (terminalId: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('terminals:close', terminalId),
+  },
+
   panels: {
     create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini'; name?: string }): Promise<IPCResponse> =>
       ipcRenderer.invoke('panels:create', request),
@@ -127,5 +141,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onUpdateDownloaded: (cb: () => void) => on('update:downloaded', cb),
     onAgentCompleted: (cb: (data: { sessionId: string }) => void) => on('agent:completed', cb),
     onSessionTodosUpdate: (cb: (data: { sessionId: string; todos: Array<{ status: string; content: string; activeForm?: string }> }) => void) => on('session-todos:update', cb),
+    onTerminalOutput: (cb: (data: { sessionId: string; terminalId: string; data: string; type?: string }) => void) => on('terminal:output', cb),
+    onTerminalClosed: (cb: (data: { sessionId: string; terminalId: string }) => void) => on('terminal:closed', cb),
+    onTerminalExited: (cb: (data: { sessionId: string; terminalId: string; exitCode: number; signal?: number }) => void) => on('terminal:exited', cb),
   },
 });

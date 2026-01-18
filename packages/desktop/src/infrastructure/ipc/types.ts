@@ -1,4 +1,4 @@
-import type { App, BrowserWindow } from 'electron';
+import type { App, BrowserWindow, IpcMain } from 'electron';
 import type { TaskQueue } from '../../features/queue/TaskQueue';
 import type { SessionManager } from '../../features/session/SessionManager';
 import type { ConfigManager } from '../config/configManager';
@@ -42,3 +42,5 @@ export interface IPCResponse<T = any> {
   data?: T;
   error?: string;
 }
+
+export type IpcHandlerTarget = Pick<IpcMain, 'handle'>;

@@ -32,6 +32,7 @@ import { GitExecutor } from './executors/git';
 import { setupConsoleWrapper } from './infrastructure/logging/consoleWrapper';
 import { panelManager } from './features/panels/PanelManager';
 import { UpdateManager } from './features/updater/UpdateManager';
+import { setMainWindowGetter } from './features/queue/ScriptExecutionTracker';
 import * as fs from 'fs';
 
 // Handle EPIPE errors gracefully - they occur when writing to a closed pipe
@@ -47,6 +48,8 @@ process.on('uncaughtException', (error: NodeJS.ErrnoException) => {
 
 export let mainWindow: BrowserWindow | null = null;
 let aboutWindow: BrowserWindow | null = null;
+
+setMainWindowGetter(() => mainWindow);
 
 /**
  * Create and show the About window

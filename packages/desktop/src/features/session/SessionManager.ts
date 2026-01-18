@@ -7,7 +7,7 @@ import type { Session, SessionUpdate, SessionOutput } from '@snowtree/core/types
 import type { DatabaseService } from '../../infrastructure/database/database';
 import type { Session as DbSession, CreateSessionData, UpdateSessionData, ConversationMessage, PromptMarker, ExecutionDiff, CreateExecutionDiffData, Project, CreateTimelineEventData, TimelineEvent } from '../../infrastructure/database/models';
 import { getShellPath } from '../../infrastructure/command/shellPath';
-import { TerminalManager } from './TerminalManager';
+import { TerminalManager, type TerminalSummary } from './TerminalManager';
 import type { BaseAIPanelState, ToolPanelState, ToolPanel } from '@snowtree/core/types/panels';
 import { formatForDisplay } from '../../infrastructure/utils/timestampUtils';
 import { scriptExecutionTracker } from '../queue/ScriptExecutionTracker';
@@ -65,12 +65,20 @@ export class SessionManager extends EventEmitter {
     this.terminalSessionManager = new TerminalManager();
     
     // Forward terminal output events to the terminal display
-    this.terminalSessionManager.on('terminal-output', ({ sessionId, data, type }) => {
+    this.terminalSessionManager.on('terminal-output', ({ sessionId, terminalId, data, type }) => {
       // Terminal PTY output goes directly to the terminal view
       // Terminal is now independent and not used for run scripts
-      this.emit('terminal-output', { sessionId, data, type });
+      this.emit('terminal-output', { sessionId, terminalId, data, type });
     });
-    
+
+    this.terminalSessionManager.on('terminal-exited', (data) => {
+      this.emit('terminal-exited', data);
+    });
+
+    this.terminalSessionManager.on('terminal-closed', (data) => {
+      this.emit('terminal-closed', data);
+    });
+
     // Forward zombie process detection events
     this.terminalSessionManager.on('zombie-processes-detected', (data) => {
       this.emit('zombie-processes-detected', data);
@@ -1120,7 +1128,7 @@ export class SessionManager extends EventEmitter {
     }
 
     // Close terminal session if it exists
-    await this.terminalSessionManager.closeTerminalSession(id);
+    await this.terminalSessionManager.closeTerminalsForSession(id);
     
     this.activeSessions.delete(id);
     this.emit('session-deleted', { id }); // Keep the same event name for frontend compatibility
@@ -1887,6 +1895,52 @@ export class SessionManager extends EventEmitter {
   async cleanup(options?: { fast?: boolean }): Promise<void> {
     this.stopRunningScript();
     await this.terminalSessionManager.cleanup(options);
+  }
+
+  async createTerminalSessionForPanel(
+    sessionId: string,
+    options?: { terminalId?: string; title?: string; makeDefault?: boolean }
+  ): Promise<TerminalSummary> {
+    let worktreePath: string;
+    const session = this.activeSessions.get(sessionId);
+
+    if (!session) {
+      const dbSession = this.db.getSession(sessionId);
+      if (!dbSession || !dbSession.worktree_path) {
+        throw new Error('Session not found');
+      }
+      if (dbSession.archived) {
+        throw new Error('Cannot create terminal for archived session');
+      }
+      worktreePath = dbSession.worktree_path;
+    } else {
+      worktreePath = session.worktreePath;
+    }
+
+    const terminalSession = await this.terminalSessionManager.createTerminalSession(sessionId, worktreePath, options);
+    return {
+      id: terminalSession.id,
+      sessionId: terminalSession.sessionId,
+      cwd: terminalSession.cwd,
+      title: terminalSession.title,
+      createdAt: terminalSession.createdAt,
+    };
+  }
+
+  listTerminalSessions(sessionId: string): TerminalSummary[] {
+    return this.terminalSessionManager.listTerminals(sessionId);
+  }
+
+  sendTerminalInputToTerminal(terminalId: string, data: string): void {
+    this.terminalSessionManager.sendInput(terminalId, data);
+  }
+
+  resizeTerminalById(terminalId: string, cols: number, rows: number): void {
+    this.terminalSessionManager.resizeTerminal(terminalId, cols, rows);
+  }
+
+  async closeTerminalById(terminalId: string, options?: { fast?: boolean }): Promise<void> {
+    await this.terminalSessionManager.closeTerminalSession(terminalId, options);
   }
 
   async runTerminalCommand(sessionId: string, command: string): Promise<void> {

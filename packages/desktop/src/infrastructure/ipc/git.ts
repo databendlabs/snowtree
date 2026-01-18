@@ -1,5 +1,4 @@
-import type { IpcMain } from 'electron';
-import type { AppServices } from './types';
+import type { AppServices, IpcHandlerTarget } from './types';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 
@@ -78,7 +77,7 @@ function parseOwnerRepoFromRemoteOutput(remoteOutput: string): string | null {
   return null;
 }
 
-export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): void {
+export function registerGitHandlers(ipcMain: IpcHandlerTarget, services: AppServices): void {
   const { sessionManager, gitDiffManager, gitStagingManager, gitStatusManager, gitExecutor } = services;
 
   ipcMain.handle('sessions:get-executions', async (_event, sessionId: string) => {

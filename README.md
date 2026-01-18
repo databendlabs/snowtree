@@ -55,6 +55,33 @@ make check     # Typecheck, lint, and test
 make build     # Build packages
 ```
 
+## Remote Server Mode (LAN)
+
+Snowtree can now run headlessly on a desktop/server and expose a web UI that phones/tablets can open over the local network.
+
+1. Build the UI bundle once:
+   ```bash
+   corepack pnpm --filter @snowtree/ui build
+   ```
+2. Build the desktop package (this also emits the HTTP server entry):
+   ```bash
+   corepack pnpm --filter @snowtree/desktop build
+   ```
+3. Start the server, binding to the LAN interface you want to share (default host is `0.0.0.0`, default port is `8080`). Reusing Electron’s runtime avoids native module ABI mismatches:
+   ```bash
+   ELECTRON_RUN_AS_NODE=1 corepack pnpm exec electron packages/desktop/dist/server.js --host 0.0.0.0 --port 8080
+   # Optional flags:
+   #   --snowtree-dir /path/to/state  (override the Snowtree data directory)
+   #   --ui-dist /path/to/ui/dist     (serve a custom UI build directory)
+   #   --repo-root /path/to/repos     (expose git repositories under this directory for quick selection)
+   ```
+4. On any device that can reach the host machine, open `http://<host-ip>:8080`. The browser build auto-installs an `electronAPI` bridge that talks to the server over HTTP + SSE so the existing UI works without Electron.
+
+Notes:
+- File pickers are not available in web mode; when adding a project you will be prompted to type the repository path that exists on the server.
+- The web client automatically targets the same origin, but you can point a custom build to another server by setting `VITE_REMOTE_API_URL` when running `pnpm --filter @snowtree/ui dev`/`build`.
+- For convenience you can run `scripts/run-lan-server.sh --host 0.0.0.0 --port 8080` which performs the two builds and then starts the server (internally using `ELECTRON_RUN_AS_NODE=1 pnpm exec electron …`), forwarding any CLI flags you pass. Supplying `--repo-root` here lets the web UI show all git repos under that directory when you click “Add repository”.
+
 ## Learn More
 
 [Snowtree: Review-Driven Safe AI Coding](https://www.bohutang.me/2026/01/10/snowtree-review-driven-safe-ai-coding/)

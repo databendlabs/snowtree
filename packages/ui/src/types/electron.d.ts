@@ -3,6 +3,7 @@ import type { TimelineEvent } from './timeline';
 import type { DiffTarget } from './diff';
 import type { ToolPanel } from '@snowtree/core/types/panels';
 import type { TodoItem } from '../stores/sessionStore';
+import type { TerminalClosedEvent, TerminalExitEvent, TerminalOutputEvent, TerminalSummary } from './terminal';
 
 export interface IPCResponse<T = unknown> {
   success: boolean;
@@ -66,6 +67,7 @@ export interface ElectronAPI {
 
   dialog: {
     openDirectory: (options?: Electron.OpenDialogOptions) => Promise<IPCResponse<string | null>>;
+    listRepositories?: () => Promise<IPCResponse<Array<{ name: string; path: string }>>>;
   };
 
   projects: {
@@ -152,6 +154,14 @@ export interface ElectronAPI {
     } | null>>;
   };
 
+  terminals: {
+    create: (sessionId: string, options?: { title?: string }) => Promise<IPCResponse<TerminalSummary>>;
+    list: (sessionId: string) => Promise<IPCResponse<TerminalSummary[]>>;
+    input: (terminalId: string, data: string) => Promise<IPCResponse<unknown>>;
+    resize: (terminalId: string, cols: number, rows: number) => Promise<IPCResponse<unknown>>;
+    close: (terminalId: string) => Promise<IPCResponse<unknown>>;
+  };
+
   panels: {
     create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini'; name?: string }) => Promise<IPCResponse<ToolPanel>>;
     list: (sessionId: string) => Promise<IPCResponse<ToolPanel[]>>;
@@ -178,6 +188,9 @@ export interface ElectronAPI {
     onUpdateDownloaded: (callback: () => void) => () => void;
     onAgentCompleted: (callback: (data: { sessionId: string }) => void) => () => void;
     onSessionTodosUpdate: (callback: (data: { sessionId: string; todos: TodoItem[] }) => void) => () => void;
+    onTerminalOutput: (callback: (data: TerminalOutputEvent) => void) => () => void;
+    onTerminalClosed: (callback: (data: TerminalClosedEvent) => void) => () => void;
+    onTerminalExited: (callback: (data: TerminalExitEvent) => void) => () => void;
   };
 }
 

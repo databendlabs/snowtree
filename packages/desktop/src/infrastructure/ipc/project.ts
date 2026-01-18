@@ -1,5 +1,4 @@
-import type { IpcMain } from 'electron';
-import type { AppServices } from './types';
+import type { AppServices, IpcHandlerTarget } from './types';
 import { randomUUID } from 'crypto';
 
 type CreateProjectRequest = {
@@ -8,7 +7,7 @@ type CreateProjectRequest = {
   active: boolean;
 };
 
-export function registerProjectHandlers(ipcMain: IpcMain, services: AppServices): void {
+export function registerProjectHandlers(ipcMain: IpcHandlerTarget, services: AppServices): void {
   const { databaseService, sessionManager, worktreeManager, claudeExecutor, codexExecutor, geminiExecutor, gitExecutor, gitStatusManager } = services;
 
   ipcMain.handle('projects:get-all', async () => {

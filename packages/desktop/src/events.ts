@@ -70,6 +70,18 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
     send('timeline:event', data);
   });
 
+  sessionManager.on('terminal-output', (data) => {
+    send('terminal:output', data);
+  });
+
+  sessionManager.on('terminal-exited', (data) => {
+    send('terminal:exited', data);
+  });
+
+  sessionManager.on('terminal-closed', (data) => {
+    send('terminal:closed', data);
+  });
+
   gitStatusManager.on('git-status-loading', (sessionId: string) => {
     send('git-status-loading', { sessionId });
   });

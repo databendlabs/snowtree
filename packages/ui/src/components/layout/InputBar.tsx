@@ -201,6 +201,8 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   onSend,
   onCancel,
   isProcessing,
+  onToggleAgent,
+  onToggleExecutionMode,
   placeholder,
   focusRequestId,
   initialExecutionMode,
@@ -741,18 +743,46 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                   }}
                   onImagePaste={addImageAttachment}
                 />
+                {isRunning && (
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="absolute right-2 top-2 px-2 py-1 text-[11px] rounded-md st-hoverable st-focus-ring"
+                    style={{
+                      backgroundColor: 'color-mix(in srgb, var(--st-danger) 18%, transparent)',
+                      color: 'var(--st-danger)',
+                    }}
+                  >
+                    Stop
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2 mt-2 text-[12px] st-font-mono">
-                <span data-testid="input-agent" style={{ color: 'var(--st-accent)' }}>{agentName}</span>
-                <span
-                  data-testid="input-mode"
+                <button
+                  type="button"
+                  onClick={onToggleAgent}
+                  disabled={!onToggleAgent || isRunning}
+                  className="text-[12px] st-font-mono rounded st-focus-ring"
+                  style={{
+                    color: 'var(--st-accent)',
+                    opacity: !onToggleAgent || isRunning ? 0.5 : 1,
+                  }}
+                >
+                  {agentName}
+                </button>
+                <button
+                  type="button"
+                  onClick={onToggleExecutionMode}
+                  disabled={!onToggleExecutionMode || isRunning}
+                  className="text-[12px] st-font-mono rounded st-focus-ring"
                   style={{
                     color: executionMode === 'plan' ? 'var(--st-warning, #f59e0b)' : 'var(--st-text-faint)',
+                    opacity: !onToggleExecutionMode || isRunning ? 0.5 : 1,
                   }}
                 >
                   {modeName}
-                </span>
+                </button>
                 {modelInfo && (
                   <span style={{ color: 'var(--st-text)' }}>{modelInfo}</span>
                 )}
@@ -782,9 +812,9 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                 <>
                   <KnightRiderSpinner color="var(--st-accent)" />
                   <span style={{ color: escPending ? 'var(--st-accent)' : 'var(--st-text)' }}>
-                    esc{' '}
+                    press esc{' '}
                     <span style={{ color: escPending ? 'var(--st-accent)' : 'var(--st-text-faint)' }}>
-                      {escPending ? 'again to interrupt' : 'interrupt'}
+                      {escPending ? 'again to stop' : 'to stop'}
                     </span>
                   </span>
                 </>

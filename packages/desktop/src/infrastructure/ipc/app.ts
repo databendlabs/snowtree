@@ -1,10 +1,10 @@
-import { IpcMain, shell } from 'electron';
+import { shell } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { AppServices } from './types';
+import type { AppServices, IpcHandlerTarget } from './types';
 
-export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): void {
+export function registerAppHandlers(ipcMain: IpcHandlerTarget, services: AppServices): void {
   const { app } = services;
   const { claudeExecutor, codexExecutor, geminiExecutor } = services;
 

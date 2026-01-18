@@ -40,7 +40,16 @@ const applyBaseCommitSuffix = (name: string, baseCommit?: string): string => {
   return `${name.slice(0, lastDash + 1)}${shortHash}`;
 };
 
-export function Sidebar() {
+type RepositoryEntry = {
+  name: string;
+  path: string;
+};
+
+type SidebarProps = {
+  isHidden?: boolean;
+};
+
+export function Sidebar({ isHidden = false }: SidebarProps) {
   const { showError } = useErrorStore();
   const { sessions, activeSessionId, setActiveSession } = useSessionStore();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -62,13 +71,31 @@ export function Sidebar() {
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateInstalling, setUpdateInstalling] = useState(false);
   const [updateError, setUpdateError] = useState<string>('');
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false);
+  const [repoPickerLoading, setRepoPickerLoading] = useState(false);
+  const [repoPickerOptions, setRepoPickerOptions] = useState<RepositoryEntry[]>([]);
+  const [repoPickerMessage, setRepoPickerMessage] = useState<string>('');
+  const [repoPickerWidth, setRepoPickerWidth] = useState<number | null>(null);
+  const repoPickerRef = useRef<HTMLDivElement | null>(null);
+  const repoPickerButtonRef = useRef<HTMLButtonElement | null>(null);
+
   const sidebarPollingTimerRef = useRef<number | null>(null);
   const worktreePollInFlightRef = useRef<Set<number>>(new Set());
+
+  const hasRunningSession = useMemo(
+    () => sessions.some((session) => session.status === 'running' || session.status === 'initializing'),
+    [sessions]
+  );
 
   const getWorktreeDisplayName = useCallback((worktree: Worktree): string => {
     const branch = typeof worktree.branch === 'string' ? worktree.branch.trim() : '';
     if (branch) return branch;
     return worktree.path.split('/').filter(Boolean).pop() || worktree.path;
+  }, []);
+
+  const deriveRepositoryName = useCallback((folderPath: string): string => {
+    const segments = folderPath.split(/[\/\\]/).filter(Boolean);
+    return segments[segments.length - 1] || 'Repository';
   }, []);
 
   const loadProjects = useCallback(async () => {
@@ -80,6 +107,35 @@ export function Sidebar() {
       setActiveProjectId(active?.id ?? null);
     }
   }, []);
+
+  const createProjectFromPath = useCallback(async (folderPath: string, folderName?: string) => {
+    const name = (folderName || deriveRepositoryName(folderPath)).trim() || 'Repository';
+    const createRes = await API.projects.create({ name, path: folderPath, active: true });
+    if (!createRes.success) {
+      showError({ title: 'Failed to Add Repository', error: createRes.error || 'Could not add repository' });
+      return false;
+    }
+    await loadProjects();
+    return true;
+  }, [deriveRepositoryName, loadProjects, showError]);
+
+  const handleAddRepositoryManual = useCallback(async () => {
+    try {
+      const result = await API.dialog.openDirectory({
+        title: 'Select Git Repository',
+        buttonLabel: 'Open',
+      });
+      if (!result.success || !result.data) return;
+      await createProjectFromPath(result.data);
+    } catch (error) {
+      showError({ title: 'Failed to Add Repository', error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }, [createProjectFromPath, showError]);
+
+  const handleSelectRepository = useCallback(async (repo: RepositoryEntry) => {
+    setRepoPickerOpen(false);
+    await createProjectFromPath(repo.path, repo.name);
+  }, [createProjectFromPath]);
 
   const loadWorktrees = useCallback(async (project: Project, opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -141,6 +197,47 @@ export function Sidebar() {
   useEffect(() => {
     loadProjects().catch(() => undefined);
   }, [loadProjects]);
+
+  useEffect(() => {
+    if (!repoPickerOpen) return;
+
+    const handlePointer = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (repoPickerRef.current?.contains(target)) return;
+      if (repoPickerButtonRef.current?.contains(target)) return;
+      setRepoPickerOpen(false);
+    };
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setRepoPickerOpen(false);
+    };
+
+    window.addEventListener('mousedown', handlePointer);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('mousedown', handlePointer);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [repoPickerOpen]);
+
+  useEffect(() => {
+    if (!repoPickerOpen) return;
+    if (!repoPickerButtonRef.current || typeof window === 'undefined') return;
+
+    const updateWidth = () => {
+      if (!repoPickerButtonRef.current) return;
+      const rect = repoPickerButtonRef.current.getBoundingClientRect();
+      const viewportMax = window.innerWidth - 16;
+      const maxFromLeft = rect.right - 12;
+      const nextWidth = Math.min(288, viewportMax, maxFromLeft);
+      setRepoPickerWidth(nextWidth > 0 ? nextWidth : null);
+    };
+
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, [repoPickerOpen]);
 
   useEffect(() => {
     let mounted = true;
@@ -240,28 +337,33 @@ export function Sidebar() {
     }
   }, []);
 
-
   const handleAddRepository = useCallback(async () => {
     try {
-      const result = await API.dialog.openDirectory({
-        title: 'Select Git Repository',
-        buttonLabel: 'Open',
-      });
-      if (!result.success || !result.data) return;
-
-      const folderPath = result.data;
-      const folderName = folderPath.split('/').pop() || 'Repository';
-
-      const createRes = await API.projects.create({ name: folderName, path: folderPath, active: true });
-      if (!createRes.success) {
-        showError({ title: 'Failed to Add Repository', error: createRes.error || 'Could not add repository' });
+      if (repoPickerOpen) {
+        setRepoPickerOpen(false);
         return;
       }
-      await loadProjects();
+      setRepoPickerOpen(true);
+      setRepoPickerLoading(true);
+      setRepoPickerMessage('');
+      const repoList = await API.dialog.listRepositories();
+      if (repoList === null) {
+        setRepoPickerOptions([]);
+        setRepoPickerMessage('Repository root not configured. Use manual path entry.');
+      } else {
+        setRepoPickerOptions(repoList);
+        if (repoList.length == 0) {
+          setRepoPickerMessage('No repositories found. Use manual path entry.');
+        }
+      }
     } catch (error) {
-      showError({ title: 'Failed to Add Repository', error: error instanceof Error ? error.message : 'Unknown error' });
+      setRepoPickerOptions([]);
+      setRepoPickerMessage('Failed to load repositories. Use manual path entry.');
+      showError({ title: 'Failed to Load Repositories', error: error instanceof Error ? error.message : 'Unknown error' });
+    } finally {
+      setRepoPickerLoading(false);
     }
-  }, [loadProjects, showError]);
+  }, [repoPickerOpen, showError]);
 
   const handleNewWorkspace = useCallback(async (projectId: number) => {
     try {
@@ -527,10 +629,26 @@ export function Sidebar() {
     }
   }, [draftWorktreeName, cancelRenameWorktree, loadWorktrees, showError, activeSessionId, editingWorktreeSessionId]);
 
+  const sidebarStyle = isHidden
+    ? {
+        width: 0,
+        minWidth: 0,
+        maxWidth: 0,
+        opacity: 0,
+        pointerEvents: 'none' as const,
+        borderRight: 'none',
+        overflow: 'hidden',
+        transition: 'width var(--st-duration) var(--st-ease), opacity var(--st-duration) var(--st-ease)',
+      }
+    : {
+        width: 'clamp(260px, 22vw, 340px)',
+        transition: 'width var(--st-duration) var(--st-ease), opacity var(--st-duration) var(--st-ease)',
+      };
+
   return (
     <div
       className="flex-shrink-0 border-r st-hairline st-surface flex flex-col"
-      style={{ width: 'clamp(260px, 22vw, 340px)' }}
+      style={sidebarStyle}
     >
       <div
         className="border-b st-hairline"
@@ -549,16 +667,69 @@ export function Sidebar() {
               Workspaces
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleAddRepository}
-            className="st-icon-button st-focus-ring"
-            title="Add repository"
-            // @ts-expect-error - webkit vendor prefix
-            style={{ color: 'var(--st-text-muted)', WebkitAppRegion: 'no-drag' }}
-          >
-            <FolderPlus className="w-4 h-4" />
-          </button>
+          <div className="relative">
+            <button
+              ref={repoPickerButtonRef}
+              type="button"
+              onClick={handleAddRepository}
+              className="st-icon-button st-focus-ring"
+              title="Add repository"
+              // @ts-expect-error - webkit vendor prefix
+              style={{ color: 'var(--st-text-muted)', WebkitAppRegion: 'no-drag' }}
+            >
+              <FolderPlus className="w-4 h-4" />
+            </button>
+            {repoPickerOpen && (
+              <div
+                ref={repoPickerRef}
+                className="absolute right-0 top-full mt-2 w-72 rounded-lg border st-hairline st-surface shadow-xl z-50 overflow-hidden"
+                style={{
+                  ['WebkitAppRegion' as never]: 'no-drag',
+                  width: repoPickerWidth ? `${repoPickerWidth}px` : undefined,
+                  maxWidth: 'min(90vw, 18rem)',
+                }}
+              >
+                <div className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide st-text-faint">Repositories</div>
+                {hasRunningSession && (
+                  <div className="px-3 pb-2 text-[11px] st-text-faint">Press Esc to stop.</div>
+                )}
+                {repoPickerLoading ? (
+                  <div className="px-3 py-2 flex items-center gap-2 text-xs st-text-faint">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Loading repositories...
+                  </div>
+                ) : repoPickerOptions.length > 0 ? (
+                  <div className="max-h-64 overflow-y-auto">
+                    {repoPickerOptions.map((repo) => (
+                      <button
+                        key={repo.path}
+                        type="button"
+                        onClick={() => void handleSelectRepository(repo)}
+                        className="w-full text-left px-3 py-2 st-hoverable"
+                      >
+                        <div className="text-sm font-medium truncate">{repo.name || deriveRepositoryName(repo.path)}</div>
+                        <div className="text-[11px] st-text-faint truncate">{repo.path}</div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 text-xs st-text-faint">{repoPickerMessage || 'No repositories available.'}</div>
+                )}
+                <div className="border-t st-hairline mt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRepoPickerOpen(false);
+                      void handleAddRepositoryManual();
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs st-hoverable st-text-muted"
+                  >
+                    Enter path manually
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

@@ -1,8 +1,8 @@
-import type { IpcMain } from 'electron';
 import { panelManager } from '../../features/panels/PanelManager';
 import type { CreatePanelRequest, ToolPanel } from '@snowtree/core/types/panels';
+import type { IpcHandlerTarget } from './types';
 
-export function registerPanelHandlers(ipcMain: IpcMain): void {
+export function registerPanelHandlers(ipcMain: IpcHandlerTarget): void {
   ipcMain.handle('panels:create', async (_event, request: CreatePanelRequest) => {
     try {
       const panel = await panelManager.createPanel(request);

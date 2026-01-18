@@ -34,6 +34,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm --filter @snowtree/ui test
+      - run: pnpm --filter @snowtree/desktop test:server
       - run: pnpm --filter @snowtree/desktop test:ci
 
       - name: Setup display

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { API } from '../utils/api';
 
@@ -13,7 +13,7 @@ export function useWorkspaceStageSync() {
   const pollingInFlightRef = useRef(false);
 
   // Fetch workspace stage for a single session
-  const fetchStageForSession = async (sessionId: string) => {
+  const fetchStageForSession = useCallback(async (sessionId: string) => {
     try {
       const [prRes, syncRes] = await Promise.all([
         API.sessions.getRemotePullRequest(sessionId),
@@ -42,7 +42,7 @@ export function useWorkspaceStageSync() {
     } catch {
       // Ignore errors - best effort sync
     }
-  };
+  }, [updateWorkspaceStage]);
 
   // Initial sync when sessions are loaded
   useEffect(() => {
@@ -69,7 +69,7 @@ export function useWorkspaceStageSync() {
     };
 
     void fetchAll();
-  }, [isLoaded, sessions, updateWorkspaceStage]);
+  }, [isLoaded, sessions, fetchStageForSession]);
 
   // Periodic refresh for all sessions (every 5 seconds)
   useEffect(() => {
@@ -106,7 +106,7 @@ export function useWorkspaceStageSync() {
         pollingTimerRef.current = null;
       }
     };
-  }, [isLoaded, sessions, updateWorkspaceStage]);
+  }, [isLoaded, sessions, fetchStageForSession]);
 
   // Reset synced set when sessions change significantly (e.g., new session added)
   useEffect(() => {
