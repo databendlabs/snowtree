@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, ArrowLeft, RefreshCw, Copy, Check, ChevronUp, ChevronDown } from 'lucide-react';
 import { ZedDiffViewer, type ZedDiffViewerHandle } from '../panels/diff/ZedDiffViewer';
-import { isMarkdownFile } from '../panels/diff/utils/fileUtils';
+import { isMarkdownFile, isImageFile } from '../panels/diff/utils/fileUtils';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { DiffOverlayProps } from './types';
@@ -140,14 +140,14 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
         if (filePath) {
           setFileSources(null);
           let sourceRes = await withTimeout(
-            API.sessions.getFileContent(sessionId, { filePath, ref: 'WORKTREE', maxBytes: 1024 * 1024 }),
+            API.sessions.getFileContent(sessionId, { filePath, ref: 'WORKTREE', maxBytes: 10 * 1024 * 1024 }),
             15_000,
             'Load file content'
           );
           // Fallback to HEAD if WORKTREE fails (e.g., file was deleted)
           if (!sourceRes.success) {
             sourceRes = await withTimeout(
-              API.sessions.getFileContent(sessionId, { filePath, ref: 'HEAD', maxBytes: 1024 * 1024 }),
+              API.sessions.getFileContent(sessionId, { filePath, ref: 'HEAD', maxBytes: 10 * 1024 * 1024 }),
               15_000,
               'Load file content'
             );
@@ -175,14 +175,14 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
               const p = targets[idx];
               try {
                 let r = await withTimeout(
-                  API.sessions.getFileContent(sessionId, { filePath: p, ref: 'WORKTREE', maxBytes: 1024 * 1024 }),
+                  API.sessions.getFileContent(sessionId, { filePath: p, ref: 'WORKTREE', maxBytes: 10 * 1024 * 1024 }),
                   15_000,
                   'Load file content'
                 );
                 // Fallback to HEAD if WORKTREE fails (e.g., file was deleted)
                 if (!r.success) {
                   r = await withTimeout(
-                    API.sessions.getFileContent(sessionId, { filePath: p, ref: 'HEAD', maxBytes: 1024 * 1024 }),
+                    API.sessions.getFileContent(sessionId, { filePath: p, ref: 'HEAD', maxBytes: 10 * 1024 * 1024 }),
                     15_000,
                     'Load file content'
                   );
@@ -220,7 +220,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
               const fileNameMatch = match.match(/diff --git a\/(.*?) b\/(.*?)(?:\n|$)/);
               if (fileNameMatch) {
                 const newFileName = fileNameMatch[2] || fileNameMatch[1] || '';
-                if (newFileName && isMarkdownFile(newFileName)) {
+                if (newFileName && (isMarkdownFile(newFileName) || isImageFile(newFileName))) {
                   changedFiles.push(newFileName);
                 }
               }
@@ -238,7 +238,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
                 const p = changedFiles[idx];
                 try {
                   const r = await withTimeout(
-                    API.sessions.getFileContent(sessionId, { filePath: p, ref: commitHash, maxBytes: 1024 * 1024 }),
+                    API.sessions.getFileContent(sessionId, { filePath: p, ref: commitHash, maxBytes: 10 * 1024 * 1024 }),
                     15_000,
                     'Load file content'
                   );
