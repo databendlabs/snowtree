@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Download, RotateCw } from 'lucide-react';
+import { MarkdownPreview } from './panels/diff/MarkdownPreview';
 
 type SidebarUpdateButtonProps = {
   version: string;
@@ -71,7 +72,7 @@ export function SidebarUpdateButton({
       </button>
       {isHovered && tooltipPos && tooltipContent && (
         <div
-          className="fixed z-50 px-2.5 py-2 rounded shadow-lg whitespace-pre-wrap max-w-sm text-[11px]"
+          className="fixed z-50 px-2.5 py-2 rounded shadow-lg max-w-sm text-[11px]"
           style={{
             top: tooltipPos.top,
             left: tooltipPos.left,
@@ -86,7 +87,7 @@ export function SidebarUpdateButton({
           <div className="text-[10px] font-mono uppercase tracking-wide mb-1" style={{ color: 'var(--st-text-faint)' }}>
             {version ? `Changelog v${version}` : 'Changelog'}
           </div>
-          {tooltipContent}
+          <MarkdownPreview content={tooltipContent} />
         </div>
       )}
     </>
