@@ -140,7 +140,7 @@ if (shouldInstallBridge) {
         }
         return { success: true, data: value } satisfies IPCResponse<string | null>;
       },
-      listRepositories: async () => ({ success: true } satisfies IPCResponse<RepositoryEntry[]>)
+      listRepositories: () => invoke<IPCResponse<RepositoryEntry[]>>('dialog:list-repositories')
     },
     projects: {
       getAll: () => invoke<IPCResponse<ProjectDTO[]>>('projects:get-all'),
