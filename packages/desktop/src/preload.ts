@@ -93,10 +93,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // CI status
     getCIStatus: (sessionId: string): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:get-ci-status', sessionId),
+    // Terminal helpers
+    ensureTerminalPanel: (sessionId: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:terminal-ensure-panel', sessionId),
+    preCreateTerminal: (sessionId: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:terminal-precreate', sessionId),
+    sendTerminalInput: (sessionId: string, data: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:terminal-input', sessionId, data),
+    resizeTerminal: (sessionId: string, cols: number, rows: number): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:terminal-resize', sessionId, cols, rows),
+    getTerminalOutputs: (panelId: string, limit?: number): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:terminal-get-outputs', panelId, limit),
   },
 
   panels: {
-    create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini'; name?: string }): Promise<IPCResponse> =>
+    create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini' | 'terminal'; name?: string }): Promise<IPCResponse> =>
       ipcRenderer.invoke('panels:create', request),
     list: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('panels:list', sessionId),
     update: (panelId: string, updates: { state?: unknown; title?: string; metadata?: unknown }): Promise<IPCResponse> =>
@@ -122,6 +133,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onGitStatusUpdated: (cb: (data: unknown) => void) => on('git-status-updated', cb),
     onGitStatusLoading: (cb: (data: unknown) => void) => on('git-status-loading', cb),
     onTimelineEvent: (cb: (data: { sessionId: string; event: unknown }) => void) => on('timeline:event', cb),
+    onTerminalOutput: (cb: (data: unknown) => void) => on('terminal:output', cb),
     onAssistantStream: (cb: (data: { sessionId: string; panelId: string; content: string }) => void) => on('assistant:stream', cb),
     onUpdateAvailable: (cb: (version: string) => void) => on('update:available', cb),
     onUpdateDownloaded: (cb: () => void) => on('update:downloaded', cb),

@@ -8,6 +8,7 @@ import type { DatabaseService } from '../../infrastructure/database/database';
 import type { Session as DbSession, CreateSessionData, UpdateSessionData, ConversationMessage, PromptMarker, ExecutionDiff, CreateExecutionDiffData, Project, CreateTimelineEventData, TimelineEvent } from '../../infrastructure/database/models';
 import { getShellPath } from '../../infrastructure/command/shellPath';
 import { TerminalManager } from './TerminalManager';
+import { TerminalPanelCoordinator } from './TerminalPanelCoordinator';
 import type { BaseAIPanelState, ToolPanelState, ToolPanel } from '@snowtree/core/types/panels';
 import { formatForDisplay } from '../../infrastructure/utils/timestampUtils';
 import { scriptExecutionTracker } from '../queue/ScriptExecutionTracker';
@@ -54,6 +55,7 @@ export class SessionManager extends EventEmitter {
   private currentRunningSessionId: string | null = null;
   private activeProject: Project | null = null;
   private terminalSessionManager: TerminalManager;
+  private terminalPanels: TerminalPanelCoordinator;
   private autoContextBuffers: Map<string, SessionOutput[]> = new Map();
   private streamingAssistantTimelineEventByPanel: Map<string, number> = new Map();
 
@@ -63,12 +65,21 @@ export class SessionManager extends EventEmitter {
     // This is expected since multiple SessionListItem components and project tree views listen to events
     this.setMaxListeners(100);
     this.terminalSessionManager = new TerminalManager();
+    this.terminalPanels = new TerminalPanelCoordinator(db);
     
     // Forward terminal output events to the terminal display
     this.terminalSessionManager.on('terminal-output', ({ sessionId, data, type }) => {
-      // Terminal PTY output goes directly to the terminal view
-      // Terminal is now independent and not used for run scripts
-      this.emit('terminal-output', { sessionId, data, type });
+      const outputData = typeof data === 'string' ? data : String(data);
+      const { panelId, outputId } = this.terminalPanels.recordOutput(sessionId, type, outputData);
+
+      this.emit('terminal-output', {
+        sessionId,
+        panelId,
+        id: outputId,
+        type,
+        data: outputData,
+        timestamp: new Date().toISOString()
+      });
     });
     
     // Forward zombie process detection events
@@ -84,6 +95,20 @@ export class SessionManager extends EventEmitter {
     });
     this.emit('timeline:event', { sessionId: event.session_id, event });
     return event;
+  }
+
+  async ensureTerminalPanel(sessionId: string): Promise<ToolPanel> {
+    const existing = this.terminalPanels.getPanel(sessionId);
+    if (existing) return existing;
+
+    const session = this.getSession(sessionId);
+    const dbSession = session ? null : this.db.getSession(sessionId);
+    if ((session && session.archived) || (!session && dbSession?.archived)) {
+      throw new Error('Cannot access terminal for archived session');
+    }
+    const worktreePath = session?.worktreePath || dbSession?.worktree_path;
+
+    return this.terminalPanels.ensurePanel(sessionId, worktreePath);
   }
 
   upsertStreamingAssistantTimeline(panelId: string, sessionId: string, tool: string | undefined, content: string, timestamp?: string): TimelineEvent {
@@ -1031,7 +1056,9 @@ export class SessionManager extends EventEmitter {
   getSessionOutputs(id: string, limit?: number): SessionOutput[] {
     const dbOutputs = this.db.getSessionOutputs(id, limit);
     return dbOutputs.map(dbOutput => ({
+      id: dbOutput.id,
       sessionId: dbOutput.session_id,
+      panelId: dbOutput.panel_id,
       type: dbOutput.type as 'stdout' | 'stderr' | 'json' | 'error',
       data: (dbOutput.type === 'json' || dbOutput.type === 'error') ? JSON.parse(dbOutput.data) : dbOutput.data,
       timestamp: new Date(dbOutput.timestamp)
@@ -1041,6 +1068,7 @@ export class SessionManager extends EventEmitter {
   getSessionOutputsForPanel(panelId: string, limit?: number): SessionOutput[] {
     const dbOutputs = this.db.getSessionOutputsForPanel(panelId, limit);
     return dbOutputs.map(dbOutput => ({
+      id: dbOutput.id,
       sessionId: dbOutput.session_id,
       panelId: dbOutput.panel_id,
       type: dbOutput.type as 'stdout' | 'stderr' | 'json' | 'error',
@@ -1123,6 +1151,7 @@ export class SessionManager extends EventEmitter {
     await this.terminalSessionManager.closeTerminalSession(id);
     
     this.activeSessions.delete(id);
+    this.terminalPanels.clearSession(id);
     this.emit('session-deleted', { id }); // Keep the same event name for frontend compatibility
   }
 
@@ -1139,6 +1168,7 @@ export class SessionManager extends EventEmitter {
     }
 
     this.activeSessions.delete(id);
+    this.terminalPanels.clearSession(id);
     this.emit('session-deleted', { id });
   }
 
@@ -1914,6 +1944,7 @@ export class SessionManager extends EventEmitter {
     const worktreePath = session.worktreePath;
 
     try {
+      await this.ensureTerminalPanel(sessionId);
       // Create terminal session if it doesn't exist
       if (!this.terminalSessionManager.hasSession(sessionId)) {
         await this.terminalSessionManager.createTerminalSession(sessionId, worktreePath);
@@ -1955,6 +1986,7 @@ export class SessionManager extends EventEmitter {
     }
 
     try {
+      await this.ensureTerminalPanel(sessionId);
       // Create terminal session if it doesn't exist
       if (!this.terminalSessionManager.hasSession(sessionId)) {
         await this.terminalSessionManager.createTerminalSession(sessionId, worktreePath);
@@ -2008,9 +2040,23 @@ export class SessionManager extends EventEmitter {
     }
 
     try {
+      const panel = await this.ensureTerminalPanel(sessionId);
       // Create terminal session if it doesn't exist
       if (!this.terminalSessionManager.hasSession(sessionId)) {
         await this.terminalSessionManager.createTerminalSession(sessionId, worktreePath);
+      }
+      if (panel) {
+        const customState = (panel.state?.customState || {}) as Record<string, unknown>;
+        await panelManager.updatePanel(panel.id, {
+          state: {
+            ...panel.state,
+            customState: {
+              ...customState,
+              isInitialized: true,
+              cwd: worktreePath
+            }
+          }
+        });
       }
     } catch (error) {
       console.error(`[SessionManager] Failed to pre-create terminal session: ${error}`);

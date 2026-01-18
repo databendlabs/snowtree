@@ -227,6 +227,55 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
     }
   });
 
+  ipcMain.handle('sessions:terminal-ensure-panel', async (_event, sessionId: string) => {
+    try {
+      const panel = await sessionManager.ensureTerminalPanel(sessionId);
+      return { success: true, data: panel };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to ensure terminal panel' };
+    }
+  });
+
+  ipcMain.handle('sessions:terminal-precreate', async (_event, sessionId: string) => {
+    try {
+      await sessionManager.preCreateTerminalSession(sessionId);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to pre-create terminal session' };
+    }
+  });
+
+  ipcMain.handle('sessions:terminal-input', async (_event, sessionId: string, data: string) => {
+    try {
+      await sessionManager.sendTerminalInput(sessionId, data);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to send terminal input' };
+    }
+  });
+
+  ipcMain.handle('sessions:terminal-resize', async (_event, sessionId: string, cols: number, rows: number) => {
+    try {
+      sessionManager.resizeTerminal(sessionId, cols, rows);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to resize terminal' };
+    }
+  });
+
+  ipcMain.handle('sessions:terminal-get-outputs', async (_event, panelId: string, limit?: number) => {
+    try {
+      const outputs = sessionManager.getSessionOutputsForPanel(panelId, limit);
+      const serialized = outputs.map(output => ({
+        ...output,
+        timestamp: output.timestamp instanceof Date ? output.timestamp.toISOString() : output.timestamp
+      }));
+      return { success: true, data: serialized };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to load terminal outputs' };
+    }
+  });
+
   ipcMain.handle('panels:continue', async (_event, panelId: string, input: string, _model?: string, options?: { skipCheckpointAutoCommit?: boolean; planMode?: boolean }, images?: Array<{ id: string; filename: string; mime: string; dataUrl: string }>) => {
     let sessionIdForError: string | null = null;
     const planMode = options?.planMode ?? false;

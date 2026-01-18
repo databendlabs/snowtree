@@ -989,17 +989,18 @@ export class DatabaseService {
   }
 
   // Claude panel output operations - use panel_id for Claude-specific data
-  addPanelOutput(panelId: string, type: 'stdout' | 'stderr' | 'system' | 'json' | 'error', data: string): void {
+  addPanelOutput(panelId: string, type: 'stdout' | 'stderr' | 'system' | 'json' | 'error', data: string): number {
     // Get the session_id from the panel
     const panel = this.getPanel(panelId);
     if (!panel) {
       throw new Error(`Panel not found: ${panelId}`);
     }
     
-    this.db.prepare(`
+    const result = this.db.prepare(`
       INSERT INTO session_outputs (session_id, panel_id, type, data)
       VALUES (?, ?, ?, ?)
     `).run(panel.sessionId, panelId, type, data);
+    return Number(result.lastInsertRowid);
   }
 
   addTimelineEvent(data: CreateTimelineEventData): TimelineEvent {
@@ -2142,6 +2143,28 @@ export class DatabaseService {
   deletePanel(panelId: string): void {
     this.transaction(() => {
       this.db.prepare('DELETE FROM tool_panels WHERE id = ?').run(panelId);
+    });
+  }
+
+  /**
+   * Create a panel without changing the active panel for the session.
+   */
+  createPanel(data: {
+    id: string;
+    sessionId: string;
+    type: string;
+    title: string;
+    state?: unknown;
+    metadata?: unknown;
+  }): void {
+    this.transaction(() => {
+      const stateJson = data.state ? JSON.stringify(data.state) : null;
+      const metadataJson = data.metadata ? JSON.stringify(data.metadata) : null;
+
+      this.db.prepare(`
+        INSERT INTO tool_panels (id, session_id, type, title, state, metadata)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(data.id, data.sessionId, data.type, data.title, stateJson, metadataJson);
     });
   }
 

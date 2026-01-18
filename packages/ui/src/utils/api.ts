@@ -197,6 +197,32 @@ export class API {
       }
       return result.data;
     },
+
+    // Terminal helpers
+    async ensureTerminalPanel(sessionId: string) {
+      requireElectron();
+      return window.electronAPI.sessions.ensureTerminalPanel(sessionId);
+    },
+
+    async preCreateTerminal(sessionId: string) {
+      requireElectron();
+      return window.electronAPI.sessions.preCreateTerminal(sessionId);
+    },
+
+    async sendTerminalInput(sessionId: string, data: string) {
+      requireElectron();
+      return window.electronAPI.sessions.sendTerminalInput(sessionId, data);
+    },
+
+    async resizeTerminal(sessionId: string, cols: number, rows: number) {
+      requireElectron();
+      return window.electronAPI.sessions.resizeTerminal(sessionId, cols, rows);
+    },
+
+    async getTerminalOutputs(panelId: string, limit?: number) {
+      requireElectron();
+      return window.electronAPI.sessions.getTerminalOutputs(panelId, limit);
+    },
   };
 
   static projects = {

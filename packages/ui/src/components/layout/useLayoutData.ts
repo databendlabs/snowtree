@@ -4,10 +4,12 @@ import { withTimeout } from '../../utils/withTimeout';
 import type { Session } from '../../types/session';
 import type { ToolPanel, BaseAIPanelState } from '@snowtree/core/types/panels';
 import type { CLITool, ImageAttachment, ExecutionMode } from './types';
+import { useEnsureTerminalPanel } from './useEnsureTerminalPanel';
 
 interface UseLayoutDataResult {
   session: Session | null;
   aiPanel: ToolPanel | null;
+  terminalPanel: ToolPanel | null;
   branchName: string;
   remoteName: string | null;
   selectedTool: CLITool;
@@ -29,6 +31,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
   const [session, setSession] = useState<Session | null>(null);
   const [aiPanel, setAiPanel] = useState<ToolPanel | null>(null);
   const aiPanelRef = useRef<ToolPanel | null>(null);
+  const [terminalPanel, setTerminalPanel] = useState<ToolPanel | null>(null);
   const [branchName, setBranchName] = useState<string>('main');
   const [remoteName, setRemoteName] = useState<string | null>(null);
   const [selectedTool, setSelectedTool] = useState<CLITool>('claude');
@@ -100,6 +103,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     if (!sessionId) {
       setSession(null);
       setAiPanel(null);
+      setTerminalPanel(null);
       setIsProcessing(false);
       return;
     }
@@ -107,6 +111,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     // Clear stale data when switching sessions
     setSession(null);
     setAiPanel(null);
+    setTerminalPanel(null);
     setBranchName('main');
     setRemoteName(null);
     setLoadError(null);
@@ -149,6 +154,8 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
 
           const ai = panels.find(p => p.type === 'claude' || p.type === 'codex' || p.type === 'gemini') || null;
           setAiPanel(ai);
+          const terminal = panels.find(p => p.type === 'terminal') || null;
+          setTerminalPanel(terminal);
           // Note: Do NOT override selectedTool here - it's already set from session.toolType
         }
       } catch (error) {
@@ -162,6 +169,8 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
       }
     });
   }, [sessionId, reloadToken]);
+
+  useEnsureTerminalPanel(session, terminalPanel, setTerminalPanel);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -389,6 +398,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
   return {
     session,
     aiPanel,
+    terminalPanel,
     branchName,
     remoteName,
     selectedTool,

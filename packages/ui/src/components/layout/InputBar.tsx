@@ -6,6 +6,7 @@ import { withTimeout } from '../../utils/withTimeout';
 import type { TimelineEvent } from '../../types/timeline';
 import { clearSessionDraft, getSessionDraft, setSessionDraft } from './sessionDraftCache';
 import { InputBarEditor, type InputBarEditorHandle } from './InputBarEditor';
+import { isTerminalEventTarget } from './terminalUtils';
 
 const KnightRiderSpinner: React.FC<{ color?: string }> = ({ color = 'var(--st-accent)' }) => {
   const [frame, setFrame] = useState(0);
@@ -226,7 +227,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   const imageAttachmentsRef = useRef<ImageAttachment[]>([]);
   const restoringDraftRef = useRef(false);
   const draftSaveRafRef = useRef<number | null>(null);
-
   // Update local state when initialExecutionMode changes (e.g., session switch)
   useEffect(() => {
     if (initialExecutionMode !== undefined) {
@@ -453,6 +453,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (isTerminalEventTarget(e.target)) return;
       if (e.key === 'Escape' && isRunning) {
         e.preventDefault();
         if (escPending) {
@@ -503,6 +504,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     const handleGlobalKeyPress = (e: KeyboardEvent) => {
       const editor = editorRef.current?.editor;
       if (!editor || editor.view.hasFocus()) return;
+      if (isTerminalEventTarget(e.target)) return;
 
       const target = e.target as HTMLElement;
       if (
@@ -568,6 +570,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     const handleGlobalPasteCapture = (e: ClipboardEvent) => {
       const editor = editorRef.current?.editor;
       if (!editor || editor.view.hasFocus()) return;
+      if (isTerminalEventTarget(e.target)) return;
 
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
@@ -798,6 +801,10 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
               <span style={{ color: 'var(--st-text)' }}>
                 shift+tab{' '}
                 <span style={{ color: 'var(--st-text-faint)' }}>switch mode</span>
+              </span>
+              <span style={{ color: 'var(--st-text)' }}>
+                ctrl+/-{' '}
+                <span style={{ color: 'var(--st-text-faint)' }}>terminal</span>
               </span>
             </div>
           </div>

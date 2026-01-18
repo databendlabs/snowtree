@@ -52,8 +52,9 @@ export class PanelManager {
     });
   }
   
-  async createPanel(request: CreatePanelRequest): Promise<ToolPanel> {
+  async createPanel(request: CreatePanelRequest, options?: { activate?: boolean }): Promise<ToolPanel> {
     return await withLock(`panel-creation-${request.sessionId}`, async () => {
+      const activate = options?.activate ?? true;
       // Generate unique ID
       const panelId = uuidv4();
       
@@ -85,34 +86,50 @@ export class PanelManager {
         metadata
       };
       
-      // Save to database and set as active in a single transaction
-      databaseService.createPanelAndSetActive({
-        id: panel.id,
-        sessionId: panel.sessionId,
-        type: panel.type,
-        title: panel.title,
-        state: panel.state,
-        metadata: panel.metadata
-      });
-      
-      // Update the panel state to reflect it's now active
-      panel.state.isActive = true;
-      panel.metadata.lastActiveAt = new Date().toISOString();
+      if (activate) {
+        // Save to database and set as active in a single transaction
+        databaseService.createPanelAndSetActive({
+          id: panel.id,
+          sessionId: panel.sessionId,
+          type: panel.type,
+          title: panel.title,
+          state: panel.state,
+          metadata: panel.metadata
+        });
+      } else {
+        // Save to database without changing the active panel
+        databaseService.createPanel({
+          id: panel.id,
+          sessionId: panel.sessionId,
+          type: panel.type,
+          title: panel.title,
+          state: panel.state,
+          metadata: panel.metadata
+        });
+      }
+
+      if (activate) {
+        // Update the panel state to reflect it's now active
+        panel.state.isActive = true;
+        panel.metadata.lastActiveAt = new Date().toISOString();
+      }
       
       // Cache in memory
       this.panels.set(panelId, panel);
       
-      // Update panel states to reflect the new active panel
-      const panels = this.getPanelsForSession(request.sessionId);
-      panels.forEach(p => {
-        const isActive = p.id === panelId;
-        if (p.state.isActive !== isActive) {
-          p.state.isActive = isActive;
-          if (isActive) {
-            p.metadata.lastActiveAt = new Date().toISOString();
+      if (activate) {
+        // Update panel states to reflect the new active panel
+        const panels = this.getPanelsForSession(request.sessionId);
+        panels.forEach(p => {
+          const isActive = p.id === panelId;
+          if (p.state.isActive !== isActive) {
+            p.state.isActive = isActive;
+            if (isActive) {
+              p.metadata.lastActiveAt = new Date().toISOString();
+            }
           }
-        }
-      });
+        });
+      }
       
       console.log(`[PanelManager] Created panel ${panelId} of type ${request.type} for session ${request.sessionId}`);
 

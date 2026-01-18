@@ -150,10 +150,23 @@ export interface ElectronAPI {
       failureCount: number;
       pendingCount: number;
     } | null>>;
+    // Terminal helpers
+    ensureTerminalPanel: (sessionId: string) => Promise<IPCResponse<ToolPanel>>;
+    preCreateTerminal: (sessionId: string) => Promise<IPCResponse<unknown>>;
+    sendTerminalInput: (sessionId: string, data: string) => Promise<IPCResponse<unknown>>;
+    resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<IPCResponse<unknown>>;
+    getTerminalOutputs: (panelId: string, limit?: number) => Promise<IPCResponse<Array<{
+      id?: number;
+      sessionId?: string;
+      panelId?: string | null;
+      type: 'stdout' | 'stderr' | 'system' | 'json' | 'error';
+      data: string;
+      timestamp?: string;
+    }>>>;
   };
 
   panels: {
-    create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini'; name?: string }) => Promise<IPCResponse<ToolPanel>>;
+    create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini' | 'terminal'; name?: string }) => Promise<IPCResponse<ToolPanel>>;
     list: (sessionId: string) => Promise<IPCResponse<ToolPanel[]>>;
     update: (panelId: string, updates: { state?: unknown; title?: string; metadata?: unknown }) => Promise<IPCResponse<unknown>>;
     continue: (panelId: string, input: string, model?: string, options?: { skipCheckpointAutoCommit?: boolean; planMode?: boolean }, images?: Array<{ id: string; filename: string; mime: string; dataUrl: string }>) => Promise<IPCResponse<unknown>>;
@@ -173,6 +186,7 @@ export interface ElectronAPI {
     onGitStatusUpdated: (callback: (data: { sessionId: string; gitStatus: GitStatus }) => void) => () => void;
     onGitStatusLoading: (callback: (data: { sessionId: string }) => void) => () => void;
     onTimelineEvent: (callback: (data: { sessionId: string; event: TimelineEvent }) => void) => () => void;
+    onTerminalOutput: (callback: (data: { sessionId: string; panelId?: string; id?: number; type: string; data: string; timestamp?: string }) => void) => () => void;
     onAssistantStream: (callback: (data: { sessionId: string; panelId: string; content: string }) => void) => () => void;
     onUpdateAvailable: (callback: (version: string) => void) => () => void;
     onUpdateDownloaded: (callback: () => void) => () => void;

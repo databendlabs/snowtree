@@ -15,6 +15,7 @@ vi.mock('../../utils/api', () => ({
       get: vi.fn(),
       update: vi.fn(),
       getGitCommands: vi.fn(),
+      ensureTerminalPanel: vi.fn(),
       stop: vi.fn(),
     },
   },
@@ -73,6 +74,9 @@ describe('useLayoutData', () => {
 
     (API.sessions.update as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true });
     (API.sessions.getGitCommands as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true, data: { currentBranch: 'main', remoteName: 'origin' } });
+    (API.sessions.ensureTerminalPanel as unknown as ReturnType<typeof vi.fn>).mockImplementation((sessionId: string) => (
+      Promise.resolve({ success: true, data: { id: `tp-${sessionId}`, sessionId, type: 'terminal' } })
+    ));
     (API.sessions.stop as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true });
 
     (globalThis as unknown as { window: Window & typeof globalThis }).window.electronAPI = {

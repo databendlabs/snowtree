@@ -1,14 +1,16 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useSessionStore } from '../../stores/sessionStore';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { ConversationPanel } from './ConversationPanel';
 import { InputBar } from './InputBar';
 import { RightPanel } from './RightPanel/index';
+import { TerminalDock } from './TerminalDock';
 import { DiffOverlay } from './DiffOverlay';
 import { useLayoutData } from './useLayoutData';
 import type { PendingMessage, FileChange } from './types';
 import type { DiffTarget } from '../../types/diff';
+import { isTerminalEventTarget } from './terminalUtils';
 
 const RIGHT_PANEL_WIDTH_KEY = 'snowtree-right-panel-width';
 const DEFAULT_RIGHT_PANEL_WIDTH = 340;
@@ -64,6 +66,7 @@ export const MainLayout: React.FC = React.memo(() => {
   const {
     session,
     aiPanel,
+    terminalPanel,
     branchName,
     remoteName,
     selectedTool,
@@ -107,6 +110,7 @@ export const MainLayout: React.FC = React.memo(() => {
   const [diffFiles, setDiffFiles] = useState<FileChange[]>([]);
   const [pendingMessage, setPendingMessage] = useState<PendingMessage | null>(null);
   const [inputFocusRequestId, setInputFocusRequestId] = useState(0);
+  const mainColumnRef = useRef<HTMLDivElement | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     const stored = localStorage.getItem(RIGHT_PANEL_WIDTH_KEY);
     if (stored) {
@@ -443,6 +447,7 @@ export const MainLayout: React.FC = React.memo(() => {
 
     const handleTabKey = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
+      if (isTerminalEventTarget(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
@@ -481,7 +486,7 @@ export const MainLayout: React.FC = React.memo(() => {
 
   return (
     <div className="flex-1 flex h-full overflow-hidden st-bg" data-testid="main-layout">
-      <div className="flex-1 flex flex-col min-w-0 relative">
+      <div className="flex-1 flex flex-col min-w-0 relative" ref={mainColumnRef}>
         <WorkspaceHeader
           session={displaySession}
           branchName={branchName}
@@ -511,6 +516,15 @@ export const MainLayout: React.FC = React.memo(() => {
               focusRequestId={inputFocusRequestId}
               initialExecutionMode={executionMode}
             />
+
+            {terminalPanel && (
+              <TerminalDock
+                sessionId={session.id}
+                panelId={terminalPanel.id}
+                worktreePath={session.worktreePath}
+                containerRef={mainColumnRef}
+              />
+            )}
           </>
         ) : (
           <div className="flex-1 flex min-h-0 overflow-hidden">
