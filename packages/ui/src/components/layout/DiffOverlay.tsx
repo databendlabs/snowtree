@@ -1,13 +1,94 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, ArrowLeft, RefreshCw, Copy, Check, ChevronUp, ChevronDown } from 'lucide-react';
 import { ZedDiffViewer, type ZedDiffViewerHandle } from '../panels/diff/ZedDiffViewer';
-import { isMarkdownFile, isImageFile } from '../panels/diff/utils/fileUtils';
+import { isPreviewableFile } from '../panels/diff/utils/fileUtils';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { DiffOverlayProps } from './types';
 
 const border = 'color-mix(in srgb, var(--st-border) 70%, transparent)';
 const hoverBg = 'color-mix(in srgb, var(--st-hover) 42%, transparent)';
+const FILE_CONTENT_TIMEOUT_MS = 15_000;
+const FILE_CONTENT_MAX_BYTES = 10 * 1024 * 1024;
+const FILE_CONTENT_CONCURRENCY = 6;
+const FILE_CONTENT_MAX_FILES = 80;
+
+function uniquePreviewablePaths(paths: string[]): string[] {
+  const out = new Set<string>();
+  for (const path of paths) {
+    const trimmed = typeof path === 'string' ? path.trim() : '';
+    if (!trimmed) continue;
+    if (!isPreviewableFile(trimmed)) continue;
+    out.add(trimmed);
+  }
+  return Array.from(out);
+}
+
+function extractPreviewablePathsFromDiff(diffText: string): string[] {
+  const matches = diffText.match(/diff --git a\/(.*?) b\/(.*?)(?:\n|$)/g);
+  if (!matches) return [];
+  const paths: string[] = [];
+  for (const match of matches) {
+    const fileNameMatch = match.match(/diff --git a\/(.*?) b\/(.*?)(?:\n|$)/);
+    if (!fileNameMatch) continue;
+    const newFileName = fileNameMatch[2] || fileNameMatch[1] || '';
+    if (newFileName) paths.push(newFileName);
+  }
+  return uniquePreviewablePaths(paths);
+}
+
+async function requestFileContent(sessionId: string, filePath: string, ref: string, maxBytes: number): Promise<string | null> {
+  const response = await withTimeout(
+    API.sessions.getFileContent(sessionId, { filePath, ref, maxBytes }),
+    FILE_CONTENT_TIMEOUT_MS,
+    'Load file content'
+  );
+  if (!response.success) return null;
+  return response.data?.content ?? '';
+}
+
+async function requestFileContentWithFallback(
+  sessionId: string,
+  filePath: string,
+  refs: string[],
+  maxBytes: number
+): Promise<string | null> {
+  for (const ref of refs) {
+    const content = await requestFileContent(sessionId, filePath, ref, maxBytes);
+    if (content != null) return content;
+  }
+  return null;
+}
+
+async function fetchFileSources(
+  sessionId: string,
+  filePaths: string[],
+  options: { refs: string[]; maxBytes?: number; concurrency?: number }
+): Promise<Record<string, string>> {
+  if (filePaths.length === 0) return {};
+
+  const maxBytes = typeof options.maxBytes === 'number' && options.maxBytes > 0 ? options.maxBytes : FILE_CONTENT_MAX_BYTES;
+  const concurrency = typeof options.concurrency === 'number' && options.concurrency > 0 ? options.concurrency : FILE_CONTENT_CONCURRENCY;
+  const targets = filePaths.slice();
+  const results: Record<string, string> = {};
+  let cursor = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, targets.length) }).map(async () => {
+    while (cursor < targets.length) {
+      const idx = cursor++;
+      const path = targets[idx]!;
+      try {
+        const content = await requestFileContentWithFallback(sessionId, path, options.refs, maxBytes);
+        if (content != null) results[path] = content;
+      } catch {
+        // best-effort
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
 
 const ToolbarButton: React.FC<{
   onClick: () => void;
@@ -139,64 +220,33 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
         // Always use WORKTREE to get the current working copy (new content) for preview.
         if (filePath) {
           setFileSources(null);
-          let sourceRes = await withTimeout(
-            API.sessions.getFileContent(sessionId, { filePath, ref: 'WORKTREE', maxBytes: 10 * 1024 * 1024 }),
-            15_000,
-            'Load file content'
+          const content = await requestFileContentWithFallback(
+            sessionId,
+            filePath,
+            ['WORKTREE', 'HEAD'],
+            FILE_CONTENT_MAX_BYTES
           );
-          // Fallback to HEAD if WORKTREE fails (e.g., file was deleted)
-          if (!sourceRes.success) {
-            sourceRes = await withTimeout(
-              API.sessions.getFileContent(sessionId, { filePath, ref: 'HEAD', maxBytes: 10 * 1024 * 1024 }),
-              15_000,
-              'Load file content'
-            );
-          }
-          setFileSource(sourceRes.success ? (sourceRes.data?.content ?? '') : null);
+          setFileSource(content);
         } else {
-          // Project diff view: expand each file to include unchanged lines between hunks (Zed-like).
+          // Project diff view: load previewable files only (markdown/images).
           setFileSource(null);
+          setFileSources(null);
 
           const changed = Array.isArray((allRes.data as { changedFiles?: unknown } | undefined)?.changedFiles)
             ? (((allRes.data as { changedFiles?: unknown }).changedFiles as unknown[]) || []).filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
             : [];
 
-          const maxFiles = 80;
-          const targets = changed.slice(0, maxFiles);
-          const results: Record<string, string> = {};
-
-          // Small concurrency pool to avoid UI stalls.
-          // Always use WORKTREE first to get current working copy (new content) for preview.
-          const concurrency = 6;
-          let cursor = 0;
-          const workers = Array.from({ length: concurrency }).map(async () => {
-            while (cursor < targets.length) {
-              const idx = cursor++;
-              const p = targets[idx];
-              try {
-                let r = await withTimeout(
-                  API.sessions.getFileContent(sessionId, { filePath: p, ref: 'WORKTREE', maxBytes: 10 * 1024 * 1024 }),
-                  15_000,
-                  'Load file content'
-                );
-                // Fallback to HEAD if WORKTREE fails (e.g., file was deleted)
-                if (!r.success) {
-                  r = await withTimeout(
-                    API.sessions.getFileContent(sessionId, { filePath: p, ref: 'HEAD', maxBytes: 10 * 1024 * 1024 }),
-                    15_000,
-                    'Load file content'
-                  );
-                }
-                if (r.success) {
-                  results[p] = r.data?.content ?? '';
-                }
-              } catch {
-                // best-effort
-              }
-            }
-          });
-          await Promise.all(workers);
-          setFileSources(Object.keys(results).length > 0 ? results : null);
+          const targets = uniquePreviewablePaths(changed).slice(0, FILE_CONTENT_MAX_FILES);
+          if (targets.length === 0) {
+            setFileSources(null);
+          } else {
+            const results = await fetchFileSources(sessionId, targets, {
+              refs: ['WORKTREE', 'HEAD'],
+              maxBytes: FILE_CONTENT_MAX_BYTES,
+              concurrency: FILE_CONTENT_CONCURRENCY,
+            });
+            setFileSources(Object.keys(results).length > 0 ? results : null);
+          }
         }
         return;
       }
@@ -208,55 +258,20 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
         setStagedDiff(null);
         setUnstagedDiff(null);
         setFileSource(null);
+        setFileSources(null);
 
-        // For commit views, load file content for markdown files to enable preview
+        // For commit views, load previewable file content to enable previews.
         if (target.kind === 'commit' && diffText) {
           const commitHash = target.hash;
-          // Parse diff to find changed files
-          const fileMatches = diffText.match(/diff --git a\/(.*?) b\/(.*?)(?:\n|$)/g);
-          const changedFiles: string[] = [];
-          if (fileMatches) {
-            for (const match of fileMatches) {
-              const fileNameMatch = match.match(/diff --git a\/(.*?) b\/(.*?)(?:\n|$)/);
-              if (fileNameMatch) {
-                const newFileName = fileNameMatch[2] || fileNameMatch[1] || '';
-                if (newFileName && (isMarkdownFile(newFileName) || isImageFile(newFileName))) {
-                  changedFiles.push(newFileName);
-                }
-              }
-            }
-          }
-
-          // Load markdown file content from the commit
-          if (changedFiles.length > 0) {
-            const results: Record<string, string> = {};
-            const concurrency = 6;
-            let cursor = 0;
-            const workers = Array.from({ length: concurrency }).map(async () => {
-              while (cursor < changedFiles.length) {
-                const idx = cursor++;
-                const p = changedFiles[idx];
-                try {
-                  const r = await withTimeout(
-                    API.sessions.getFileContent(sessionId, { filePath: p, ref: commitHash, maxBytes: 10 * 1024 * 1024 }),
-                    15_000,
-                    'Load file content'
-                  );
-                  if (r.success) {
-                    results[p] = r.data?.content ?? '';
-                  }
-                } catch {
-                  // best-effort
-                }
-              }
+          const previewableFiles = extractPreviewablePathsFromDiff(diffText);
+          if (previewableFiles.length > 0) {
+            const results = await fetchFileSources(sessionId, previewableFiles, {
+              refs: [commitHash],
+              maxBytes: FILE_CONTENT_MAX_BYTES,
+              concurrency: FILE_CONTENT_CONCURRENCY,
             });
-            await Promise.all(workers);
             setFileSources(Object.keys(results).length > 0 ? results : null);
-          } else {
-            setFileSources(null);
           }
-        } else {
-          setFileSources(null);
         }
       } else {
         const message = response.error || 'Failed to load diff';

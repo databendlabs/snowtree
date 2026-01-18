@@ -123,12 +123,12 @@ describe('DiffOverlay', () => {
         return Promise.resolve({
           success: true,
           data: {
-            diff: 'diff --git a/tracked.txt b/tracked.txt\n--- a/tracked.txt\n+++ b/tracked.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n',
-            changedFiles: ['tracked.txt', 'new.txt'],
+            diff: 'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,1 +1,1 @@\n-a\n+b\n',
+            changedFiles: ['tracked.txt', 'README.md', 'logo.png'],
             workingTree: {
               staged: [],
               unstaged: [{ path: 'tracked.txt', type: 'modified', additions: 1, deletions: 1 }],
-              untracked: [{ path: 'new.txt', type: 'added', additions: 1, deletions: 0 }],
+              untracked: [{ path: 'README.md', type: 'modified', additions: 1, deletions: 0 }],
             },
           },
         });
@@ -150,9 +150,10 @@ describe('DiffOverlay', () => {
     );
 
     await waitFor(() => {
-      // All files now use WORKTREE first for preview (to show new/modified content)
-      expect(API.sessions.getFileContent).toHaveBeenCalledWith('s1', expect.objectContaining({ filePath: 'tracked.txt', ref: 'WORKTREE' }));
-      expect(API.sessions.getFileContent).toHaveBeenCalledWith('s1', expect.objectContaining({ filePath: 'new.txt', ref: 'WORKTREE' }));
+      // Only previewable files use WORKTREE first for preview (to show new/modified content).
+      expect(API.sessions.getFileContent).toHaveBeenCalledWith('s1', expect.objectContaining({ filePath: 'README.md', ref: 'WORKTREE' }));
+      expect(API.sessions.getFileContent).toHaveBeenCalledWith('s1', expect.objectContaining({ filePath: 'logo.png', ref: 'WORKTREE' }));
+      expect(API.sessions.getFileContent).not.toHaveBeenCalledWith('s1', expect.objectContaining({ filePath: 'tracked.txt' }));
     });
   });
 });

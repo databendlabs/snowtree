@@ -1,11 +1,13 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Diff, Hunk, getChangeKey, parseDiff, textLinesToHunk, type ChangeData, type DiffType, type HunkData } from 'react-diff-view';
+import { Diff, Hunk, getChangeKey, parseDiff, type ChangeData, type DiffType, type HunkData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import { Eye, EyeOff, Plus, Minus, RotateCcw } from 'lucide-react';
 import { API } from '../../../utils/api';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ImagePreview } from './ImagePreview';
-import { isMarkdownFile, isImageFile } from './utils/fileUtils';
+import { useFilePreviewState } from './useFilePreviewState';
+import { isImageFile, isPreviewableFile } from './utils/fileUtils';
+import { expandToFullFile, findMatchingHeader, hunkKind, hunkSignature, normalizeHunks, parseHunkHeader, toFilePath, type HunkHeaderEntry } from './utils/diffUtils';
 
 export interface ZedDiffViewerHandle {
   navigateToHunk: (direction: 'prev' | 'next') => void;
@@ -24,129 +26,6 @@ type FileModel = {
     }
   >;
 };
-
-type HunkKind = 'added' | 'deleted' | 'modified';
-
-type HunkHeaderEntry = {
-  sig: string;
-  oldStart: number;
-  newStart: number;
-  header: string;
-};
-
-function toFilePath(raw: { newPath: string; oldPath: string }) {
-  const newPath = (raw.newPath || '').trim();
-  const oldPath = (raw.oldPath || '').trim();
-  if (newPath && newPath !== '/dev/null') return newPath;
-  if (oldPath && oldPath !== '/dev/null') return oldPath;
-  return '(unknown)';
-}
-
-function parseHunkHeader(content: string): { oldStart: number; oldLines: number; newStart: number; newLines: number } | null {
-  const match = content.match(/@@\s+-([0-9]+)(?:,([0-9]+))?\s+\+([0-9]+)(?:,([0-9]+))?\s+@@/);
-  if (!match) return null;
-  const oldStart = parseInt(match[1], 10);
-  const oldLines = match[2] == null ? 1 : parseInt(match[2], 10);
-  const newStart = parseInt(match[3], 10);
-  const newLines = match[4] == null ? 1 : parseInt(match[4], 10);
-  return { oldStart, oldLines, newStart, newLines };
-}
-
-function hunkSignature(hunk: HunkData): string {
-  const changes = hunk.changes as ChangeData[];
-  const parts: string[] = [];
-  for (const change of changes) {
-    if ((change as any).isInsert) parts.push(`+${change.content}`);
-    else if ((change as any).isDelete) parts.push(`-${change.content}`);
-  }
-  return parts.join('\n');
-}
-
-function hunkKind(hunk: HunkData): HunkKind | null {
-  const changes = hunk.changes as ChangeData[];
-  let hasInsert = false;
-  let hasDelete = false;
-  for (const change of changes) {
-    if ((change as any).isInsert) hasInsert = true;
-    else if ((change as any).isDelete) hasDelete = true;
-  }
-  if (!hasInsert && !hasDelete) return null;
-  if (hasInsert && hasDelete) return 'modified';
-  return hasInsert ? 'added' : 'deleted';
-}
-
-function normalizeHunks(hunks: HunkData[]): HunkData[] {
-  return hunks.map((h) => {
-    const parsed = parseHunkHeader(h.content);
-    if (!parsed) return h;
-    return Object.assign({}, h, {
-      oldStart: parsed.oldStart,
-      oldLines: parsed.oldLines,
-      newStart: parsed.newStart,
-      newLines: parsed.newLines,
-    });
-  });
-}
-
-function expandToFullFile(hunks: HunkData[], source: string): HunkData[] {
-  const lines = source.split('\n');
-  const normalized = normalizeHunks(hunks).slice().sort((a, b) => (a.oldStart - b.oldStart) || (a.newStart - b.newStart));
-  if (normalized.length === 0) {
-    const all = textLinesToHunk(lines, 1, 1);
-    return all ? [all] : [];
-  }
-
-  // New file diffs typically use @@ -0,0 +1,N @@ and already contain the full content as insertions.
-  // Expanding using the worktree content would duplicate the file as "plain context" below the inserted hunk.
-  if (normalized.some((h) => h.oldStart === 0 && h.oldLines === 0)) {
-    return normalized;
-  }
-
-  const output: HunkData[] = [];
-  let oldCursor = 1;
-  let delta = 0; // newLine = oldLine + delta for unchanged lines
-
-  const pushPlain = (start: number, endExclusive: number) => {
-    if (endExclusive <= start) return;
-    const slice = lines.slice(start - 1, endExclusive - 1);
-    const h = textLinesToHunk(slice, start, start + delta);
-    if (h) output.push(h);
-  };
-
-  for (const h of normalized) {
-    const gapEnd = Math.min(Math.max(h.oldStart, 1), lines.length + 1);
-    pushPlain(oldCursor, gapEnd);
-
-    output.push(h);
-
-    oldCursor = Math.max(oldCursor, h.oldStart + Math.max(0, h.oldLines));
-    delta += h.newLines - h.oldLines;
-  }
-
-  pushPlain(oldCursor, lines.length + 1);
-  return output;
-}
-
-function findMatchingHeader(entries: HunkHeaderEntry[] | undefined, sig: string, oldStart: number, newStart: number): string | null {
-  if (!entries || entries.length === 0) return null;
-  const candidates = entries.filter((e) => e.sig === sig);
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0]!.header;
-
-  const exact = candidates.find((e) => e.oldStart === oldStart && e.newStart === newStart);
-  if (exact) return exact.header;
-
-  let best = candidates[0]!;
-  let bestScore = Math.abs(best.oldStart - oldStart) + Math.abs(best.newStart - newStart);
-  for (const c of candidates) {
-    const score = Math.abs(c.oldStart - oldStart) + Math.abs(c.newStart - newStart);
-    if (score < bestScore) {
-      best = c;
-      bestScore = score;
-    }
-  }
-  return best.header;
-}
 
 export interface ZedDiffViewerProps {
   diff: string;
@@ -183,18 +62,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
 }, ref) => {
   const fileHeaderRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [pendingHunkKeys, setPendingHunkKeys] = useState<Set<string>>(() => new Set());
-
-  // Preview state - tracks which files are in preview mode
-  const [previewFiles, setPreviewFiles] = useState<Set<string>>(() => new Set());
-
-  const togglePreview = useCallback((path: string) => {
-    setPreviewFiles(prev => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
 
   const setPending = useCallback((key: string, next: boolean) => {
     setPendingHunkKeys((prev) => {
@@ -296,23 +163,13 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
         hunks,
       };
     });
-  }, [diff, fileSources, expandFileContext]);
+  }, [diff, fileSources, expandFileContext, fileOrder]);
 
-  // Enable preview for image files by default
-  useEffect(() => {
-    if (!files || files.length === 0) return;
-    setPreviewFiles(prev => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const file of files) {
-        if (isImageFile(file.path) && !next.has(file.path)) {
-          next.add(file.path);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [files]);
+  const autoPreviewPaths = useMemo(
+    () => files.filter((file) => Boolean(fileSources?.[file.path]) && isImageFile(file.path)).map((file) => file.path),
+    [files, fileSources]
+  );
+  const { previewFiles, togglePreview } = useFilePreviewState(autoPreviewPaths, { defaultPreview: true });
 
   const scrollToFile = useCallback((filePath: string) => {
     const el = fileHeaderRefs.current.get(filePath);
@@ -1070,7 +927,12 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           data-testid="diff-scroll-container"
           style={{ paddingBottom: 12 }}
         >
-          {files.map((file) => (
+          {files.map((file) => {
+            const previewContent = fileSources?.[file.path];
+            const canPreview = Boolean(previewContent) && isPreviewableFile(file.path);
+            const isPreviewing = canPreview && previewFiles.has(file.path);
+
+            return (
             <div key={file.path} data-testid="diff-file" data-diff-file-path={file.path} className="st-diff-file">
               <div
                 data-testid="diff-file-header"
@@ -1091,14 +953,14 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                 <div className="st-diff-file-header-content">
                   <span className="st-diff-file-path" data-testid="diff-file-path">{file.path}</span>
                   <div className="st-diff-file-actions">
-                    {(isMarkdownFile(file.path) || isImageFile(file.path)) && fileSources?.[file.path] && (
+                    {canPreview && (
                       <button
                         type="button"
                         className="st-diff-preview-btn"
                         onClick={() => togglePreview(file.path)}
-                        title={previewFiles.has(file.path) ? 'Show Diff' : 'Preview'}
+                        title={isPreviewing ? 'Show Diff' : 'Preview'}
                       >
-                        {previewFiles.has(file.path) ? <EyeOff size={14} /> : <Eye size={14} />}
+                        {isPreviewing ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
                     )}
                     {!isCommitView && (() => {
@@ -1147,11 +1009,11 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
               </div>
 
               <div className="st-diff-file-body">
-                {previewFiles.has(file.path) && fileSources?.[file.path] ? (
+                {isPreviewing && previewContent ? (
                   isImageFile(file.path) ? (
-                    <ImagePreview content={fileSources[file.path]} filePath={file.path} />
+                    <ImagePreview content={previewContent} filePath={file.path} />
                   ) : (
-                    <MarkdownPreview content={fileSources[file.path]} />
+                    <MarkdownPreview content={previewContent} />
                   )
                 ) : (
                 <div
@@ -1265,7 +1127,8 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {!isCommitView && (
