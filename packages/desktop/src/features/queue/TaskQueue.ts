@@ -17,6 +17,7 @@ import type { Session } from '@snowtree/core/types/session';
 import type { ToolPanel } from '@snowtree/core/types/panels';
 import type { Database as DatabaseService } from '../../infrastructure/database';
 import type { Project } from '../../infrastructure/database';
+import { fetchAndCacheRepoInfo } from '../../infrastructure/ipc/git';
 
 interface TaskQueueOptions {
   sessionManager: SessionManager;
@@ -26,6 +27,7 @@ interface TaskQueueOptions {
   executionTracker: ExecutionTracker;
   worktreeNameGenerator: WorktreeNameGenerator;
   getMainWindow: () => Electron.BrowserWindow | null;
+  gitExecutor: import('../../executors/git').GitExecutor;
 }
 
 interface CreateSessionJob {
@@ -312,7 +314,15 @@ export class TaskQueue {
           baseBranch: actualBaseBranch,
           statusMessage: undefined,
         });
-        
+
+        // Initialize git cache for the session
+        try {
+          await fetchAndCacheRepoInfo(session.id, worktreePath, sessionManager, this.options.gitExecutor);
+        } catch (error) {
+          console.warn(`[TaskQueue] Failed to init git cache for session ${session.id}:`, error);
+          // Non-fatal, continue with session creation
+        }
+
         // Attach codexConfig to the session object for the panel creation in events.ts
         if (codexConfig) {
           (session as Session & { codexConfig?: typeof codexConfig }).codexConfig = codexConfig;

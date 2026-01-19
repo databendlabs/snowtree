@@ -97,7 +97,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
     });
 
     it('should parse SSH remote URL and fetch PR with --repo flag', async () => {
-      // Use cached data to avoid calling fetchAndCacheRepoInfo
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
       mockSessionManager.db.getSession.mockReturnValue({
         current_branch: 'feature-branch',
         owner_repo: 'BohuTANG/blog-hexo',
@@ -106,19 +106,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
       });
 
       mockGitExecutor.run
-        // 1. git remote get-url upstream (first in PR search loop, will fail)
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        // 2. git remote get-url origin (second in PR search loop)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:BohuTANG/blog-hexo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        // 3. gh pr view
+        // 1. gh pr view
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: JSON.stringify({ number: 123, url: 'https://github.com/BohuTANG/blog-hexo/pull/123', state: 'OPEN', isDraft: false }),
@@ -133,13 +121,14 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
       });
 
       // Verify gh pr view was called with --repo and branch
-      const ghPrViewCall = mockGitExecutor.run.mock.calls[2];
+      const ghPrViewCall = mockGitExecutor.run.mock.calls[0];
       expect(ghPrViewCall[0].argv).toContain('--repo');
       expect(ghPrViewCall[0].argv).toContain('BohuTANG/blog-hexo');
       expect(ghPrViewCall[0].argv).toContain('feature-branch');
     });
 
     it('should parse HTTPS remote URL and fetch PR with --repo flag', async () => {
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
       mockSessionManager.db.getSession.mockReturnValue({
         current_branch: 'main',
         owner_repo: 'owner/repo',
@@ -148,16 +137,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
       });
 
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'https://github.com/owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr view
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: JSON.stringify({ number: 42, url: 'https://github.com/owner/repo/pull/42', state: 'MERGED', isDraft: false }),
@@ -171,7 +151,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
         data: { number: 42, url: 'https://github.com/owner/repo/pull/42', state: 'merged' },
       });
 
-      const ghPrViewCall = mockGitExecutor.run.mock.calls[2];
+      const ghPrViewCall = mockGitExecutor.run.mock.calls[0];
       expect(ghPrViewCall[0].argv).toContain('owner/repo');
     });
 
@@ -206,13 +186,26 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
     });
 
     it('should return null when no remote is available', async () => {
-      // Use cache with no owner_repo (simulating no remotes)
-      mockSessionManager.db.getSession.mockReturnValue({
-        current_branch: 'feature',
-        owner_repo: null,
-        is_fork: false,
-        origin_owner_repo: null,
-      });
+      // Cache miss - need to provide fetchAndCacheRepoInfo mocks
+      mockGitExecutor.run
+        // 1. git branch --show-current (from fetchAndCacheRepoInfo)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'feature\n',
+          stderr: '',
+        } as MockRunResult)
+        // 2. git remote get-url origin (from fetchAndCacheRepoInfo, fails)
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        // 3. git remote get-url upstream (from fetchAndCacheRepoInfo, fails)
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult);
 
       const result = await mockIpcMain.invoke('sessions:get-remote-pull-request', sessionId);
 
@@ -263,31 +256,25 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
 
     it('should detect merged PR state', async () => {
       mockGitExecutor.run
-        // 1. git branch --show-current
+        // 1. git branch --show-current (from fetchAndCacheRepoInfo)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'merged-branch\n',
           stderr: '',
         } as MockRunResult)
-        // 2. git remote get-url origin (to extract owner)
+        // 2. git remote get-url origin (from fetchAndCacheRepoInfo)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
-        // 3. git remote get-url upstream (first in loop, fails)
+        // 3. git remote get-url upstream (from fetchAndCacheRepoInfo, fails)
         .mockResolvedValueOnce({
           exitCode: 1,
           stdout: '',
           stderr: 'fatal: No such remote',
         } as MockRunResult)
-        // 4. git remote get-url origin (second in loop)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        // 5. gh pr view
+        // 4. gh pr view
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: JSON.stringify({ number: 50, url: 'https://github.com/owner/repo/pull/50', state: 'MERGED', isDraft: false }),
@@ -348,46 +335,52 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
 
     it('should handle empty branch name', async () => {
       mockGitExecutor.run
-        // 1. git branch --show-current (returns empty for detached HEAD)
+        // 1. git branch --show-current (returns empty for detached HEAD) (from fetchAndCacheRepoInfo)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '', // Empty branch (detached HEAD)
           stderr: '',
+        } as MockRunResult)
+        // 2. git remote get-url origin (from fetchAndCacheRepoInfo)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'git@github.com:owner/repo.git\n',
+          stderr: '',
+        } as MockRunResult)
+        // 3. git remote get-url upstream (from fetchAndCacheRepoInfo)
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'fatal: No such remote',
         } as MockRunResult);
 
       const result = await mockIpcMain.invoke('sessions:get-remote-pull-request', sessionId);
 
-      // Should fallback to gh pr view without --repo when branch is empty
-      expect(result.success).toBe(true);
+      // Should return null when branch is empty
+      expect(result).toEqual({ success: true, data: null });
     });
 
     it('should handle SSH URL without .git suffix', async () => {
       mockGitExecutor.run
-        // 1. git branch --show-current
+        // 1. git branch --show-current (from fetchAndCacheRepoInfo)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'branch\n',
           stderr: '',
         } as MockRunResult)
-        // 2. git remote get-url origin (to extract owner)
+        // 2. git remote get-url origin (from fetchAndCacheRepoInfo, no .git suffix)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'git@github.com:owner/repo\n', // No .git suffix
           stderr: '',
         } as MockRunResult)
-        // 3. git remote get-url upstream (first in loop, fails)
+        // 3. git remote get-url upstream (from fetchAndCacheRepoInfo, fails)
         .mockResolvedValueOnce({
           exitCode: 1,
           stdout: '',
           stderr: 'fatal: No such remote',
         } as MockRunResult)
-        // 4. git remote get-url origin (second in loop)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:owner/repo\n', // No .git suffix
-          stderr: '',
-        } as MockRunResult)
-        // 5. gh pr view
+        // 4. gh pr view
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: JSON.stringify({ number: 10, url: 'https://github.com/owner/repo/pull/10', state: 'OPEN', isDraft: false }),
@@ -402,7 +395,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
       });
 
       // Verify owner/repo was parsed correctly
-      const ghPrViewCall = mockGitExecutor.run.mock.calls[4]; // Changed from index 2 to 4
+      const ghPrViewCall = mockGitExecutor.run.mock.calls[3]; // Changed from index 4
       expect(ghPrViewCall[0].argv).toContain('owner/repo');
     });
   });
@@ -456,17 +449,13 @@ describe('Git IPC Handlers - Commit URL', () => {
     });
 
     it('should prefer upstream when origin is a fork', async () => {
-      mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:forkowner/snowtree.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:datafuselabs/snowtree.git\n',
-          stderr: '',
-        } as MockRunResult);
+      // Use cached data to avoid fetchAndCacheRepoInfo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'datafuselabs/snowtree',
+        is_fork: true,
+        origin_owner_repo: 'forkowner/snowtree',
+      });
 
       const result = await mockIpcMain.invoke('sessions:get-commit-github-url', sessionId, { commitHash: 'abc123' });
 
@@ -584,22 +573,15 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
         'Upstream Author',
       ].join(delimiter);
 
+      // Set up cache to indicate this is a fork with both origin and upstream
+      mockSessionManager.db.getSession.mockReturnValue({
+        is_fork: true,
+        origin_owner_repo: 'forkowner/snowtree',
+        owner_repo: 'datafuselabs/snowtree',
+      });
+
       mockGitExecutor.run.mockImplementation((opts: { argv: string[] }) => {
         const cmd = opts.argv.join(' ');
-        if (cmd.includes('remote get-url origin')) {
-          return Promise.resolve({
-            exitCode: 0,
-            stdout: 'git@github.com:forkowner/snowtree.git\n',
-            stderr: '',
-          } as MockRunResult);
-        }
-        if (cmd.includes('remote get-url upstream')) {
-          return Promise.resolve({
-            exitCode: 0,
-            stdout: 'git@github.com:datafuselabs/snowtree.git\n',
-            stderr: '',
-          } as MockRunResult);
-        }
         if (cmd.includes('show-ref --verify --quiet refs/remotes/upstream/main')) {
           return Promise.resolve({
             exitCode: 0,
@@ -659,19 +641,13 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
 
     it('should return commits behind main count', async () => {
       mockGitExecutor.run
-        // 1. git remote get-url upstream (no upstream)
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        // 2. git fetch origin main
+        // 1. git fetch origin main
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 3. git rev-list HEAD..origin/main --count
+        // 2. git rev-list HEAD..origin/main --count
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '5\n',
@@ -688,19 +664,13 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
 
     it('should return 0 when branch is up to date', async () => {
       mockGitExecutor.run
-        // 1. git remote get-url upstream (no upstream)
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: '',
-        } as MockRunResult)
-        // 2. git fetch origin main
+        // 1. git fetch origin main
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 3. git rev-list HEAD..origin/main --count
+        // 2. git rev-list HEAD..origin/main --count
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '0\n',
@@ -719,19 +689,13 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
       mockSessionManager.getSession.mockReturnValue({ worktreePath, baseBranch: 'master' });
 
       mockGitExecutor.run
-        // 1. git remote get-url upstream (no upstream)
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: '',
-        } as MockRunResult)
-        // 2. git fetch origin master
+        // 1. git fetch origin master
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 3. git rev-list HEAD..origin/master --count
+        // 2. git rev-list HEAD..origin/master --count
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '3\n',
@@ -746,25 +710,19 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
       });
 
       // Verify fetch was called with correct branch
-      const fetchCall = mockGitExecutor.run.mock.calls[1]; // Changed from index 0 to 1
+      const fetchCall = mockGitExecutor.run.mock.calls[0];
       expect(fetchCall[0].argv).toContain('master');
     });
 
     it('should return 0 when origin/main does not exist', async () => {
       mockGitExecutor.run
-        // 1. git remote get-url upstream (no upstream)
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: '',
-        } as MockRunResult)
-        // 2. git fetch origin main
+        // 1. git fetch origin main
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 3. git rev-list HEAD..origin/main --count (fails)
+        // 2. git rev-list HEAD..origin/main --count (fails)
         .mockResolvedValueOnce({
           exitCode: 128, // fatal: ambiguous argument
           stdout: '',
@@ -781,19 +739,13 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
 
     it('should handle fetch failure gracefully', async () => {
       mockGitExecutor.run
-        // 1. git remote get-url upstream (no upstream)
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: '',
-        } as MockRunResult)
-        // 2. git fetch origin main (fails)
+        // 1. git fetch origin main (fails)
         .mockResolvedValueOnce({
           exitCode: 1,
           stdout: '',
           stderr: 'fatal: could not fetch',
         } as MockRunResult)
-        // 3. git rev-list HEAD..origin/main --count (still works with local refs)
+        // 2. git rev-list HEAD..origin/main --count (still works with local refs)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '2\n',
@@ -810,20 +762,19 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
     });
 
     it('should use upstream remote in fork workflow', async () => {
+      // Set up cache to indicate this is a fork
+      mockSessionManager.db.getSession.mockReturnValue({
+        is_fork: true,
+      });
+
       mockGitExecutor.run
-        // 1. git remote get-url upstream (has upstream)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:databendlabs/snowtree.git\n',
-          stderr: '',
-        } as MockRunResult)
-        // 2. git fetch upstream main
+        // 1. git fetch upstream main
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 3. git rev-list HEAD..upstream/main --count
+        // 2. git rev-list HEAD..upstream/main --count
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '7\n',
@@ -838,7 +789,7 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
       });
 
       // Verify fetch was called with upstream
-      const fetchCall = mockGitExecutor.run.mock.calls[1];
+      const fetchCall = mockGitExecutor.run.mock.calls[0];
       expect(fetchCall[0].argv).toContain('upstream');
       expect(fetchCall[0].argv).toContain('main');
     });
@@ -928,43 +879,37 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
       });
 
       mockGitExecutor.run
-        // 1. git branch --show-current
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'main\n',
-          stderr: '',
-        } as MockRunResult)
-        // 2. git config branch.main.pushRemote (fails, no pushRemote set)
+        // 1. git config branch.main.pushRemote (fails, no pushRemote set)
         .mockResolvedValueOnce({
           exitCode: 1,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 3. git config branch.main.remote (fallback, returns origin)
+        // 2. git config branch.main.remote (fallback, returns origin)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'origin\n',
           stderr: '',
         } as MockRunResult)
-        // 4. git fetch origin main
+        // 3. git fetch origin main
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 5. git show-ref --verify --quiet refs/remotes/origin/main
+        // 4. git show-ref --verify --quiet refs/remotes/origin/main
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 6. git rev-list --count origin/main..HEAD (ahead)
+        // 5. git rev-list --count origin/main..HEAD (ahead)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '0\n',
           stderr: '',
         } as MockRunResult)
-        // 7. git rev-list --count HEAD..origin/main (behind)
+        // 6. git rev-list --count HEAD..origin/main (behind)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '0\n',
@@ -1020,56 +965,55 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
     });
 
     it('should fallback to origin when branch remote is upstream and branch is missing', async () => {
+      // Use cached branch data
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+      });
+
       mockGitExecutor.run
-        // 1. git branch --show-current
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
-        // 2. git config branch.feature.pushRemote (fails)
+        // 1. git config branch.feature.pushRemote (fails)
         .mockResolvedValueOnce({
           exitCode: 1,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 3. git config branch.feature.remote (returns upstream)
+        // 2. git config branch.feature.remote (returns upstream)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'upstream\n',
           stderr: '',
         } as MockRunResult)
-        // 4. git fetch upstream feature
+        // 3. git fetch upstream feature
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 5. git show-ref --verify --quiet refs/remotes/upstream/feature (missing)
+        // 4. git show-ref --verify --quiet refs/remotes/upstream/feature (missing)
         .mockResolvedValueOnce({
           exitCode: 1,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 6. git fetch origin feature
+        // 5. git fetch origin feature
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 7. git show-ref --verify --quiet refs/remotes/origin/feature
+        // 6. git show-ref --verify --quiet refs/remotes/origin/feature
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '',
           stderr: '',
         } as MockRunResult)
-        // 8. git rev-list origin/feature..HEAD --count (local ahead)
+        // 7. git rev-list origin/feature..HEAD --count (local ahead)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '2\n',
           stderr: '',
         } as MockRunResult)
-        // 9. git rev-list HEAD..origin/feature --count (remote ahead)
+        // 8. git rev-list HEAD..origin/feature --count (remote ahead)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '1\n',
@@ -1271,14 +1215,23 @@ describe('Git IPC Handlers - CI Status', () => {
     });
 
     it('should return null when remote URL cannot be obtained', async () => {
+      // Cache miss - provide fetchAndCacheRepoInfo mocks
       mockGitExecutor.run
+        // 1. git branch --show-current (from fetchAndCacheRepoInfo)
         .mockResolvedValueOnce({
-          exitCode: 1, // upstream not found
+          exitCode: 0,
+          stdout: 'feature\n',
+          stderr: '',
+        } as MockRunResult)
+        // 2. git remote get-url origin (from fetchAndCacheRepoInfo, fails)
+        .mockResolvedValueOnce({
+          exitCode: 1,
           stdout: '',
           stderr: 'fatal: No such remote',
         } as MockRunResult)
+        // 3. git remote get-url upstream (from fetchAndCacheRepoInfo, fails)
         .mockResolvedValueOnce({
-          exitCode: 1, // origin not found
+          exitCode: 1,
           stdout: '',
           stderr: 'fatal: No such remote',
         } as MockRunResult);
@@ -1289,16 +1242,25 @@ describe('Git IPC Handlers - CI Status', () => {
     });
 
     it('should return null for non-GitHub remotes', async () => {
+      // Cache miss - provide fetchAndCacheRepoInfo mocks
       mockGitExecutor.run
+        // 1. git branch --show-current (from fetchAndCacheRepoInfo)
         .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
+          exitCode: 0,
+          stdout: 'feature\n',
+          stderr: '',
         } as MockRunResult)
+        // 2. git remote get-url origin (from fetchAndCacheRepoInfo)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'git@gitlab.com:owner/repo.git\n',
           stderr: '',
+        } as MockRunResult)
+        // 3. git remote get-url upstream (from fetchAndCacheRepoInfo)
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'fatal: No such remote',
         } as MockRunResult);
 
       const result = await mockIpcMain.invoke('sessions:get-ci-status', sessionId);
@@ -1307,21 +1269,25 @@ describe('Git IPC Handlers - CI Status', () => {
     });
 
     it('should return null when branch is empty', async () => {
+      // Cache miss with empty branch - provide fetchAndCacheRepoInfo mocks
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. git branch --show-current (from fetchAndCacheRepoInfo, empty for detached HEAD)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '', // Empty branch (detached HEAD)
           stderr: '',
+        } as MockRunResult)
+        // 2. git remote get-url origin (from fetchAndCacheRepoInfo)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'git@github.com:owner/repo.git\n',
+          stderr: '',
+        } as MockRunResult)
+        // 3. git remote get-url upstream (from fetchAndCacheRepoInfo)
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'fatal: No such remote',
         } as MockRunResult);
 
       const result = await mockIpcMain.invoke('sessions:get-ci-status', sessionId);
@@ -1330,24 +1296,18 @@ describe('Git IPC Handlers - CI Status', () => {
     });
 
     it('should return null when gh pr checks fails', async () => {
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature-branch',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
+        // 1. gh pr checks (fails - no PR)
         .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature-branch\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 1, // gh pr checks fails (no PR)
+          exitCode: 1,
           stdout: '',
           stderr: 'no pull requests found',
         } as MockRunResult);
@@ -1363,22 +1323,16 @@ describe('Git IPC Handlers - CI Status', () => {
         { name: 'test', state: 'SUCCESS', startedAt: '2026-01-14T05:00:00Z', completedAt: '2026-01-14T05:12:00Z', link: 'https://github.com/test/link2' },
       ]);
 
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: checksJson,
@@ -1407,22 +1361,16 @@ describe('Git IPC Handlers - CI Status', () => {
         { name: 'test', state: 'FAILURE', startedAt: '2026-01-14T05:00:00Z', completedAt: '2026-01-14T05:08:00Z', link: 'https://github.com/test/link2' },
       ]);
 
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: checksJson,
@@ -1442,22 +1390,16 @@ describe('Git IPC Handlers - CI Status', () => {
         { name: 'build', state: 'PENDING', startedAt: null, completedAt: null, link: 'https://github.com/test/link1' },
       ]);
 
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: checksJson,
@@ -1478,22 +1420,16 @@ describe('Git IPC Handlers - CI Status', () => {
         { name: 'build', state: 'IN_PROGRESS', startedAt: '2026-01-14T05:00:00Z', completedAt: null, link: 'https://github.com/test/link1' },
       ]);
 
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: checksJson,
@@ -1514,22 +1450,16 @@ describe('Git IPC Handlers - CI Status', () => {
         { name: 'optional-check', state: 'SKIPPED', startedAt: null, completedAt: null, link: null },
       ]);
 
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: checksJson,
@@ -1549,22 +1479,16 @@ describe('Git IPC Handlers - CI Status', () => {
         { name: 'build', state: 'CANCELLED', startedAt: '2026-01-14T05:00:00Z', completedAt: '2026-01-14T05:01:00Z', link: null },
       ]);
 
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: checksJson,
@@ -1579,22 +1503,16 @@ describe('Git IPC Handlers - CI Status', () => {
     });
 
     it('should handle empty checks array', async () => {
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: '[]',
@@ -1607,22 +1525,16 @@ describe('Git IPC Handlers - CI Status', () => {
     });
 
     it('should handle malformed JSON gracefully', async () => {
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'not valid json',
@@ -1641,22 +1553,16 @@ describe('Git IPC Handlers - CI Status', () => {
         { name: 'lint', state: 'IN_PROGRESS', startedAt: '2026-01-14T05:00:00Z', completedAt: null, link: null },
       ]);
 
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'feature',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'feature\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: checksJson,
@@ -1674,22 +1580,16 @@ describe('Git IPC Handlers - CI Status', () => {
         { name: 'build', state: 'SUCCESS', startedAt: '2026-01-14T05:00:00Z', completedAt: '2026-01-14T05:10:00Z', link: null },
       ]);
 
+      // Use cached data to avoid calling fetchAndCacheRepoInfo - need BOTH branch AND owner_repo
+      mockSessionManager.db.getSession.mockReturnValue({
+        current_branch: 'main',
+        owner_repo: 'owner/repo',
+        is_fork: false,
+        origin_owner_repo: 'owner/repo',
+      });
+
       mockGitExecutor.run
-        .mockResolvedValueOnce({
-          exitCode: 1, // no upstream
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0, // origin
-          stdout: 'https://github.com/owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'main\n',
-          stderr: '',
-        } as MockRunResult)
+        // 1. gh pr checks
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: checksJson,
@@ -1701,8 +1601,8 @@ describe('Git IPC Handlers - CI Status', () => {
       expect(result.success).toBe(true);
       expect(result.data.rollupState).toBe('success');
 
-      // Verify gh pr checks was called with correct --repo (call index changed due to upstream check)
-      const ghChecksCall = mockGitExecutor.run.mock.calls[3];
+      // Verify gh pr checks was called with correct --repo
+      const ghChecksCall = mockGitExecutor.run.mock.calls[0];
       expect(ghChecksCall[0].argv).toContain('--repo');
       expect(ghChecksCall[0].argv).toContain('owner/repo');
     });

@@ -79,7 +79,7 @@ describe('Git IPC Handlers - Repo Info Cache', () => {
     });
 
     it('should use cached branch and repo info', async () => {
-      // Set up cache hit
+      // Set up cache hit - need BOTH branch AND owner_repo
       mockSessionManager.db.getSession.mockReturnValue({
         current_branch: 'feature-branch',
         owner_repo: 'owner/repo',
@@ -88,19 +88,7 @@ describe('Git IPC Handlers - Repo Info Cache', () => {
       });
 
       mockGitExecutor.run
-        // 1. git remote get-url upstream (will fail)
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        // 2. git remote get-url origin
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        // 3. gh pr view
+        // 1. gh pr view (using cached data, no git commands needed)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: JSON.stringify({ number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'OPEN', isDraft: false }),
@@ -114,8 +102,8 @@ describe('Git IPC Handlers - Repo Info Cache', () => {
         data: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
       });
 
-      // Verify cache was used - should NOT call git branch or fetch repo info
-      expect(mockGitExecutor.run).toHaveBeenCalledTimes(3);
+      // Verify cache was used - should only call gh pr view, not git commands
+      expect(mockGitExecutor.run).toHaveBeenCalledTimes(1);
       // Verify updateSession was not called (cache hit)
       expect(mockSessionManager.db.updateSession).not.toHaveBeenCalled();
     });
@@ -123,7 +111,7 @@ describe('Git IPC Handlers - Repo Info Cache', () => {
     it('should cache repo info on first call', async () => {
       // Cache miss - will call fetchAndCacheRepoInfo
       mockGitExecutor.run
-        // 1. git branch --show-current
+        // 1. git branch --show-current (from fetchAndCacheRepoInfo)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: 'feature-branch\n',
@@ -141,19 +129,7 @@ describe('Git IPC Handlers - Repo Info Cache', () => {
           stdout: '',
           stderr: 'fatal: No such remote',
         } as MockRunResult)
-        // 4. git remote get-url upstream (from PR search loop)
-        .mockResolvedValueOnce({
-          exitCode: 1,
-          stdout: '',
-          stderr: 'fatal: No such remote',
-        } as MockRunResult)
-        // 5. git remote get-url origin (from PR search loop)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        // 6. gh pr view
+        // 4. gh pr view (using newly cached data)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: JSON.stringify({ number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'OPEN', isDraft: false }),
@@ -177,7 +153,7 @@ describe('Git IPC Handlers - Repo Info Cache', () => {
     });
 
     it('should use cached data for fork workflow', async () => {
-      // Set up cache with fork info
+      // Set up cache with fork info - need BOTH branch AND owner_repo
       mockSessionManager.db.getSession.mockReturnValue({
         current_branch: 'feature-branch',
         owner_repo: 'upstream-owner/repo',
@@ -186,13 +162,7 @@ describe('Git IPC Handlers - Repo Info Cache', () => {
       });
 
       mockGitExecutor.run
-        // 1. git remote get-url upstream (will succeed for fork)
-        .mockResolvedValueOnce({
-          exitCode: 0,
-          stdout: 'git@github.com:upstream-owner/repo.git\n',
-          stderr: '',
-        } as MockRunResult)
-        // 2. gh pr view (with fork-owner:branch format)
+        // 1. gh pr view (with fork-owner:branch format, using cached data)
         .mockResolvedValueOnce({
           exitCode: 0,
           stdout: JSON.stringify({ number: 456, url: 'https://github.com/upstream-owner/repo/pull/456', state: 'OPEN', isDraft: false }),
@@ -207,7 +177,7 @@ describe('Git IPC Handlers - Repo Info Cache', () => {
       });
 
       // Verify the gh command used the fork-owner:branch format
-      const ghCall = mockGitExecutor.run.mock.calls[1];
+      const ghCall = mockGitExecutor.run.mock.calls[0];
       expect(ghCall[0].argv).toContain('fork-owner:feature-branch');
     });
   });

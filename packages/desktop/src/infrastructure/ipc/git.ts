@@ -239,34 +239,18 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
           }
         }
 
-        const getRemoteUrl = async (remoteName: string): Promise<string | null> => {
-          try {
-            const { stdout } = await gitExecutor.run({
-              cwd: session.worktreePath!,
-              argv: ['git', 'remote', 'get-url', remoteName],
-              op: 'read',
-              recordTimeline: false,
-              meta: { source: 'ipc.git', operation: 'get-remote-url', remote: remoteName },
-            });
-            const trimmed = stdout.trim();
-            return trimmed ? trimmed : null;
-          } catch {
-            return null;
-          }
-        };
-
-        const originUrl = await getRemoteUrl('origin');
-        const upstreamUrl = await getRemoteUrl('upstream');
-        const originExists = Boolean(originUrl);
-        const upstreamExists = Boolean(upstreamUrl);
+        // Use cached repo info to determine remote preference
+        const dbSession = sessionManager.db.getSession(sessionId);
+        const isFork = dbSession?.is_fork || false;
 
         let preferredRemote: 'origin' | 'upstream' | null = null;
-        if (originUrl && upstreamUrl && isForkOfUpstream(originUrl, upstreamUrl)) {
+        const originExists = Boolean(dbSession?.origin_owner_repo);
+        const upstreamExists = isFork; // If it's a fork, upstream exists
+
+        if (isFork) {
           preferredRemote = 'upstream';
-        } else if (originUrl) {
+        } else if (originExists) {
           preferredRemote = 'origin';
-        } else if (upstreamUrl) {
-          preferredRemote = 'upstream';
         }
 
         const remoteCandidates: Array<'origin' | 'upstream'> = [];
@@ -494,32 +478,22 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         originOwner = originOwnerRepo.split('/')[0];
       }
 
-      // Try to find PR in multiple remotes (upstream first for fork workflow, then origin)
-      const remoteNames = isFork ? ['upstream', 'origin'] : ['origin', 'upstream'];
+      // For fork workflow: try upstream first (ownerRepo), then origin (originOwnerRepo)
+      // For non-fork: try origin first, then upstream
+      const repoAttempts: Array<{ repo: string; remoteName: string }> = [];
 
-      for (const remoteName of remoteNames) {
-        const remoteRes = await gitExecutor.run({
-          sessionId,
-          cwd: session.worktreePath,
-          argv: ['git', 'remote', 'get-url', remoteName],
-          op: 'read',
-          recordTimeline: false,
-          throwOnError: false,
-          timeoutMs: 3_000,
-          meta: { source: 'ipc.git', operation: 'get-remote-url' },
-        });
+      if (isFork) {
+        if (ownerRepo) repoAttempts.push({ repo: ownerRepo, remoteName: 'upstream' });
+        if (originOwnerRepo) repoAttempts.push({ repo: originOwnerRepo, remoteName: 'origin' });
+      } else {
+        if (ownerRepo) repoAttempts.push({ repo: ownerRepo, remoteName: 'origin' });
+      }
 
-        if (remoteRes.exitCode !== 0 || !remoteRes.stdout?.trim()) continue;
-
-        const url = remoteRes.stdout.trim();
-        // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
-        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-        if (!match) continue;
-
+      for (const { repo, remoteName } of repoAttempts) {
         // For upstream repo in fork workflow, use "owner:branch" format
         // For origin repo, use just "branch"
         const branchArg = remoteName === 'upstream' && originOwner ? `${originOwner}:${branch}` : branch;
-        const repoArgs = ['--repo', match[1], branchArg];
+        const repoArgs = ['--repo', repo, branchArg];
 
         const res = await gitExecutor.run({
           sessionId,
@@ -909,50 +883,43 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const commitHash = typeof options?.commitHash === 'string' ? options.commitHash.trim() : '';
       if (!commitHash) return { success: false, error: 'Commit hash is required' };
 
-      const getRemoteUrl = async (remoteName: string): Promise<string | null> => {
-        try {
-          const result = await gitExecutor.run({
-            sessionId,
-            cwd: session.worktreePath,
-            argv: ['git', 'remote', 'get-url', remoteName],
-            op: 'read',
-            recordTimeline: false,
-            meta: { source: 'ipc.git', operation: 'get-remote-url', remote: remoteName },
-            timeoutMs: 5_000,
-          });
-          const trimmed = result.stdout.trim();
-          return trimmed ? trimmed : null;
-        } catch {
-          return null;
+      // Use cached repo info to get owner/repo
+      const dbSession = sessionManager.db.getSession(sessionId);
+      let ownerRepo = dbSession?.owner_repo;
+      let originOwnerRepo = dbSession?.origin_owner_repo;
+      let isFork = dbSession?.is_fork || false;
+
+      // If cache miss, fetch and cache
+      if (!ownerRepo) {
+        const repoInfo = await fetchAndCacheRepoInfo(sessionId, session.worktreePath, sessionManager, gitExecutor);
+        if (!repoInfo) {
+          return { success: false, error: 'No remote configured' };
         }
-      };
+        ownerRepo = repoInfo.ownerRepo;
+        originOwnerRepo = repoInfo.originOwnerRepo;
+        isFork = repoInfo.isFork;
+      }
 
-      const originUrl = await getRemoteUrl('origin');
-      const upstreamUrl = await getRemoteUrl('upstream');
-
-      if (!originUrl && !upstreamUrl) {
+      if (!ownerRepo) {
         return { success: false, error: 'No remote configured' };
       }
 
-      const remoteCandidates: Array<'origin' | 'upstream'> = [];
-      if (originUrl && upstreamUrl && isForkOfUpstream(originUrl, upstreamUrl)) {
-        remoteCandidates.push('upstream', 'origin');
+      // For fork workflow, prefer upstream, then origin
+      // For non-fork, use ownerRepo (which is already the correct one)
+      const repoCandidates: string[] = [];
+      if (isFork) {
+        if (ownerRepo) repoCandidates.push(ownerRepo); // upstream
+        if (originOwnerRepo) repoCandidates.push(originOwnerRepo); // origin
       } else {
-        if (originUrl) remoteCandidates.push('origin');
-        if (upstreamUrl) remoteCandidates.push('upstream');
+        if (ownerRepo) repoCandidates.push(ownerRepo);
       }
 
-      for (const remoteName of remoteCandidates) {
-        const remoteUrl = remoteName === 'origin' ? originUrl : upstreamUrl;
-        if (!remoteUrl) continue;
-        const gitHubBaseUrl = parseGitRemoteToGitHubUrl(remoteUrl);
-        if (gitHubBaseUrl) {
-          const url = `${gitHubBaseUrl}/commit/${commitHash}`;
-          return { success: true, data: { url } };
-        }
+      for (const repo of repoCandidates) {
+        const url = `https://github.com/${repo}/commit/${commitHash}`;
+        return { success: true, data: { url } };
       }
 
-      return { success: false, error: 'Remote is not a GitHub repository' };
+      return { success: false, error: 'No remote configured' };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to get commit GitHub URL' };
     }
@@ -972,25 +939,20 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const cwd = session.worktreePath;
       const baseBranch = session.baseBranch || 'main';
 
-      // Determine which remote to use for the base branch
-      // In fork workflows, we want to compare with upstream/main, not origin/main
-      // Try upstream first, fallback to origin
-      let remoteName = 'origin';
+      // Use cached repo info to determine if it's a fork workflow
+      const dbSession = sessionManager.db.getSession(sessionId);
+      let isFork = dbSession?.is_fork || false;
 
-      const upstreamCheck = await gitExecutor.run({
-        sessionId,
-        cwd,
-        argv: ['git', 'remote', 'get-url', 'upstream'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'check-upstream' },
-      });
-
-      if (upstreamCheck.exitCode === 0 && upstreamCheck.stdout?.trim()) {
-        remoteName = 'upstream';
+      // If cache miss, fetch and cache
+      if (dbSession && dbSession.is_fork === null) {
+        const repoInfo = await fetchAndCacheRepoInfo(sessionId, cwd, sessionManager, gitExecutor);
+        if (repoInfo) {
+          isFork = repoInfo.isFork;
+        }
       }
+
+      // In fork workflows, we want to compare with upstream/main, not origin/main
+      const remoteName = isFork ? 'upstream' : 'origin';
 
       // Fetch the remote to ensure we have latest refs
       await gitExecutor.run({
@@ -1193,71 +1155,26 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
 
       const cwd = session.worktreePath;
 
-      // Helper to extract owner/repo from a GitHub URL
-      const extractOwnerRepo = (url: string): string | null => {
-        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-        return match ? match[1] : null;
-      };
+      // Use cached repo info
+      const dbSession = sessionManager.db.getSession(sessionId);
+      let branch = dbSession?.current_branch;
+      let ownerRepo = dbSession?.owner_repo;
+      let originOwnerRepo = dbSession?.origin_owner_repo;
+      let isFork = dbSession?.is_fork || false;
 
-      // Try to get upstream remote first (for fork workflow), fallback to origin
-      let ownerRepo: string | null = null;
-      let originOwnerRepo: string | null = null;
-
-      // Try upstream first
-      const upstreamRes = await gitExecutor.run({
-        sessionId,
-        cwd,
-        argv: ['git', 'remote', 'get-url', 'upstream'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'ci-status-remote-upstream' },
-      });
-
-      if (upstreamRes.exitCode === 0 && upstreamRes.stdout?.trim()) {
-        ownerRepo = extractOwnerRepo(upstreamRes.stdout.trim());
+      // If cache miss, fetch and cache
+      if (!branch || !ownerRepo) {
+        const repoInfo = await fetchAndCacheRepoInfo(sessionId, cwd, sessionManager, gitExecutor);
+        if (!repoInfo) {
+          return { success: true, data: null };
+        }
+        branch = repoInfo.currentBranch;
+        ownerRepo = repoInfo.ownerRepo;
+        originOwnerRepo = repoInfo.originOwnerRepo;
+        isFork = repoInfo.isFork;
       }
 
-      // Get origin (needed for branch prefix in fork workflow)
-      const originRes = await gitExecutor.run({
-        sessionId,
-        cwd,
-        argv: ['git', 'remote', 'get-url', 'origin'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'ci-status-remote-origin' },
-      });
-
-      if (originRes.exitCode === 0 && originRes.stdout?.trim()) {
-        originOwnerRepo = extractOwnerRepo(originRes.stdout.trim());
-      }
-
-      // Fallback to origin if no upstream
-      if (!ownerRepo) {
-        ownerRepo = originOwnerRepo;
-      }
-
-      if (!ownerRepo) {
-        return { success: true, data: null };
-      }
-
-      // Get current branch
-      const branchRes = await gitExecutor.run({
-        sessionId,
-        cwd,
-        argv: ['git', 'branch', '--show-current'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'ci-status-branch' },
-      });
-
-      const branch = branchRes.stdout?.trim();
-      if (!branch) {
+      if (!ownerRepo || !branch) {
         return { success: true, data: null };
       }
 
@@ -1384,82 +1301,63 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         return { success: false, error: 'Session worktree not found' };
       }
 
-      // Get current branch
-      const branchRes = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'branch', '--show-current'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 5_000,
-        meta: { source: 'ipc.git', operation: 'mark-pr-ready-branch' },
-      });
+      // Use cached repo info
+      const dbSession = sessionManager.db.getSession(sessionId);
+      let branch = dbSession?.current_branch;
+      let ownerRepo = dbSession?.owner_repo;
+      let originOwnerRepo = dbSession?.origin_owner_repo;
+      let isFork = dbSession?.is_fork || false;
 
-      if (branchRes.exitCode !== 0 || !branchRes.stdout?.trim()) {
-        console.error('[git.ts] Failed to get current branch');
-        return { success: false, error: 'Failed to get current branch' };
+      // If cache miss, fetch and cache
+      if (!branch || !ownerRepo) {
+        const repoInfo = await fetchAndCacheRepoInfo(sessionId, session.worktreePath, sessionManager, gitExecutor);
+        if (!repoInfo) {
+          console.error('[git.ts] Failed to get repo info');
+          return { success: false, error: 'Failed to get repo info' };
+        }
+        branch = repoInfo.currentBranch;
+        ownerRepo = repoInfo.ownerRepo;
+        originOwnerRepo = repoInfo.originOwnerRepo;
+        isFork = repoInfo.isFork;
       }
 
-      const branch = branchRes.stdout.trim();
+      if (!branch || !ownerRepo) {
+        console.error('[git.ts] Branch or owner/repo not found');
+        return { success: false, error: 'Branch or owner/repo not found' };
+      }
+
       console.log('[git.ts] Current branch:', branch);
 
       // Get origin owner for fork workflow
       let originOwner: string | null = null;
-      const originRes = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'remote', 'get-url', 'origin'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'mark-pr-ready-origin' },
-      });
-      if (originRes.exitCode === 0 && originRes.stdout?.trim()) {
-        const originUrl = originRes.stdout.trim();
-        const originMatch = originUrl.match(/github\.com[:/]([^/]+)\//);
-        if (originMatch) {
-          originOwner = originMatch[1];
-        }
+      if (isFork && originOwnerRepo) {
+        originOwner = originOwnerRepo.split('/')[0];
       }
       console.log('[git.ts] Origin owner:', originOwner);
 
-      // Try to mark PR ready in multiple remotes (same logic as get-remote-pull-request)
-      const remoteNames = ['upstream', 'origin'];
+      // For fork workflow: try upstream first (ownerRepo), then origin (originOwnerRepo)
+      // For non-fork: try origin only
+      const repoAttempts: Array<{ repo: string; remoteName: string }> = [];
 
-      for (const remoteName of remoteNames) {
-        const remoteRes = await gitExecutor.run({
-          sessionId,
-          cwd: session.worktreePath,
-          argv: ['git', 'remote', 'get-url', remoteName],
-          op: 'read',
-          recordTimeline: false,
-          throwOnError: false,
-          timeoutMs: 3_000,
-          meta: { source: 'ipc.git', operation: 'mark-pr-ready-remote' },
-        });
+      if (isFork) {
+        if (ownerRepo) repoAttempts.push({ repo: ownerRepo, remoteName: 'upstream' });
+        if (originOwnerRepo) repoAttempts.push({ repo: originOwnerRepo, remoteName: 'origin' });
+      } else {
+        if (ownerRepo) repoAttempts.push({ repo: ownerRepo, remoteName: 'origin' });
+      }
 
-        if (remoteRes.exitCode !== 0 || !remoteRes.stdout?.trim()) continue;
-
-        const url = remoteRes.stdout.trim();
-        // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
-        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-        if (!match) continue;
-
-        const ownerRepo = match[1];
-
+      for (const { repo, remoteName } of repoAttempts) {
         // For upstream repo in fork workflow, use "owner:branch" format
         // For origin repo, use just "branch"
         const branchArg = remoteName === 'upstream' && originOwner ? `${originOwner}:${branch}` : branch;
 
-        console.log(`[git.ts] Trying ${remoteName} with repo=${ownerRepo}, branch=${branchArg}`);
+        console.log(`[git.ts] Trying ${remoteName} with repo=${repo}, branch=${branchArg}`);
 
         // Mark PR as ready for review using gh pr ready
         const readyRes = await gitExecutor.run({
           sessionId,
           cwd: session.worktreePath,
-          argv: ['gh', 'pr', 'ready', '--repo', ownerRepo, branchArg],
+          argv: ['gh', 'pr', 'ready', '--repo', repo, branchArg],
           op: 'write',
           recordTimeline: true,
           throwOnError: false,

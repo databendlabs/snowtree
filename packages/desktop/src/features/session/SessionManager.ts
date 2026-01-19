@@ -416,6 +416,10 @@ export class SessionManager extends EventEmitter {
       skipContinueNext: dbSession.skip_continue_next || undefined,
       claudeSessionId: dbSession.claude_session_id || undefined,
       executionMode: normalizedExecutionMode,
+      currentBranch: dbSession.current_branch || undefined,
+      ownerRepo: dbSession.owner_repo || undefined,
+      isFork: dbSession.is_fork || undefined,
+      originOwnerRepo: dbSession.origin_owner_repo || undefined,
     };
   }
 

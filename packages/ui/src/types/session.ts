@@ -27,4 +27,8 @@ export interface Session {
   executionMode?: 'plan' | 'execute';
   gitStatus?: GitStatus;
   workspaceStage?: import('./workspace').WorkspaceStage;
+  currentBranch?: string;
+  ownerRepo?: string;
+  isFork?: boolean;
+  originOwnerRepo?: string;
 }

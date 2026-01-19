@@ -643,7 +643,8 @@ async function initializeServices() {
     gitDiffManager,
     executionTracker,
     worktreeNameGenerator,
-    getMainWindow: () => mainWindow
+    getMainWindow: () => mainWindow,
+    gitExecutor
   });
 
   const services: AppServices = {
