@@ -1383,8 +1383,8 @@ describe('Git IPC Handlers - CI Status', () => {
       expect(result.data).toEqual({
         rollupState: 'success',
         checks: [
-          { id: 0, name: 'build', status: 'completed', conclusion: 'success', startedAt: '2026-01-14T05:00:00Z', completedAt: '2026-01-14T05:10:00Z', detailsUrl: 'https://github.com/test/link1' },
-          { id: 1, name: 'test', status: 'completed', conclusion: 'success', startedAt: '2026-01-14T05:00:00Z', completedAt: '2026-01-14T05:12:00Z', detailsUrl: 'https://github.com/test/link2' },
+          { id: 0, name: 'build', workflow: null, status: 'completed', conclusion: 'success', startedAt: '2026-01-14T05:00:00Z', completedAt: '2026-01-14T05:10:00Z', detailsUrl: 'https://github.com/test/link1' },
+          { id: 1, name: 'test', workflow: null, status: 'completed', conclusion: 'success', startedAt: '2026-01-14T05:00:00Z', completedAt: '2026-01-14T05:12:00Z', detailsUrl: 'https://github.com/test/link2' },
         ],
         totalCount: 2,
         successCount: 2,
