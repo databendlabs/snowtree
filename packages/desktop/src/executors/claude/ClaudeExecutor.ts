@@ -444,6 +444,22 @@ export class ClaudeExecutor extends AbstractExecutor {
           continue; // Skip regular tool_use handling
         }
 
+        // Special handling for ExitPlanMode - switch execution mode to 'execute'
+        if (toolName === 'ExitPlanMode') {
+          cliLogger.info('Claude', panelId, 'ExitPlanMode tool called - switching to execute mode');
+
+          // Switch the session's execution mode from 'plan' to 'execute'
+          try {
+            this.sessionManager.updateSession(sessionId, { executionMode: 'execute' });
+          } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger?.error(`Failed to switch execution mode for session ${sessionId}:`, err);
+          }
+
+          // Continue to emit the tool_use entry for timeline display
+          // (Don't skip regular handling - we want to show it in the timeline)
+        }
+
         // Regular tool_use handling for other tools
         // Create and emit tool_use entry using the message parser
         const toolUseMessage = {
