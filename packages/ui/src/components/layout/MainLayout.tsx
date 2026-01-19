@@ -129,7 +129,7 @@ export const MainLayout: React.FC = React.memo(() => {
     if (!sessionId || !session?.ownerRepo) {
       // Only init if session exists but cache is empty
       if (sessionId && session && !session.ownerRepo) {
-        window.electron.sessions.initGitCache(sessionId).catch((error) => {
+        window.electron.sessions.initGitCache(sessionId).catch((error: unknown) => {
           console.warn('[MainLayout] Failed to init git cache:', error);
         });
       }
