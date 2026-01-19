@@ -233,31 +233,29 @@ export const MainLayout: React.FC = React.memo(() => {
     const headBranch = branchName || 'main';
     const baseBranch = session.baseBranch || 'main';
 
+    // Build repo context from session cache
+    const ownerRepo = session.ownerRepo || 'UNKNOWN';
+    const isFork = session.isFork || false;
+    const originOwnerRepo = session.originOwnerRepo;
+    const originOwner = originOwnerRepo ? originOwnerRepo.split('/')[0] : null;
+
+    // Compute pr_ref and pr_head based on fork workflow
+    const prRef = isFork && originOwner ? `${originOwner}:${headBranch}` : headBranch;
+    const prHead = isFork && originOwner ? `${originOwner}:${headBranch}` : headBranch;
+
     const pushPrompt = [
       'Push the current branch and update/create a GitHub PR based on committed changes (using `gh`).',
       '',
       `Base branch: ${baseBranch}`,
-      `Expected head branch: ${headBranch}`,
+      `Current branch: ${headBranch}`,
+      `Repository: ${ownerRepo}`,
+      `Fork workflow: ${isFork ? 'yes' : 'no'}`,
+      ...(isFork ? [`Origin repository: ${originOwnerRepo}`] : []),
       '',
       'Do (show the exact commands you run):',
-      '1. Check status and get repo info:',
+      '1. Check status:',
       '   - git status',
-      '   - git branch --show-current  # Get current branch',
       '   - git log -1 --oneline',
-      '   - git remote -v  # List all remotes',
-      '   - Select the remote for --repo: use "upstream" if it exists, otherwise use "origin"',
-      '   - Parse <owner>/<repo> from the selected remote URL',
-      '     - Supported formats:',
-      '       - https://github.com/<owner>/<repo>.git',
-      '       - git@github.com:<owner>/<repo>.git',
-      '   - Use the parsed <owner>/<repo> for all gh --repo values',
-      '   - Parse <origin-owner>/<origin-repo> from origin URL (same URL formats as above)',
-      '   - Compute pr_ref for gh pr view positional <branch> argument:',
-      '     - If repo remote is "upstream" AND <origin-owner> != <owner>: pr_ref = <origin-owner>:<branch-name>',
-      '     - Else: pr_ref = <branch-name>',
-      '   - Compute pr_head for gh pr create --head:',
-      '     - If repo remote is "upstream" AND <origin-owner> != <owner>: pr_head = <origin-owner>:<branch-name>',
-      '     - Else: pr_head = <branch-name>',
       '',
       '2. Check for PR template:',
       '   - Only look for: .github/PULL_REQUEST_TEMPLATE.md',
@@ -268,13 +266,12 @@ export const MainLayout: React.FC = React.memo(() => {
       '   - git push origin <branch>',
       '   - If push fails, show the exact error and ask me what to do next',
       '',
-      '4. Create or update PR (ALWAYS use --repo <owner>/<repo> with gh commands):',
-      '   - Check existing: gh pr view --repo <owner>/<repo> <pr_ref> --json number,url,state',
-      `   - If no PR exists: gh pr create --repo <owner>/<repo> --draft --base ${baseBranch} --head <pr_head> --title "<title>" --body "<body>"`,
-      '   - If PR exists: gh pr edit --repo <owner>/<repo> <pr_ref> --title "<title>" --body "<body>" (only if needed)',
+      '4. Create or update PR:',
+      `   - Check existing: gh pr view --repo ${ownerRepo} ${prRef} --json number,url,state`,
+      `   - If no PR exists: gh pr create --repo ${ownerRepo} --draft --base ${baseBranch} --head ${prHead} --title "<title>" --body "<body>"`,
+      `   - If PR exists: gh pr edit --repo ${ownerRepo} ${prRef} --title "<title>" --body "<body>" (only if needed)`,
       '',
       'Guidelines:',
-      '- ALWAYS use --repo <owner>/<repo> with ALL gh commands (required for worktree compatibility)',
       '- ALWAYS use --draft flag when creating new PRs',
       '- Avoid commands that persist git config (e.g. `git push -u`, `git branch --set-upstream-to`, `git config ...`); in worktrees these may write outside the worktree directory and fail under restricted sandboxes',
       '- If you need SSH options for a single push, use `GIT_SSH_COMMAND=\"ssh -p 22\" git push origin <branch>` or `git -c core.sshCommand=\"ssh -p 22\" push origin <branch>` (do not persist config)',
@@ -303,28 +300,26 @@ export const MainLayout: React.FC = React.memo(() => {
 
     const baseBranch = session.baseBranch || 'main';
 
+    // Determine remote from session cache
+    const isFork = session.isFork || false;
+    const remoteName = isFork ? 'upstream' : 'origin';
+
     const updatePrompt = [
       `Update the current branch with the latest changes from the upstream base branch.`,
       '',
       `Base branch: ${baseBranch}`,
+      `Remote: ${remoteName}`,
+      `Fork workflow: ${isFork ? 'yes' : 'no'}`,
       '',
       'Do (show the exact commands you run):',
       '1. Check current state:',
       '   - git status  # Ensure working tree is clean',
-      '   - git branch --show-current',
       '',
-      '2. Determine which remote to use:',
-      '   - git remote -v  # List all remotes',
-      `   - If "upstream" remote exists: use upstream/${baseBranch}`,
-      `   - Otherwise: use origin/${baseBranch}`,
+      '2. Fetch and rebase:',
+      `   - git fetch ${remoteName} ${baseBranch}`,
+      `   - git rebase ${remoteName}/${baseBranch}`,
       '',
-      '3. Fetch latest changes:',
-      `   - git fetch <remote> ${baseBranch}  # Use the remote determined in step 2`,
-      '',
-      '4. Rebase current branch:',
-      `   - git rebase <remote>/${baseBranch}  # Use the remote determined in step 2`,
-      '',
-      '5. If conflicts occur:',
+      '3. If conflicts occur:',
       '   - List conflicted files: git status',
       '   - For each conflicted file:',
       '     a. Read the file content to see conflict markers (<<<<<<< ======= >>>>>>>)',
@@ -335,7 +330,6 @@ export const MainLayout: React.FC = React.memo(() => {
       '   - Repeat until all conflicts are resolved',
       '',
       'Guidelines:',
-      '- Prefer "upstream" remote if it exists (for fork workflow), otherwise use "origin"',
       '- If working tree is dirty: stop and tell me to commit/stash changes first',
       '- If rebase succeeds: report success',
       '- If conflicts occur: analyze and resolve them intelligently',
@@ -364,10 +358,11 @@ export const MainLayout: React.FC = React.memo(() => {
     const syncPrompt = [
       `Sync local branch with the latest changes from the remote PR branch (origin/${headBranch}).`,
       '',
+      `Current branch: ${headBranch}`,
+      '',
       'Do (show the exact commands you run):',
       '1. Check current state:',
       '   - git status  # Ensure working tree is clean',
-      '   - git branch --show-current',
       '',
       '2. Fetch and check divergence:',
       `   - git fetch origin ${headBranch}`,
