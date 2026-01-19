@@ -166,8 +166,8 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
   }, [diff, fileSources, expandFileContext, fileOrder]);
 
   const autoPreviewPaths = useMemo(
-    () => files.filter((file) => Boolean(fileSources?.[file.path]) && isImageFile(file.path)).map((file) => file.path),
-    [files, fileSources]
+    () => files.filter((file) => isImageFile(file.path)).map((file) => file.path),
+    [files]
   );
   const { previewFiles, togglePreview } = useFilePreviewState(autoPreviewPaths, { defaultPreview: true });
 

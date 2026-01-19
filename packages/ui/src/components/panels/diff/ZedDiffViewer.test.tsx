@@ -602,4 +602,28 @@ index 1234567..abcdefg 100644
       expect(previewBtn).toBeInTheDocument();
     });
   });
+
+  describe('Image Preview', () => {
+    const SAMPLE_IMAGE_DIFF = `diff --git a/image.png b/image.png
+index 1234567..abcdefg 100644
+--- a/image.png
++++ b/image.png
+@@ -1,1 +1,1 @@
+-old
++new`;
+
+    it('defaults to preview mode for image files', async () => {
+      const { container } = render(
+        <ZedDiffViewer
+          diff={SAMPLE_IMAGE_DIFF}
+          fileSources={{ 'image.png': 'ZGF0YQ==' }}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('img', { name: 'image.png' })).toBeInTheDocument();
+      });
+      expect(container.querySelector('.st-diff-table')).not.toBeInTheDocument();
+    });
+  });
 });

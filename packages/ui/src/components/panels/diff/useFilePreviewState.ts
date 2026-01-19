@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 const DEFAULT_PREVIEW_ENABLED = true;
 
 export function useFilePreviewState(previewableFilePaths: string[], options?: { defaultPreview?: boolean }) {
-  const [previewFiles, setPreviewFiles] = useState<Set<string>>(() => new Set());
-  const autoEnabledRef = useRef<Set<string>>(new Set());
   const defaultPreview = options?.defaultPreview ?? DEFAULT_PREVIEW_ENABLED;
+  const initialPreviewPaths = defaultPreview ? previewableFilePaths.filter(Boolean) : [];
+  const [previewFiles, setPreviewFiles] = useState<Set<string>>(() => new Set(initialPreviewPaths));
+  const autoEnabledRef = useRef<Set<string>>(new Set(initialPreviewPaths));
 
   useEffect(() => {
     if (!defaultPreview) return;
