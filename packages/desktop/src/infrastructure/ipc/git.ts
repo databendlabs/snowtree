@@ -1272,30 +1272,11 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
 
   ipcMain.handle('sessions:mark-pr-ready', async (_event, sessionId: string) => {
     try {
+      console.log('[git.ts] Mark PR ready called for session:', sessionId);
       const session = sessionManager.getSession(sessionId);
       if (!session?.worktreePath) {
+        console.error('[git.ts] Session worktree not found');
         return { success: false, error: 'Session worktree not found' };
-      }
-
-      // Get owner/repo from remotes
-      const remoteRes = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'remote', '-v'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 5_000,
-        meta: { source: 'ipc.git', operation: 'mark-pr-ready-remote' },
-      });
-
-      if (remoteRes.exitCode !== 0) {
-        return { success: false, error: 'Failed to get git remotes' };
-      }
-
-      const ownerRepo = parseOwnerRepoFromRemoteOutput(remoteRes.stdout || '');
-      if (!ownerRepo) {
-        return { success: false, error: 'Could not parse owner/repo from remotes' };
       }
 
       // Get current branch
@@ -1311,48 +1292,90 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       });
 
       if (branchRes.exitCode !== 0 || !branchRes.stdout?.trim()) {
+        console.error('[git.ts] Failed to get current branch');
         return { success: false, error: 'Failed to get current branch' };
       }
 
       const branch = branchRes.stdout.trim();
+      console.log('[git.ts] Current branch:', branch);
 
-      // Determine if this is a fork PR
-      const remotesOutput = remoteRes.stdout || '';
-      const upstreamMatch = remotesOutput.match(/^upstream\s+(\S+)/m);
-      const originMatch = remotesOutput.match(/^origin\s+(\S+)/m);
-
-      let branchArg = branch;
-      if (upstreamMatch && originMatch) {
-        const upstreamUrl = upstreamMatch[1];
-        const originUrl = originMatch[1];
-        if (isForkOfUpstream(originUrl, upstreamUrl)) {
-          const originOwner = parseGitRemoteToOwnerRepoParts(originUrl)?.owner;
-          if (originOwner) {
-            branchArg = `${originOwner}:${branch}`;
-          }
-        }
-      }
-
-      // Mark PR as ready for review using gh pr ready
-      const readyRes = await gitExecutor.run({
+      // Get origin owner for fork workflow
+      let originOwner: string | null = null;
+      const originRes = await gitExecutor.run({
         sessionId,
         cwd: session.worktreePath,
-        argv: ['gh', 'pr', 'ready', '--repo', ownerRepo, branchArg],
-        op: 'write',
-        recordTimeline: true,
+        argv: ['git', 'remote', 'get-url', 'origin'],
+        op: 'read',
+        recordTimeline: false,
         throwOnError: false,
-        timeoutMs: 30_000,
-        meta: { source: 'ipc.git', operation: 'mark-pr-ready' },
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'mark-pr-ready-origin' },
       });
+      if (originRes.exitCode === 0 && originRes.stdout?.trim()) {
+        const originUrl = originRes.stdout.trim();
+        const originMatch = originUrl.match(/github\.com[:/]([^/]+)\//);
+        if (originMatch) {
+          originOwner = originMatch[1];
+        }
+      }
+      console.log('[git.ts] Origin owner:', originOwner);
 
-      if (readyRes.exitCode !== 0) {
-        return {
-          success: false,
-          error: readyRes.stderr || 'Failed to mark PR as ready'
-        };
+      // Try to mark PR ready in multiple remotes (same logic as get-remote-pull-request)
+      const remoteNames = ['upstream', 'origin'];
+
+      for (const remoteName of remoteNames) {
+        const remoteRes = await gitExecutor.run({
+          sessionId,
+          cwd: session.worktreePath,
+          argv: ['git', 'remote', 'get-url', remoteName],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 3_000,
+          meta: { source: 'ipc.git', operation: 'mark-pr-ready-remote' },
+        });
+
+        if (remoteRes.exitCode !== 0 || !remoteRes.stdout?.trim()) continue;
+
+        const url = remoteRes.stdout.trim();
+        // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        if (!match) continue;
+
+        const ownerRepo = match[1];
+
+        // For upstream repo in fork workflow, use "owner:branch" format
+        // For origin repo, use just "branch"
+        const branchArg = remoteName === 'upstream' && originOwner ? `${originOwner}:${branch}` : branch;
+
+        console.log(`[git.ts] Trying ${remoteName} with repo=${ownerRepo}, branch=${branchArg}`);
+
+        // Mark PR as ready for review using gh pr ready
+        const readyRes = await gitExecutor.run({
+          sessionId,
+          cwd: session.worktreePath,
+          argv: ['gh', 'pr', 'ready', '--repo', ownerRepo, branchArg],
+          op: 'write',
+          recordTimeline: true,
+          throwOnError: false,
+          timeoutMs: 30_000,
+          meta: { source: 'ipc.git', operation: 'mark-pr-ready' },
+        });
+
+        console.log('[git.ts] gh pr ready result:', { exitCode: readyRes.exitCode, stdout: readyRes.stdout, stderr: readyRes.stderr });
+
+        if (readyRes.exitCode === 0) {
+          console.log('[git.ts] Successfully marked PR as ready');
+          return { success: true };
+        }
+
+        // If failed, try next remote
+        console.log(`[git.ts] Failed on ${remoteName}, trying next remote...`);
       }
 
-      return { success: true };
+      // Failed on all remotes
+      console.error('[git.ts] Failed to mark PR as ready on all remotes');
+      return { success: false, error: 'Failed to mark PR as ready' };
     } catch (error) {
       return {
         success: false,

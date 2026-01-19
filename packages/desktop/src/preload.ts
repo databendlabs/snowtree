@@ -93,6 +93,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // CI status
     getCIStatus: (sessionId: string): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:get-ci-status', sessionId),
+    markPRReady: (sessionId: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:mark-pr-ready', sessionId),
     // Terminal helpers
     ensureTerminalPanel: (sessionId: string): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:terminal-ensure-panel', sessionId),

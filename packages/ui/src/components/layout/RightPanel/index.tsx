@@ -99,13 +99,18 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
     const handleMarkPRReady = useCallback(async () => {
       if (!session?.id) return;
       try {
+        console.log('[RightPanel] Marking PR as ready for session:', session.id);
         const result = await window.electronAPI?.sessions?.markPRReady?.(session.id);
+        console.log('[RightPanel] Mark PR ready result:', result);
         if (result?.success) {
+          console.log('[RightPanel] Successfully marked PR as ready, refreshing...');
           // Refresh to get updated PR status
           refresh();
+        } else {
+          console.error('[RightPanel] Failed to mark PR as ready:', result?.error);
         }
-      } catch {
-        // ignore
+      } catch (error) {
+        console.error('[RightPanel] Error marking PR as ready:', error);
       }
     }, [session?.id, refresh]);
 
@@ -377,8 +382,8 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
 
               {/* Action Buttons */}
               <div className="space-y-1.5">
-                {/* Mark as Ready (only show if draft, CI passed, working tree clean, and PR synced) */}
-                {remotePullRequest && remotePullRequest.state === 'draft' && !hasUncommittedChanges && prSyncStatus?.localAhead === 0 && ciStatus?.rollupState === 'success' && (
+                {/* Mark as Ready (only show if draft, PR synced, and CI passed) */}
+                {remotePullRequest && remotePullRequest.state === 'draft' && prSyncStatus?.localAhead === 0 && ciStatus?.rollupState === 'success' && (
                   <button
                     type="button"
                     onClick={handleMarkPRReady}
