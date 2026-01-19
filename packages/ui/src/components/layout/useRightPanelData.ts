@@ -359,6 +359,13 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       } else if (hasUncommitted) {
         setSelection((prev) => prev ?? { kind: 'working' });
       }
+
+      // Initialize git cache on manual refresh (when showLoading is true)
+      if (showLoading) {
+        window.electronAPI.sessions.initGitCache(sessionId).catch(() => {
+          // Ignore errors - cache init is optional
+        });
+      }
     } catch (err) {
       if (!controller.signal.aborted) {
         setError(err instanceof Error ? err.message : 'Failed to load data');

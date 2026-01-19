@@ -124,15 +124,6 @@ export const MainLayout: React.FC = React.memo(() => {
   const [isResizing, setIsResizing] = useState(false);
   const sessionId = session?.id ?? null;
 
-  // Initialize git cache when session changes
-  useEffect(() => {
-    if (sessionId && session && !session.ownerRepo) {
-      window.electronAPI.sessions.initGitCache(sessionId).catch((error: unknown) => {
-        console.warn('[MainLayout] Failed to init git cache:', error);
-      });
-    }
-  }, [sessionId, session?.ownerRepo]);
-
   useEffect(() => {
     localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, rightPanelWidth.toString());
   }, [rightPanelWidth]);
