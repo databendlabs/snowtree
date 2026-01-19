@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, FolderPlus, Plus, Trash2, Loader2, Sun, Moon } from 'lucide-react';
+import { ChevronDown, FolderPlus, Plus, Trash2, Loader2, Sun, Moon, Settings } from 'lucide-react';
 import { API } from '../utils/api';
 import { useErrorStore } from '../stores/errorStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { formatDistanceToNow } from '../utils/timestampUtils';
 import { StageBadge } from './layout/StageBadge';
 import { useThemeStore } from '../stores/themeStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useUpdateStatus } from '../hooks/useUpdateStatus';
 import { SidebarUpdateButton } from './SidebarUpdateButton';
 
@@ -45,6 +46,7 @@ const applyBaseCommitSuffix = (name: string, baseCommit?: string): string => {
 export function Sidebar() {
   const { showError } = useErrorStore();
   const { sessions, activeSessionId, setActiveSession } = useSessionStore();
+  const { openSettings } = useSettingsStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [collapsedProjects, setCollapsedProjects] = useState<Set<number>>(() => new Set());
@@ -56,8 +58,16 @@ export function Sidebar() {
   const [draftWorktreeName, setDraftWorktreeName] = useState<string>('');
   const refreshTimersRef = useRef<Record<number, number | null>>({});
   const hasInitializedRenameInputRef = useRef(false);
-  const { theme, toggleTheme } = useThemeStore();
+  const { theme } = useThemeStore();
+  const { updateSettings } = useSettingsStore();
   const [appVersion, setAppVersion] = useState<string>('');
+
+  // Handle theme toggle - toggle between dark and light
+  const handleToggleTheme = useCallback(() => {
+    // Toggle between dark and light, ignoring system setting
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    updateSettings({ theme: nextTheme });
+  }, [theme, updateSettings]);
   const {
     updateAvailable,
     updateVersion,
@@ -777,20 +787,32 @@ export function Sidebar() {
               onInstall={installUpdate}
             />
           )}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="ml-auto w-7 h-7 flex items-center justify-center rounded st-hoverable st-focus-ring"
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            style={{ color: 'var(--st-text-muted)' }}
-          >
-            {theme === 'light' ? (
-              <Moon className="w-3.5 h-3.5" />
-            ) : (
-              <Sun className="w-3.5 h-3.5" />
-            )}
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleToggleTheme}
+              className="w-7 h-7 flex items-center justify-center rounded st-hoverable st-focus-ring"
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label="Toggle theme"
+              style={{ color: 'var(--st-text-muted)' }}
+            >
+              {theme === 'light' ? (
+                <Sun className="w-3.5 h-3.5" />
+              ) : (
+                <Moon className="w-3.5 h-3.5" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={openSettings}
+              className="w-7 h-7 flex items-center justify-center rounded st-hoverable st-focus-ring"
+              title="Settings"
+              aria-label="Open settings"
+              style={{ color: 'var(--st-text-muted)' }}
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
         <button
           type="button"

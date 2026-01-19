@@ -5,6 +5,7 @@ import type { Session } from '../../types/session';
 import type { ToolPanel, BaseAIPanelState } from '@snowtree/core/types/panels';
 import type { CLITool, ImageAttachment, ExecutionMode } from './types';
 import { useEnsureTerminalPanel } from './useEnsureTerminalPanel';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface UseLayoutDataResult {
   session: Session | null;
@@ -28,6 +29,7 @@ interface UseLayoutDataResult {
 }
 
 export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
+  const { settings } = useSettingsStore();
   const [session, setSession] = useState<Session | null>(null);
   const [aiPanel, setAiPanel] = useState<ToolPanel | null>(null);
   const aiPanelRef = useRef<ToolPanel | null>(null);
@@ -91,13 +93,25 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
   const cycleSelectedTool = useCallback(async () => {
     if (!session) return;
 
-    const tools: CLITool[] = ['claude', 'codex', 'gemini'];
-    const currentIndex = tools.indexOf(selectedTool);
-    const nextIndex = (currentIndex + 1) % tools.length;
-    const nextTool = tools[nextIndex];
+    // Get list of enabled tools based on settings
+    const allTools: CLITool[] = ['claude', 'codex', 'gemini'];
+    const enabledTools = allTools.filter(tool => {
+      if (tool === 'claude') return settings.enabledProviders.claude;
+      if (tool === 'codex') return settings.enabledProviders.codex;
+      if (tool === 'gemini') return settings.enabledProviders.gemini;
+      return false;
+    });
+
+    // If no tools are enabled, do nothing
+    if (enabledTools.length === 0) return;
+
+    // Find next enabled tool
+    const currentIndex = enabledTools.indexOf(selectedTool);
+    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % enabledTools.length;
+    const nextTool = enabledTools[nextIndex];
 
     await setSelectedToolWithPersist(nextTool);
-  }, [session, selectedTool, setSelectedToolWithPersist]);
+  }, [session, selectedTool, setSelectedToolWithPersist, settings.enabledProviders]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -152,7 +166,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
         if (panelsResponse?.success && panelsResponse.data) {
           const panels: ToolPanel[] = panelsResponse.data;
 
-          const ai = panels.find(p => p.type === 'claude' || p.type === 'codex' || p.type === 'gemini') || null;
+          const ai = panels.find(p => ['claude', 'codex', 'gemini'].includes(p.type)) || null;
           setAiPanel(ai);
           const terminal = panels.find(p => p.type === 'terminal') || null;
           setTerminalPanel(terminal);
@@ -394,6 +408,31 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
       console.error('Failed to cancel request:', error);
     }
   }, [session]);
+
+  // Check if current selected tool is disabled, and switch to first enabled tool
+  useEffect(() => {
+    if (!session) return;
+
+    const isCurrentToolEnabled =
+      (selectedTool === 'claude' && settings.enabledProviders.claude) ||
+      (selectedTool === 'codex' && settings.enabledProviders.codex) ||
+      (selectedTool === 'gemini' && settings.enabledProviders.gemini);
+
+    // If current tool is disabled, switch to first enabled tool
+    if (!isCurrentToolEnabled) {
+      const allTools: CLITool[] = ['claude', 'codex', 'gemini'];
+      const enabledTools = allTools.filter(tool => {
+        if (tool === 'claude') return settings.enabledProviders.claude;
+        if (tool === 'codex') return settings.enabledProviders.codex;
+        if (tool === 'gemini') return settings.enabledProviders.gemini;
+        return false;
+      });
+
+      if (enabledTools.length > 0 && enabledTools[0] !== selectedTool) {
+        void setSelectedToolWithPersist(enabledTools[0]);
+      }
+    }
+  }, [selectedTool, settings.enabledProviders, session, setSelectedToolWithPersist]);
 
   return {
     session,

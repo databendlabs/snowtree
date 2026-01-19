@@ -7,6 +7,7 @@ import type { TimelineEvent } from '../../types/timeline';
 import { clearSessionDraft, getSessionDraft, setSessionDraft } from './sessionDraftCache';
 import { InputBarEditor, type InputBarEditorHandle } from './InputBarEditor';
 import { isTerminalEventTarget } from './terminalUtils';
+import { ClaudeIcon, CodexIcon, GeminiIcon } from '../icons/ProviderIcons';
 
 const KnightRiderSpinner: React.FC<{ color?: string }> = ({ color = 'var(--st-accent)' }) => {
   const [frame, setFrame] = useState(0);
@@ -778,7 +779,12 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
               </div>
 
               <div className="flex items-center gap-2 mt-2 text-[12px] st-font-mono">
-                <span data-testid="input-agent" style={{ color: 'var(--st-accent)' }}>{agentName}</span>
+                <div className="flex items-center gap-1.5" style={{ color: 'var(--st-accent)' }}>
+                  {selectedTool === 'claude' && <ClaudeIcon className="w-3.5 h-3.5" />}
+                  {selectedTool === 'codex' && <CodexIcon className="w-3.5 h-3.5" />}
+                  {selectedTool === 'gemini' && <GeminiIcon className="w-3.5 h-3.5" />}
+                  <span data-testid="input-agent">{agentName}</span>
+                </div>
                 <span
                   data-testid="input-mode"
                   style={{
