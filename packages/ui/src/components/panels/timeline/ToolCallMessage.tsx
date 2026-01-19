@@ -72,6 +72,7 @@ export const getToolIcon = (toolName: string, toolInput?: string | Record<string
     case 'write': return FileInput;
     case 'webfetch':
     case 'websearch': return Globe;
+    case 'exitplanmode': return ArrowRight;
     default: return Wrench;
   }
 };
