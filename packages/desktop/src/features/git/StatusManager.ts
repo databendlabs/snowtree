@@ -195,8 +195,13 @@ export class GitStatusManager extends EventEmitter {
       const session = await this.sessionManager.getSession(sessionId);
       this.logger?.verbose(`[GitStatus] Got session for ${sessionId}: worktreePath=${session?.worktreePath}`);
       if (session?.worktreePath) {
-        this.fileWatcher.startWatching(sessionId, session.worktreePath);
-        this.logger?.verbose(`[GitStatus] Started file watching for session ${sessionId}`);
+        // Check if worktree path exists before starting file watcher
+        if (existsSync(session.worktreePath)) {
+          this.fileWatcher.startWatching(sessionId, session.worktreePath);
+          this.logger?.verbose(`[GitStatus] Started file watching for session ${sessionId}`);
+        } else {
+          this.logger?.warn(`[GitStatus] Worktree path does not exist for session ${sessionId}: ${session.worktreePath}`);
+        }
       } else {
         this.logger?.warn(`[GitStatus] No worktreePath for session ${sessionId}`);
       }
@@ -654,7 +659,13 @@ export class GitStatusManager extends EventEmitter {
   private async hasGitStatusChanged(sessionId: string, worktreePath: string): Promise<boolean> {
     const cached = this.cache[sessionId];
     if (!cached) return true;
-    
+
+    // Check if worktree path exists
+    if (!existsSync(worktreePath)) {
+      this.logger?.warn(`[GitStatus] Worktree path does not exist in hasGitStatusChanged: ${worktreePath}`);
+      return false; // Don't refresh if path doesn't exist
+    }
+
     try {
       const quickStatus = await this.getPorcelainSummary(worktreePath, sessionId);
       
@@ -704,20 +715,27 @@ export class GitStatusManager extends EventEmitter {
     // Create abort controller for this operation
     const abortController = new AbortController();
     this.abortControllers.set(sessionId, abortController);
-    
+
     try {
       const session = await this.sessionManager.getSession(sessionId);
       if (!session || !session.worktreePath) {
         this.abortControllers.delete(sessionId);
         return null;
       }
-      
+
+      // Check if worktree path exists on filesystem
+      if (!existsSync(session.worktreePath)) {
+        this.logger?.warn(`[GitStatus] Worktree path does not exist for session ${sessionId}: ${session.worktreePath}`);
+        this.abortControllers.delete(sessionId);
+        return null;
+      }
+
       // Check if operation was cancelled
       if (abortController.signal.aborted) {
         this.abortControllers.delete(sessionId);
         return null;
       }
-      
+
       this.gitLogger.logSessionFetch(sessionId, false);
 
       const project = this.sessionManager.getProjectForSession(sessionId);
