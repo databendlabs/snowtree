@@ -327,6 +327,23 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     });
   }, [imageAttachments.length]);
 
+  const addImageAttachmentFromDataUrl = useCallback((dataUrl: string) => {
+    const id = `img-${Date.now()}-${imageIdCounter.current++}`;
+    const imageIndex = ++imageIndexCounter.current;
+    const newAttachment: ImageAttachment = {
+      id,
+      filename: 'clipboard.png',
+      mime: 'image/png',
+      dataUrl,
+    };
+
+    setImageAttachments((prev) => [...prev, newAttachment]);
+
+    if (editorRef.current) {
+      editorRef.current.insertImagePill(newAttachment, imageIndex);
+    }
+  }, []);
+
   // Restore unsent draft when switching sessions
   useEffect(() => {
     const sessionId = session.id;
@@ -510,19 +527,56 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       return editorRef.current?.editor;
     };
 
+    const pasteFromClipboard = async () => {
+      const editor = editorRef.current?.editor;
+      if (!editor) return;
+      if (!window.electronAPI?.invoke) {
+        if (typeof document.execCommand === 'function') {
+          document.execCommand('paste');
+        }
+        return;
+      }
+
+      try {
+        const res = await window.electronAPI.invoke('clipboard:read') as {
+          success?: boolean;
+          data?: { text?: string; image?: string | null };
+        };
+        if (!res?.success || !res.data) return;
+        if (res.data.image) {
+          addImageAttachmentFromDataUrl(res.data.image);
+        }
+        if (res.data.text) {
+          editor.commands.insertContent(res.data.text);
+        }
+      } catch (err) {
+        console.warn('[InputBar] Failed to read clipboard:', err);
+      }
+    };
+
     const handleGlobalKeyPress = (e: KeyboardEvent) => {
       const editor = editorRef.current?.editor;
-      if (!editor || editor.view.hasFocus()) return;
+      if (!editor) return;
       if (isTerminalEventTarget(e.target)) return;
 
       const target = e.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      ) {
+      const isEditableTarget = Boolean(
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      );
+
+      // Ctrl+V: Paste into editor even when focused (Cmd+V keeps native behavior)
+      if (e.ctrlKey && !e.metaKey && (e.key === 'v' || e.key === 'V')) {
+        if (!editor.view.hasFocus() && isEditableTarget) return;
+        e.preventDefault();
+        focusEditor();
+        void pasteFromClipboard();
         return;
       }
+
+      if (editor.view.hasFocus()) return;
+
+      if (isEditableTarget) return;
 
       // Cmd/Ctrl+A: Select all in editor
       if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
@@ -536,9 +590,11 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
         return;
       }
 
-      // Cmd/Ctrl+V: Paste into editor
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
+      // Cmd+V: Paste into editor when not focused
+      if (e.metaKey && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
         focusEditor();
+        void pasteFromClipboard();
         return;
       }
 
@@ -585,31 +641,33 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
         return;
       }
 
-      if (editor.view.hasFocus()) return;
-
       const clipboardData = e.clipboardData;
       if (!clipboardData) return;
+
+      const items = Array.from(clipboardData.items);
+      const imageFiles = items
+        .filter((item) => ACCEPTED_IMAGE_TYPES.has(item.type))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => Boolean(file));
+      const text = clipboardData.types.includes('text/plain') ? clipboardData.getData('text/plain') : '';
+      const hasImages = imageFiles.length > 0;
+      const hasText = text.length > 0;
+
+      if (!hasImages && !hasText) {
+        return;
+      }
 
       e.preventDefault();
       const ed = focusEditor();
       if (!ed) return;
 
       setTimeout(() => {
-        const items = Array.from(clipboardData.items);
-        const imageItems = items.filter((item) => ACCEPTED_IMAGE_TYPES.has(item.type));
-
-        imageItems.forEach((item) => {
-          const file = item.getAsFile();
-          if (file) {
-            void addImageAttachment(file);
-          }
+        imageFiles.forEach((file) => {
+          void addImageAttachment(file);
         });
 
-        if (clipboardData.types.includes('text/plain')) {
-          const text = clipboardData.getData('text/plain');
-          if (text) {
-            ed.commands.insertContent(text);
-          }
+        if (text) {
+          ed.commands.insertContent(text);
         }
       }, 0);
     };

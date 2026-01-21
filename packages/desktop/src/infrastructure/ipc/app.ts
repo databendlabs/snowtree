@@ -1,4 +1,4 @@
-import { IpcMain, shell } from 'electron';
+import { IpcMain, clipboard, shell } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -48,6 +48,24 @@ export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): vo
       return { success: false, error: error instanceof Error ? error.message : 'Failed to open path' };
     }
   });
+
+  ipcMain.handle('clipboard:read', () => {
+    try {
+      const text = clipboard.readText();
+      const image = clipboard.readImage();
+      return {
+        success: true,
+        data: {
+          text,
+          image: image.isEmpty() ? null : image.toDataURL(),
+        },
+      };
+    } catch (error) {
+      console.error('Failed to read clipboard:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to read clipboard' };
+    }
+  });
+
 
   // Welcome tracking handler (for compatibility)
   ipcMain.handle('track-welcome-dismissed', () => {

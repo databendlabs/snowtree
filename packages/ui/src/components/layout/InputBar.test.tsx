@@ -418,6 +418,117 @@ describe('InputBar - Cursor Position Tests', () => {
     });
   });
 
+  it('should paste text on Ctrl+V when not focused', async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockResolvedValue({
+      success: true,
+      data: { text: 'PASTED', image: null },
+    });
+    (window as any).electronAPI = {
+      ...(window as any).electronAPI,
+      invoke,
+    };
+
+    render(
+      <InputBar
+        session={mockSession}
+        panelId="test-panel"
+        selectedTool="claude"
+        onSend={mockOnSend}
+        onCancel={mockOnCancel}
+        isProcessing={false}
+      />
+    );
+
+    const editor = await getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'hello');
+    setCaretInEditor(editor, 5);
+    await blurViaFocusSink(editor);
+
+    const pasteEvent = new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true });
+    document.dispatchEvent(pasteEvent);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('clipboard:read'));
+    await waitFor(() => expect(editor.textContent).toBe('helloPASTED'));
+  });
+
+  it('should paste text on Cmd+V when not focused', async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockResolvedValue({
+      success: true,
+      data: { text: 'PASTED', image: null },
+    });
+    (window as any).electronAPI = {
+      ...(window as any).electronAPI,
+      invoke,
+    };
+
+    render(
+      <InputBar
+        session={mockSession}
+        panelId="test-panel"
+        selectedTool="claude"
+        onSend={mockOnSend}
+        onCancel={mockOnCancel}
+        isProcessing={false}
+      />
+    );
+
+    const editor = await getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'hello');
+    setCaretInEditor(editor, 5);
+    await blurViaFocusSink(editor);
+
+    const pasteEvent = new KeyboardEvent('keydown', { key: 'v', metaKey: true, bubbles: true });
+    document.dispatchEvent(pasteEvent);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('clipboard:read'));
+    await waitFor(() => expect(editor.textContent).toBe('helloPASTED'));
+  });
+
+  it('should paste image on Ctrl+V when not focused', async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockResolvedValue({
+      success: true,
+      data: { text: '', image: 'data:image/png;base64,TEST_DATA' },
+    });
+    (window as any).electronAPI = {
+      ...(window as any).electronAPI,
+      invoke,
+    };
+
+    render(
+      <InputBar
+        session={mockSession}
+        panelId="test-panel"
+        selectedTool="claude"
+        onSend={mockOnSend}
+        onCancel={mockOnCancel}
+        isProcessing={false}
+      />
+    );
+
+    const editor = await getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'hello');
+    setCaretInEditor(editor, 5);
+    await blurViaFocusSink(editor);
+
+    const pasteEvent = new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true });
+    document.dispatchEvent(pasteEvent);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('clipboard:read'));
+    await waitFor(() => {
+      const imageTag = editor.querySelector('[data-image-id]');
+      expect(imageTag).toBeInTheDocument();
+    });
+  });
+
   it('should select all input content on Ctrl+A when not focused', async () => {
     const user = userEvent.setup();
 
