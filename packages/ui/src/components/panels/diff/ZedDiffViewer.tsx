@@ -6,7 +6,7 @@ import { API } from '../../../utils/api';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ImagePreview } from './ImagePreview';
 import { useFilePreviewState } from './useFilePreviewState';
-import { isImageFile, isPreviewableFile } from './utils/fileUtils';
+import { isImageFile, isPreviewableFile, isBinaryFile } from './utils/fileUtils';
 import { expandToFullFile, findMatchingHeader, hunkKind, hunkSignature, normalizeHunks, parseHunkHeader, toFilePath, type HunkHeaderEntry } from './utils/diffUtils';
 
 export interface ZedDiffViewerHandle {
@@ -1015,6 +1015,14 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                   ) : (
                     <MarkdownPreview content={previewContent} />
                   )
+                ) : file.hunks.length === 0 ? (
+                  <div className="st-diff-binary-notice" style={{ padding: '20px', textAlign: 'center', color: 'var(--vscode-descriptionForeground)' }}>
+                    {isImageFile(file.path) ? 'Binary file (image)' : 'Binary file'}
+                  </div>
+                ) : (isBinaryFile(file.path) && !isImageFile(file.path)) ? (
+                  <div className="st-diff-binary-notice" style={{ padding: '20px', textAlign: 'center', color: 'var(--vscode-descriptionForeground)' }}>
+                    Binary file
+                  </div>
                 ) : (
                 <div
                   data-testid="diff-hscroll-container"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isImageFile, isMarkdownFile, isPreviewableFile } from './fileUtils';
+import { isImageFile, isMarkdownFile, isPreviewableFile, isBinaryFile } from './fileUtils';
 
 describe('isMarkdownFile', () => {
   it('returns true for .md files', () => {
@@ -79,5 +79,55 @@ describe('isPreviewableFile', () => {
   it('returns false for non-previewable files', () => {
     expect(isPreviewableFile('file.ts')).toBe(false);
     expect(isPreviewableFile('notes.txt')).toBe(false);
+  });
+});
+
+describe('isBinaryFile', () => {
+  it('returns true for binary executables', () => {
+    expect(isBinaryFile('app.exe')).toBe(true);
+    expect(isBinaryFile('program.bin')).toBe(true);
+    expect(isBinaryFile('library.dll')).toBe(true);
+    expect(isBinaryFile('library.so')).toBe(true);
+    expect(isBinaryFile('library.dylib')).toBe(true);
+  });
+
+  it('returns true for archives', () => {
+    expect(isBinaryFile('archive.zip')).toBe(true);
+    expect(isBinaryFile('archive.tar')).toBe(true);
+    expect(isBinaryFile('archive.gz')).toBe(true);
+    expect(isBinaryFile('archive.7z')).toBe(true);
+    expect(isBinaryFile('archive.rar')).toBe(true);
+  });
+
+  it('returns true for compiled files', () => {
+    expect(isBinaryFile('Main.class')).toBe(true);
+    expect(isBinaryFile('app.jar')).toBe(true);
+    expect(isBinaryFile('module.pyc')).toBe(true);
+    expect(isBinaryFile('program.wasm')).toBe(true);
+  });
+
+  it('returns true for document files', () => {
+    expect(isBinaryFile('document.pdf')).toBe(true);
+    expect(isBinaryFile('document.doc')).toBe(true);
+    expect(isBinaryFile('document.docx')).toBe(true);
+    expect(isBinaryFile('spreadsheet.xls')).toBe(true);
+    expect(isBinaryFile('spreadsheet.xlsx')).toBe(true);
+  });
+
+  it('is case insensitive', () => {
+    expect(isBinaryFile('APP.EXE')).toBe(true);
+    expect(isBinaryFile('Archive.ZIP')).toBe(true);
+  });
+
+  it('returns false for text files', () => {
+    expect(isBinaryFile('file.txt')).toBe(false);
+    expect(isBinaryFile('file.js')).toBe(false);
+    expect(isBinaryFile('file.ts')).toBe(false);
+    expect(isBinaryFile('README.md')).toBe(false);
+  });
+
+  it('returns false for image files', () => {
+    expect(isBinaryFile('photo.png')).toBe(false);
+    expect(isBinaryFile('photo.jpg')).toBe(false);
   });
 });

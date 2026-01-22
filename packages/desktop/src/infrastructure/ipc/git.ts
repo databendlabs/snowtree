@@ -172,6 +172,10 @@ function isImageFile(filePath: string): boolean {
   return /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(filePath);
 }
 
+function isBinaryFile(filePath: string): boolean {
+  return /\.(exe|bin|dll|so|dylib|a|o|obj|zip|tar|gz|bz2|xz|7z|rar|pdf|doc|docx|xls|xlsx|ppt|pptx|class|jar|war|ear|pyc|wasm|ttf|otf|woff|woff2|eot)$/i.test(filePath);
+}
+
 export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): void {
   const { sessionManager, gitDiffManager, gitStagingManager, gitStatusManager, gitExecutor } = services;
 
@@ -716,6 +720,11 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const maxBytes = typeof options?.maxBytes === 'number' && options.maxBytes > 0 ? options.maxBytes : 1024 * 1024;
 
       const isImage = isImageFile(filePath);
+      const isBinary = isBinaryFile(filePath);
+
+      if (isBinary && !isImage) {
+        return { success: false, error: 'Binary file content cannot be displayed' };
+      }
 
       if (ref === 'WORKTREE') {
         const abs = join(session.worktreePath, filePath);
