@@ -103,31 +103,31 @@ export class TerminalManager extends EventEmitter {
   async closeTerminalSession(sessionId: string, options?: { fast?: boolean }): Promise<void> {
     const session = this.terminalSessions.get(sessionId);
     if (session) {
+      this.terminalSessions.delete(sessionId);
+
       try {
         const pid = session.pty.pid;
-        
+
+        // Kill via pty interface first for graceful shutdown
+        try {
+          session.pty.kill();
+        } catch (error) {
+          // PTY might already be dead, continue with process tree cleanup
+        }
+
         // Kill the process tree to ensure all child processes are terminated
         if (pid) {
           const success = await this.killProcessTree(pid, options);
           if (!success) {
-            // Emit warning about zombie processes
             this.emit('zombie-processes-detected', {
               sessionId,
               message: `Warning: Some child processes could not be terminated. Check system process list.`
             });
           }
         }
-        
-        // Also try to kill via pty interface as fallback
-        try {
-          session.pty.kill();
-        } catch (error) {
-          // PTY might already be dead
-        }
       } catch (error) {
         console.warn(`Error killing terminal session ${sessionId}:`, error);
       }
-      this.terminalSessions.delete(sessionId);
     }
   }
 
