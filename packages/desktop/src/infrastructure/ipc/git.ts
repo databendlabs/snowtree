@@ -727,7 +727,8 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       }
 
       if (ref === 'WORKTREE') {
-        const abs = join(session.worktreePath, filePath);
+        // If filePath is absolute, use it directly; otherwise join with worktreePath
+        const abs = filePath.startsWith('/') ? filePath : join(session.worktreePath, filePath);
         const buf = await fs.readFile(abs);
         if (buf.byteLength > maxBytes) {
           return { success: false, error: `File too large (${buf.byteLength} bytes)` };

@@ -4,6 +4,7 @@ import { API } from '../../../utils/api';
 interface UseFileContentOptions {
   sessionId?: string;
   filePath?: string;
+  worktreePath?: string;
   ref?: string;
   maxBytes?: number;
   enabled?: boolean;
