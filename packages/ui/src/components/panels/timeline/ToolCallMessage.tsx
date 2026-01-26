@@ -143,11 +143,11 @@ export function ToolCallMessage({
       const limit = input.limit as string | number | undefined;
       return (
         <div className="tool-input-summary">
-          <span className="summary-label">读取文件:</span>{' '}
+          <span className="summary-label">Read file:</span>{' '}
           <code className="summary-value">{String(input.file_path)}</code>
           {offset && (
             <span className="summary-meta">
-              {' '}(第 {String(offset)}-{String(Number(offset) + (Number(limit) || 2000))} 行)
+              {' '}(Lines {String(offset)}-{String(Number(offset) + (Number(limit) || 2000))})
             </span>
           )}
         </div>
@@ -169,9 +169,9 @@ export function ToolCallMessage({
       const path = input.path as string | undefined;
       return (
         <div className="tool-input-summary">
-          <span className="summary-label">搜索:</span>{' '}
+          <span className="summary-label">Search:</span>{' '}
           <code className="summary-value">"{String(input.pattern)}"</code>
-          {path && <span className="summary-meta"> 在 {String(path)}</span>}
+          {path && <span className="summary-meta"> in {String(path)}</span>}
         </div>
       );
     }
@@ -183,10 +183,10 @@ export function ToolCallMessage({
       const pendingCount = todos.filter(t => t.status === 'pending').length;
       return (
         <div className="tool-input-summary">
-          <span className="summary-label">任务:</span>{' '}
+          <span className="summary-label">Tasks:</span>{' '}
           <span className="summary-value">
-            {completedCount}/{todos.length} 已完成
-            {pendingCount > 0 && `, ${pendingCount} 待处理`}
+            {completedCount}/{todos.length} completed
+            {pendingCount > 0 && `, ${pendingCount} pending`}
           </span>
         </div>
       );
@@ -197,7 +197,7 @@ export function ToolCallMessage({
       const filePath = input.file_path as string | undefined;
       return (
         <div className="tool-input-summary">
-          <span className="summary-label">编辑文件:</span>{' '}
+          <span className="summary-label">Edit file:</span>{' '}
           <code className="summary-value">{String(filePath || 'unknown')}</code>
         </div>
       );
@@ -207,7 +207,7 @@ export function ToolCallMessage({
     if (toolName === 'Write' && input.file_path) {
       return (
         <div className="tool-input-summary">
-          <span className="summary-label">写入文件:</span>{' '}
+          <span className="summary-label">Write file:</span>{' '}
           <code className="summary-value">{String(input.file_path)}</code>
         </div>
       );
@@ -348,7 +348,7 @@ export function ToolCallMessage({
                 ) : (
                   <ChevronRight size={12} style={{ marginRight: 4 }} />
                 )}
-                <span className="params-toggle-label">参数详情</span>
+                <span className="params-toggle-label">Parameter details</span>
               </div>
               {paramsExpanded && (
                 <div className="params-content">
@@ -360,7 +360,7 @@ export function ToolCallMessage({
 
           {toolResult && (
             <div className="tool-section">
-              <div className="section-label">结果:</div>
+              <div className="section-label">Result:</div>
               <pre className={`tool-result ${isError ? 'error-output' : 'normal-output'}`}>
                 {toolResult}
               </pre>
