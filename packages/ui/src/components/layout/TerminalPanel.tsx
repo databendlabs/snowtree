@@ -4,6 +4,7 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { API } from '../../utils/api';
 import { useThemeStore } from '../../stores/themeStore';
+import { filterOSCResponses } from './oscFilter';
 
 type TerminalOutputEvent = {
   sessionId: string;
@@ -134,6 +135,16 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       fontFamily: getFontFamily(),
       fontSize: getFontSize(),
       theme: buildTerminalTheme(),
+      windowOptions: {
+        // Prevent OSC sequences from manipulating the window
+        // This helps avoid issues with color query responses being echoed
+        setWinLines: false,
+        getWinSizePixels: false,
+        getWinSizeChars: false,
+        getCellSizePixels: false,
+        getIconTitle: false,
+        getWinTitle: false,
+      },
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -201,7 +212,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       }
 
       if (event.id && event.id <= lastOutputIdRef.current) return;
-      terminal.write(event.data);
+      const filteredData = filterOSCResponses(event.data);
+      terminal.write(filteredData);
       if (event.id) lastOutputIdRef.current = event.id;
     });
 
@@ -235,7 +247,9 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
 
       const outputs = (outputsResponse?.data || []) as TerminalOutputRow[];
       if (outputsResponse?.success && outputs.length > 0) {
-        terminal.write(outputs.map(output => output.data).join(''));
+        const combinedData = outputs.map(output => output.data).join('');
+        const filteredData = filterOSCResponses(combinedData);
+        terminal.write(filteredData);
         terminal.scrollToBottom();
         const last = outputs[outputs.length - 1];
         lastOutputIdRef.current = last?.id ? Number(last.id) : 0;
@@ -251,7 +265,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
         pendingOutputsRef.current = [];
         pending.forEach(output => {
           if (output.id && output.id <= lastOutputIdRef.current) return;
-          terminal.write(output.data);
+          const filteredData = filterOSCResponses(output.data);
+          terminal.write(filteredData);
           if (output.id) lastOutputIdRef.current = output.id;
         });
       }
