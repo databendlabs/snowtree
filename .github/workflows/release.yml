@@ -261,6 +261,12 @@ jobs:
         run: |
           set -euo pipefail
           "${GITHUB_WORKSPACE}/node_modules/.bin/electron-builder" --projectDir "${RELEASE_APP_DIR}" --publish never
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
       - name: Verify packaged app contains core (macOS)
         if: runner.os == 'macOS'
@@ -276,6 +282,34 @@ jobs:
           echo "Verifying asar: ${APP_ASAR}"
           "${GITHUB_WORKSPACE}/node_modules/.bin/asar" list "${APP_ASAR}" | grep -q "node_modules/@snowtree/core/dist-cjs/types/models.js"
 
+      - name: Verify code signing (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="$(ls -1 "${RELEASE_APP_DIR}/dist-electron/"*macOS-arm64.zip | head -n 1)"
+          TMP_DIR="${RUNNER_TEMP}/verify-signing"
+          rm -rf "${TMP_DIR}"
+          mkdir -p "${TMP_DIR}"
+          unzip -q "${ZIP}" -d "${TMP_DIR}"
+          APP="$(find "${TMP_DIR}" -name 'snowtree.app' -type d | head -n 1)"
+
+          echo "Verifying code signature for: ${APP}"
+          codesign -dv --verbose=4 "${APP}" 2>&1 | tee /tmp/codesign-output.txt
+
+          # Check if signed
+          if ! codesign -v "${APP}" 2>&1; then
+            echo "❌ App is not properly signed"
+            exit 1
+          fi
+
+          echo "✅ App is properly signed"
+
+          # Verify DMG signature
+          DMG="$(ls -1 "${RELEASE_APP_DIR}/dist-electron/"*macOS-arm64.dmg | head -n 1)"
+          echo "Verifying DMG signature: ${DMG}"
+          codesign -dv --verbose=4 "${DMG}" 2>&1 || echo "⚠️  DMG signature check (non-fatal)"
+
       - name: Publish to GitHub Releases
         shell: bash
         run: |
@@ -283,6 +317,11 @@ jobs:
           "${GITHUB_WORKSPACE}/node_modules/.bin/electron-builder" --projectDir "${RELEASE_APP_DIR}" --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
       - name: Ensure release assets uploaded (gh upload)
         shell: bash
