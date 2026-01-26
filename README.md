@@ -58,7 +58,7 @@ make build     # Build packages
 
 ## Learn More
 
-[Snowtree: Review-Driven Safe AI Coding](https://www.bohutang.me/2026/01/10/snowtree-review-driven-safe-ai-coding/)
+[Snowtree: Databend's Best Practices for AI-Native Development](https://www.databend.com/blog/category-engineering/snowtree/)
 
 ## License
 
