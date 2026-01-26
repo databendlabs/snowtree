@@ -1,9 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
 import './InlineDiffViewer.css';
 import { MarkdownPreview } from '../diff/MarkdownPreview';
 import { isMarkdownFile } from '../diff/utils/fileUtils';
 import { useFileContent } from '../diff/useFileContent';
+
+// Import the context hook - will be provided by TimelineView
+let useDiffCollapseHook: (() => { collapseAllTrigger: number } | null) | null = null;
+
+export const setDiffCollapseHook = (hook: () => { collapseAllTrigger: number } | null) => {
+  useDiffCollapseHook = hook;
+};
 
 export interface InlineDiffViewerProps {
   oldString: string;
@@ -12,6 +19,7 @@ export interface InlineDiffViewerProps {
   className?: string;
   sessionId?: string;
   worktreePath?: string;
+  diffId?: string; // Unique identifier for this diff
 }
 
 interface DiffLine {
@@ -158,10 +166,48 @@ export function InlineDiffViewer({
   className,
   sessionId,
   worktreePath,
+  diffId,
 }: InlineDiffViewerProps) {
   const isMarkdown = useMemo(() => isMarkdownFile(filePath || ''), [filePath]);
   const [showPreview, setShowPreview] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(true);
+
+  // Generate a unique key for this diff based on sessionId and diffId
+  const storageKey = useMemo(() => {
+    if (!sessionId || !diffId) return null;
+    return `diff-viewed-${sessionId}-${diffId}`;
+  }, [sessionId, diffId]);
+
+  // Check if this diff has been viewed before
+  const hasBeenViewed = useMemo(() => {
+    if (!storageKey) return false;
+    try {
+      return localStorage.getItem(storageKey) === 'true';
+    } catch {
+      return false;
+    }
+  }, [storageKey]);
+
+  // Default to expanded only if this is the first time viewing
+  const [isExpanded, setIsExpanded] = useState(!hasBeenViewed);
+
+  // Mark as viewed when component mounts
+  useEffect(() => {
+    if (storageKey && !hasBeenViewed) {
+      try {
+        localStorage.setItem(storageKey, 'true');
+      } catch {
+        // Ignore localStorage errors
+      }
+    }
+  }, [storageKey, hasBeenViewed]);
+
+  // Listen to global collapse all trigger
+  const collapseContext = useDiffCollapseHook?.();
+  useEffect(() => {
+    if (collapseContext && collapseContext.collapseAllTrigger > 0) {
+      setIsExpanded(false);
+    }
+  }, [collapseContext?.collapseAllTrigger]);
 
   // Check if file path is within worktree (relative path or absolute path within worktree)
   const isFileInWorktree = useMemo(() => {

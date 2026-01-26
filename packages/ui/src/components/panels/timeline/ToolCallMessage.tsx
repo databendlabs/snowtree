@@ -28,6 +28,9 @@ export interface ToolCallMessageProps {
   isError?: boolean;
   timestamp: string;
   exitCode?: number;
+  sessionId?: string;
+  worktreePath?: string;
+  toolCallSeq?: number; // Sequence number for generating unique diffId
 }
 
 const parseToolInput = (toolInput?: string | Record<string, unknown>) => {
@@ -83,7 +86,10 @@ export function ToolCallMessage({
   toolResult,
   isError,
   timestamp,
-  exitCode
+  exitCode,
+  sessionId,
+  worktreePath,
+  toolCallSeq
 }: ToolCallMessageProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -209,6 +215,9 @@ export function ToolCallMessage({
               newString={newString}
               filePath={filePath}
               className="tool-diff-viewer"
+              sessionId={sessionId}
+              worktreePath={worktreePath}
+              diffId={`tool-${toolCallSeq || 0}-${filePath || 'unknown'}`}
             />
           </div>
         );

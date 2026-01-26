@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle, Terminal, Edit3, File, Trash2, Circle } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, createContext, useContext } from 'react';
+import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle, Terminal, Edit3, File, Trash2, Circle, ChevronsUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -11,7 +11,7 @@ import { formatDistanceToNow, parseTimestamp } from '../../../utils/timestampUti
 import { ThinkingMessage } from './ThinkingMessage';
 import { ToolCallMessage, getToolIcon } from './ToolCallMessage';
 import { UserQuestionDialog, type Question } from './UserQuestionDialog';
-import { InlineDiffViewer } from './InlineDiffViewer';
+import { InlineDiffViewer, setDiffCollapseHook } from './InlineDiffViewer';
 import './MessageStyles.css';
 
 const colors = {
@@ -26,7 +26,7 @@ const colors = {
   },
   status: {
     done: 'var(--st-text-muted)',
-    running: 'var(--st-accent)', 
+    running: 'var(--st-accent)',
     error: 'var(--st-danger)',
   },
   userCard: {
@@ -38,6 +38,19 @@ const colors = {
     hover: 'color-mix(in srgb, var(--st-surface) 40%, transparent)',
   },
   border: 'var(--st-border)',
+};
+
+// Context for managing global diff collapse state
+interface DiffCollapseContextType {
+  collapseAllTrigger: number;
+  triggerCollapseAll: () => void;
+}
+
+const DiffCollapseContext = createContext<DiffCollapseContextType | null>(null);
+
+export const useDiffCollapse = () => {
+  const context = useContext(DiffCollapseContext);
+  return context;
 };
 
 const Spinner: React.FC<{ className?: string }> = ({ className }) => {
@@ -823,6 +836,7 @@ const AgentResponse: React.FC<{
                           filePath={filePath}
                           sessionId={sessionId}
                           worktreePath={worktreePath}
+                          diffId={`cmd-${idx}-${filePath || 'unknown'}`}
                         />
                       </div>
                     )}
@@ -839,6 +853,7 @@ const AgentResponse: React.FC<{
                           filePath={df.filePath}
                           sessionId={sessionId}
                           worktreePath={worktreePath}
+                          diffId={`cmd-${idx}-${i}-${df.filePath || 'unknown'}`}
                         />
                       </div>
                     ))}
@@ -908,6 +923,19 @@ export const TimelineView: React.FC<{
   const idsRef = useRef(new Set<number>());
   const requestIdRef = useRef(0);
   const [dismissedQuestionIds, setDismissedQuestionIds] = useState<Set<string>>(new Set());
+
+  // State for global diff collapse
+  const [collapseAllTrigger, setCollapseAllTrigger] = useState(0);
+
+  const diffCollapseContextValue = useMemo(() => ({
+    collapseAllTrigger,
+    triggerCollapseAll: () => setCollapseAllTrigger(prev => prev + 1)
+  }), [collapseAllTrigger]);
+
+  // Set the hook for InlineDiffViewer to use
+  useEffect(() => {
+    setDiffCollapseHook(useDiffCollapse);
+  }, []);
 
   const isAtBottom = useCallback((container: HTMLDivElement) => {
     const thresholdPx = 240;
@@ -1085,10 +1113,11 @@ export const TimelineView: React.FC<{
   }, [items, dismissedQuestionIds]);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto relative" onScroll={handleScroll}>
-        <div ref={contentRef} className="px-6 py-4">
-          <div className="flex flex-col gap-6">
+    <DiffCollapseContext.Provider value={diffCollapseContextValue}>
+      <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto relative" onScroll={handleScroll}>
+          <div ref={contentRef} className="px-6 py-4">
+            <div className="flex flex-col gap-6">
             {error && (
               <div className="rounded px-3 py-2" style={{ backgroundColor: 'rgba(224, 108, 117, 0.1)', border: `1px solid ${colors.status.error}33` }}>
                 <div className="text-[12px] font-medium mb-1" style={{ color: colors.status.error }}>Failed to load timeline</div>
@@ -1142,6 +1171,9 @@ export const TimelineView: React.FC<{
                     isError={timelineItem.isError}
                     timestamp={timelineItem.timestamp}
                     exitCode={timelineItem.exitCode}
+                    sessionId={sessionId}
+                    worktreePath={session.worktreePath}
+                    toolCallSeq={timelineItem.seq}
                   />
                 );
               }
@@ -1243,6 +1275,20 @@ export const TimelineView: React.FC<{
           </div>
         )}
 
+        {/* Collapse all diffs button */}
+        <div className="sticky bottom-3 flex justify-start pointer-events-none">
+          <button
+            type="button"
+            onClick={() => diffCollapseContextValue.triggerCollapseAll()}
+            className="pointer-events-auto ml-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition-all hover:bg-white/10"
+            style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.text.secondary }}
+            title="Collapse all diffs"
+          >
+            <ChevronsUp className="w-3 h-3" />
+            <span>Collapse All</span>
+          </button>
+        </div>
+
         <div ref={endRef} />
       </div>
 
@@ -1282,6 +1328,7 @@ export const TimelineView: React.FC<{
         </div>
       )}
     </div>
+    </DiffCollapseContext.Provider>
   );
 };
 
