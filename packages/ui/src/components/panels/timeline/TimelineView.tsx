@@ -1139,7 +1139,7 @@ export const TimelineView: React.FC<{
                 <button
                   type="button"
                   onClick={() => loadTimeline()}
-                  className="text-[11px] px-2 py-1 rounded transition-all hover:bg-white/5"
+                  className="text-[11px] px-2 py-1 rounded transition-all hover:bg-white/5 active:scale-95"
                   style={{ border: `1px solid ${colors.border}`, color: colors.text.secondary }}
                 >
                   Retry
@@ -1278,7 +1278,7 @@ export const TimelineView: React.FC<{
             <button
               type="button"
               onClick={() => scrollToBottom('smooth')}
-              className="pointer-events-auto mr-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition-all hover:bg-white/10"
+              className="pointer-events-auto mr-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition-all hover:bg-white/10 active:scale-95"
               style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.text.secondary }}
               title="Scroll to latest"
             >

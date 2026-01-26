@@ -388,7 +388,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                     type="button"
                     onClick={handleMarkPRReady}
                     disabled={isDisabled}
-                    className="w-full flex items-center justify-center px-2.5 py-2 rounded text-xs font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    className="w-full flex items-center justify-center px-2.5 py-2 rounded text-xs font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40 active:scale-95"
                     style={{
                       backgroundColor: colors.accent,
                       color: '#fff',
@@ -406,7 +406,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                     type="button"
                     onClick={onPushPR}
                     disabled={isPushPRDisabled || isDisabled || remotePullRequest?.state === 'merged' || !hasSessionCommits || (!!remotePullRequest && prSyncStatus?.localAhead === 0)}
-                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40 active:scale-95"
                     style={{
                       backgroundColor: colors.bg.hover,
                       border: `1px solid ${colors.border}`,
@@ -447,7 +447,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                     type="button"
                     onClick={onSyncPR}
                     disabled={isSyncPRDisabled || isDisabled || hasUncommittedChanges || remotePullRequest?.state === 'merged' || (prSyncStatus?.remoteAhead || 0) === 0}
-                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40 active:scale-95"
                     style={{
                       backgroundColor: colors.bg.hover,
                       border: `1px solid ${colors.border}`,
@@ -495,7 +495,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                     type="button"
                     onClick={onUpdateBranch}
                     disabled={isUpdateBranchDisabled || isDisabled || hasUncommittedChanges || (branchSyncStatus?.commitsBehindMain || 0) === 0}
-                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40 active:scale-95"
                     style={{
                       backgroundColor: colors.bg.hover,
                       border: `1px solid ${colors.border}`,
@@ -618,7 +618,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                     type="button"
                     onClick={() => onCommitUncommittedChanges?.()}
                     disabled={Boolean(isCommitDisabled) || stagedFileCount === 0}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40 active:scale-95"
                     style={{ color: colors.accent }}
                     data-testid="right-panel-commit"
                   >
@@ -658,7 +658,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                         data-testid="right-panel-stage-all"
                         disabled={isDisabled}
                         onClick={() => handleStageAll(true)}
-                        className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                        className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40 active:scale-95"
                         style={{
                           color: colors.text.primary,
                           backgroundColor: colors.bg.hover,
@@ -673,7 +673,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                         data-testid="right-panel-unstage-all"
                         disabled={isDisabled || !canUnstageAll}
                         onClick={() => handleStageAll(false)}
-                        className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                        className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40 active:scale-95"
                         style={{
                           color: colors.text.primary,
                           backgroundColor: colors.bg.hover,
