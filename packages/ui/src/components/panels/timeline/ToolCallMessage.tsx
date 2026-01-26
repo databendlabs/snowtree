@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -93,6 +93,26 @@ export function ToolCallMessage({
 }: ToolCallMessageProps) {
   const [expanded, setExpanded] = useState(false);
 
+  // Load params expanded state from localStorage
+  const paramsStorageKey = `tool-params-expanded-${sessionId}-${toolCallSeq}`;
+  const [paramsExpanded, setParamsExpanded] = useState(() => {
+    try {
+      const stored = localStorage.getItem(paramsStorageKey);
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Save params expanded state to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(paramsStorageKey, String(paramsExpanded));
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [paramsExpanded, paramsStorageKey]);
+
   const formatTime = (isoString: string) => {
     const date = new Date(isoString);
     return date.toLocaleTimeString('en-US', {
@@ -112,138 +132,147 @@ export function ToolCallMessage({
     }
   };
 
-  const renderToolInput = () => {
+  // Render concise input summary (always visible)
+  const renderInputSummary = () => {
     const input = parseInput();
     if (!input) return null;
 
-    // Special formatting for common tools
+    // Read tool: show file path with line range
     if (toolName === 'Read' && input.file_path) {
       const offset = input.offset as string | number | undefined;
       const limit = input.limit as string | number | undefined;
       return (
-        <div className="tool-params">
-          <span className="param-label">File:</span>{' '}
-          <code className="param-value">{String(input.file_path)}</code>
+        <div className="tool-input-summary">
+          <span className="summary-label">读取文件:</span>{' '}
+          <code className="summary-value">{String(input.file_path)}</code>
           {offset && (
-            <span className="param-meta">
-              {' '}(Lines {String(offset)}-
-              {String(Number(offset) + (Number(limit) || 2000))})
+            <span className="summary-meta">
+              {' '}(第 {String(offset)}-{String(Number(offset) + (Number(limit) || 2000))} 行)
             </span>
           )}
         </div>
       );
     }
 
+    // Bash tool: show command
     if (toolName === 'Bash' && input.command) {
       return (
-        <div className="tool-params">
-          <span className="param-label">$</span>{' '}
-          <code className="param-value">{String(input.command)}</code>
+        <div className="tool-input-summary">
+          <span className="summary-label">$</span>{' '}
+          <code className="summary-value">{String(input.command)}</code>
         </div>
       );
     }
 
+    // Grep tool: show pattern
     if (toolName === 'Grep' && input.pattern) {
       const path = input.path as string | undefined;
-      const glob = input.glob as string | undefined;
       return (
-        <div className="tool-params">
-          <div>
-            <span className="param-label">Pattern:</span>{' '}
-            <code className="param-value">"{String(input.pattern)}"</code>
-          </div>
-          {path && (
-            <div>
-              <span className="param-label">Path:</span>{' '}
-              <code className="param-value">{String(path)}</code>
-            </div>
-          )}
-          {glob && (
-            <div>
-              <span className="param-label">Glob:</span>{' '}
-              <code className="param-value">{String(glob)}</code>
-            </div>
-          )}
+        <div className="tool-input-summary">
+          <span className="summary-label">搜索:</span>{' '}
+          <code className="summary-value">"{String(input.pattern)}"</code>
+          {path && <span className="summary-meta"> 在 {String(path)}</span>}
         </div>
       );
     }
 
+    // TodoWrite tool: show task summary
     if (toolName === 'TodoWrite' && input.todos) {
       const todos = input.todos as Array<{ status: string; content: string; activeForm?: string }>;
       const completedCount = todos.filter(t => t.status === 'completed').length;
-      const inProgressTasks = todos.filter(t => t.status === 'in_progress');
       const pendingCount = todos.filter(t => t.status === 'pending').length;
-
       return (
-        <div className="tool-params">
-          <div className="param-header">
-            <span className="param-label">Tasks:</span>{' '}
-            <span className="param-value">
-              {completedCount}/{todos.length} completed
-              {pendingCount > 0 && `, ${pendingCount} pending`}
-            </span>
-          </div>
-          {inProgressTasks.length > 0 && (
-            <div className="todo-in-progress" style={{ marginTop: '8px', paddingLeft: '12px', borderLeft: '2px solid var(--st-accent)' }}>
-              {inProgressTasks.map((task, idx) => (
-                <div key={idx} style={{ fontSize: '0.9em', color: 'var(--st-text-secondary)', marginBottom: '4px' }}>
-                  <ArrowRight className="todo-progress-icon" size={12} />
-                  {task.activeForm || task.content}
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="tool-input-summary">
+          <span className="summary-label">任务:</span>{' '}
+          <span className="summary-value">
+            {completedCount}/{todos.length} 已完成
+            {pendingCount > 0 && `, ${pendingCount} 待处理`}
+          </span>
         </div>
       );
     }
 
+    // Edit tool: show file path
+    if (toolName === 'Edit') {
+      const filePath = input.file_path as string | undefined;
+      return (
+        <div className="tool-input-summary">
+          <span className="summary-label">编辑文件:</span>{' '}
+          <code className="summary-value">{String(filePath || 'unknown')}</code>
+        </div>
+      );
+    }
+
+    // Write tool: show file path
+    if (toolName === 'Write' && input.file_path) {
+      return (
+        <div className="tool-input-summary">
+          <span className="summary-label">写入文件:</span>{' '}
+          <code className="summary-value">{String(input.file_path)}</code>
+        </div>
+      );
+    }
+
+    // Default: show first key-value pair
+    const firstKey = Object.keys(input)[0];
+    if (firstKey) {
+      return (
+        <div className="tool-input-summary">
+          <span className="summary-label">{firstKey}:</span>{' '}
+          <code className="summary-value">{String(input[firstKey])}</code>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  // Render detailed parameters (collapsible)
+  const renderDetailedParams = () => {
+    const input = parseInput();
+    if (!input) return null;
+
+    // For Edit tool with diff, show inline diff viewer
     if (toolName === 'Edit') {
       const oldString = input.old_string as string | undefined;
       const newString = input.new_string as string | undefined;
       const filePath = input.file_path as string | undefined;
 
-      // Show diff view if both old and new strings are available
       if (oldString && newString) {
         return (
-          <div className="tool-params">
-            <div className="param-header">
-              <span className="param-label">File:</span>{' '}
-              <code className="param-value">{String(filePath || 'unknown')}</code>
-            </div>
-            <InlineDiffViewer
-              oldString={oldString}
-              newString={newString}
-              filePath={filePath}
-              className="tool-diff-viewer"
-              sessionId={sessionId}
-              worktreePath={worktreePath}
-              diffId={`tool-${toolCallSeq || 0}-${filePath || 'unknown'}`}
-            />
+          <InlineDiffViewer
+            oldString={oldString}
+            newString={newString}
+            filePath={filePath}
+            className="tool-diff-viewer"
+            sessionId={sessionId}
+            worktreePath={worktreePath}
+            diffId={`tool-${toolCallSeq || 0}-${filePath || 'unknown'}`}
+          />
+        );
+      }
+    }
+
+    // For TodoWrite, show task details
+    if (toolName === 'TodoWrite' && input.todos) {
+      const todos = input.todos as Array<{ status: string; content: string; activeForm?: string }>;
+      const inProgressTasks = todos.filter(t => t.status === 'in_progress');
+
+      if (inProgressTasks.length > 0) {
+        return (
+          <div className="todo-in-progress" style={{ marginTop: '8px', paddingLeft: '12px', borderLeft: '2px solid var(--st-accent)' }}>
+            {inProgressTasks.map((task, idx) => (
+              <div key={idx} style={{ fontSize: '0.9em', color: 'var(--st-text-secondary)', marginBottom: '4px' }}>
+                <ArrowRight className="todo-progress-icon" size={12} />
+                {task.activeForm || task.content}
+              </div>
+            ))}
           </div>
         );
       }
-
-      // Fallback: show old string only (for backwards compatibility)
-      return (
-        <div className="tool-params">
-          <div>
-            <span className="param-label">File:</span>{' '}
-            <code className="param-value">{String(filePath || 'unknown')}</code>
-          </div>
-          {oldString && (
-            <div className="param-detail">
-              <span className="param-label">Old:</span>{' '}
-              <code className="param-value-small">
-                {String(oldString).substring(0, 100)}
-                {String(oldString).length > 100 ? '...' : ''}
-              </code>
-            </div>
-          )}
-        </div>
-      );
     }
 
-    // Default: JSON display
+    // Default: show all parameters as JSON
     return (
       <pre className="tool-params-json">
         {JSON.stringify(input, null, 2)}
@@ -291,18 +320,47 @@ export function ToolCallMessage({
         )}
       </div>
 
+      {/* Input summary - always visible when expanded */}
+      {expanded && toolInput && renderInputSummary()}
+
       {expanded && (
         <div className="tool-call-details">
-          {toolInput && (
+          {/* Collapsible detailed parameters */}
+          {toolInput && parseInput() && (
             <div className="tool-section">
-              <div className="section-label">Parameters:</div>
-              {renderToolInput()}
+              <div
+                className="params-toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setParamsExpanded(!paramsExpanded);
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setParamsExpanded(!paramsExpanded);
+                  }
+                }}
+              >
+                {paramsExpanded ? (
+                  <ChevronDown size={12} style={{ marginRight: 4 }} />
+                ) : (
+                  <ChevronRight size={12} style={{ marginRight: 4 }} />
+                )}
+                <span className="params-toggle-label">参数详情</span>
+              </div>
+              {paramsExpanded && (
+                <div className="params-content">
+                  {renderDetailedParams()}
+                </div>
+              )}
             </div>
           )}
 
           {toolResult && (
             <div className="tool-section">
-              <div className="section-label">Result:</div>
+              <div className="section-label">结果:</div>
               <pre className={`tool-result ${isError ? 'error-output' : 'normal-output'}`}>
                 {toolResult}
               </pre>
