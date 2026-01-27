@@ -405,12 +405,12 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                   <button
                     type="button"
                     onClick={onPushPR}
-                    disabled={isPushPRDisabled || isDisabled || remotePullRequest?.state === 'merged' || !hasSessionCommits || (!!remotePullRequest && prSyncStatus?.localAhead === 0)}
+                    disabled={isPushPRDisabled || isDisabled || remotePullRequest?.state === 'merged' || !hasSessionCommits || (!!remotePullRequest && (!prSyncStatus || prSyncStatus.localAhead === 0))}
                     className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40 active:scale-95"
                     style={{
                       backgroundColor: colors.bg.hover,
                       border: `1px solid ${colors.border}`,
-                      color: (isPushPRDisabled || isDisabled || remotePullRequest?.state === 'merged' || !hasSessionCommits || (!!remotePullRequest && prSyncStatus?.localAhead === 0))
+                      color: (isPushPRDisabled || isDisabled || remotePullRequest?.state === 'merged' || !hasSessionCommits || (!!remotePullRequest && (!prSyncStatus || prSyncStatus.localAhead === 0)))
                         ? colors.text.muted
                         : colors.accent,
                     }}
