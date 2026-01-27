@@ -10,6 +10,8 @@ vi.mock('../../../utils/api', () => ({
       getExecutions: vi.fn(),
       getDiff: vi.fn(),
       getRemotePullRequest: vi.fn(),
+      getPrRemoteCommits: vi.fn(),
+      getCommitsBehindMain: vi.fn(),
       changeAllStage: vi.fn(),
       changeFileStage: vi.fn(),
     },
@@ -73,6 +75,8 @@ describe('RightPanel - Zed-style Changes list', () => {
     (API.sessions.changeAllStage as any).mockResolvedValue({ success: true });
     (API.sessions.changeFileStage as any).mockResolvedValue({ success: true });
     (API.sessions.getRemotePullRequest as any).mockResolvedValue({ success: true, data: null });
+    (API.sessions.getPrRemoteCommits as any).mockResolvedValue(null);
+    (API.sessions.getCommitsBehindMain as any).mockResolvedValue(null);
   });
 
   it('renders without crashing', async () => {
@@ -111,6 +115,12 @@ describe('RightPanel - Zed-style Changes list', () => {
     (API.sessions.getRemotePullRequest as any).mockResolvedValue({
       success: true,
       data: { number: 1234, url: 'https://github.com/org/repo/pull/1234' },
+    });
+    // Mock prSyncStatus with localAhead > 0 so button is enabled
+    (API.sessions.getPrRemoteCommits as any).mockResolvedValue({
+      ahead: 1,
+      behind: 0,
+      branch: 'test-branch',
     });
     // Add a session commit (id > 0) so Sync button is enabled
     (API.sessions.getExecutions as any).mockResolvedValue({
