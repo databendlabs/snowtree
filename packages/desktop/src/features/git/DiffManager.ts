@@ -37,9 +37,8 @@ export type WorkingTreeGroups = {
 const MAX_UNTRACKED_FILE_BYTES = 1024 * 1024; // 1MB
 
 export class GitDiffManager {
-  // Use unified=0 to keep nearby change blocks split into distinct hunks.
-  // UI can expand context from fileSources (Zed-like) without relying on unified context lines.
-  private readonly WORKING_DIFF_CONTEXT_LINES = 0;
+  // Show 3 lines of context around changes for better readability
+  private readonly WORKING_DIFF_CONTEXT_LINES = 3;
   // Commit diffs keep a small amount of surrounding context for readability.
   private readonly COMMIT_DIFF_CONTEXT_LINES = 2;
   constructor(
