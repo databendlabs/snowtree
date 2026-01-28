@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, createContext, useContext } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle, Terminal, Edit3, File, Trash2, Circle, ChevronsUp } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ChevronUp, Copy, Loader2, XCircle, Terminal, Edit3, File, Trash2, Circle, ChevronsUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -12,6 +12,7 @@ import { ThinkingMessage } from './ThinkingMessage';
 import { ToolCallMessage, getToolIcon } from './ToolCallMessage';
 import { UserQuestionDialog, type Question } from './UserQuestionDialog';
 import { InlineDiffViewer, setDiffCollapseHook } from './InlineDiffViewer';
+import { ClaudeIcon, CodexIcon, GeminiIcon } from '../../icons/ProviderIcons';
 import './MessageStyles.css';
 
 const colors = {
@@ -143,11 +144,34 @@ const formatSeconds = (durationMs: number): string => {
   return `${seconds.toFixed(1)}s`;
 };
 
+// Helper to check if command text should be truncated (roughly 2 lines at ~100 chars per line)
+const shouldTruncateCommand = (text: string): boolean => {
+  return text.length > 200;
+};
+
+// Helper to truncate command text to approximately 2 lines
+const truncateCommand = (text: string): string => {
+  if (text.length <= 200) return text;
+  return text.substring(0, 200) + '...';
+};
+
 const getCommandIcon = (_kind: 'cli' | 'git' | 'worktree', command: string, meta?: Record<string, unknown>) => {
   // Check for tool calls recorded as cli.command (meta.toolName exists)
   const toolName = typeof meta?.toolName === 'string' ? meta.toolName : null;
   if (toolName) {
     return getToolIcon(toolName, { command, commandActions: meta?.commandActions });
+  }
+
+  // Check if this is a claude/codex/gemini command - use their provider icons
+  const firstWord = command.trim().split(/\s+/)[0]?.toLowerCase() || '';
+  if (firstWord === 'claude') {
+    return ClaudeIcon;
+  }
+  if (firstWord === 'codex') {
+    return CodexIcon;
+  }
+  if (firstWord === 'gemini') {
+    return GeminiIcon;
   }
 
   // Check for Edit tool (has oldString/newString in meta)
@@ -158,8 +182,8 @@ const getCommandIcon = (_kind: 'cli' | 'git' | 'worktree', command: string, meta
   if (meta?.isNewFile === true) {
     return File;
   }
-  // Check for delete operation
-  if (meta?.isDelete === true || command.includes('rm ')) {
+  // Check for delete operation - only check first word to avoid false matches
+  if (meta?.isDelete === true || firstWord === 'rm' || firstWord === 'rmdir') {
     return Trash2;
   }
   // Default to terminal icon for CLI/git commands
@@ -632,6 +656,7 @@ const AgentResponse: React.FC<{
   const userToggledRef = useRef(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [expandedOutputs, setExpandedOutputs] = useState<Set<string>>(new Set());
+  const [expandedCommands, setExpandedCommands] = useState<Set<string>>(new Set());
   const agentLabel = useMemo(() => getAgentModelLabelFromCommands(commands), [commands]);
 
   const handleCopy = useCallback(async (text: string, key: string) => {
@@ -755,9 +780,24 @@ const AgentResponse: React.FC<{
                 const CommandIcon = getCommandIcon(c.kind, display, meta);
                 const hasOutput = showStdout || showStderr;
                 const isOutputExpanded = expandedOutputs.has(key);
+                const needsTruncation = shouldTruncateCommand(display);
+                const isCommandExpanded = expandedCommands.has(key);
+                const displayText = needsTruncation && !isCommandExpanded ? truncateCommand(display) : display;
 
                 const toggleOutput = () => {
                   setExpandedOutputs(prev => {
+                    const next = new Set(prev);
+                    if (next.has(key)) {
+                      next.delete(key);
+                    } else {
+                      next.add(key);
+                    }
+                    return next;
+                  });
+                };
+
+                const toggleCommand = () => {
+                  setExpandedCommands(prev => {
                     const next = new Set(prev);
                     if (next.has(key)) {
                       next.delete(key);
@@ -783,8 +823,33 @@ const AgentResponse: React.FC<{
                         )}
                       </span>
                       <CommandIcon className="command-type-icon" style={{ width: 13, height: 13, marginRight: 8, flexShrink: 0, opacity: 0.6 }} />
-                      <span className="command-text">{display}</span>
+                      <span className="command-text">{displayText}</span>
                       <div className="command-actions">
+                        {needsTruncation && (
+                          <button
+                            onClick={toggleCommand}
+                            className="text-xs px-2 py-0.5 rounded flex items-center gap-1 transition-colors hover:opacity-80"
+                            style={{
+                              backgroundColor: isCommandExpanded ? colors.command.hover : colors.command.bg,
+                              border: `1px solid ${colors.border}`,
+                              color: colors.text.secondary,
+                              marginRight: 6
+                            }}
+                            title={isCommandExpanded ? 'Collapse command' : 'Expand command'}
+                          >
+                            {isCommandExpanded ? (
+                              <>
+                                <ChevronUp style={{ width: 11, height: 11 }} />
+                                <span>Collapse</span>
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown style={{ width: 11, height: 11 }} />
+                                <span>Expand</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                         {hasOutput && (
                           <button
                             onClick={toggleOutput}

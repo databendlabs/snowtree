@@ -18,6 +18,7 @@ import {
   ArrowRight,
   Trash2
 } from 'lucide-react';
+import { ClaudeIcon, CodexIcon, GeminiIcon } from '../../icons/ProviderIcons';
 import './ToolCallMessage.css';
 import { InlineDiffViewer } from './InlineDiffViewer';
 
@@ -50,6 +51,20 @@ export const getToolIcon = (toolName: string, toolInput?: string | Record<string
     case 'bash':
     case 'commandexecution': {
       const input = parseToolInput(toolInput);
+
+      // Check if this is a claude/codex/gemini command - use their provider icons
+      const command = typeof input?.command === 'string' ? input.command.trim() : '';
+      const firstWord = command.split(/\s+/)[0]?.toLowerCase() || '';
+      if (firstWord === 'claude') {
+        return ClaudeIcon;
+      }
+      if (firstWord === 'codex') {
+        return CodexIcon;
+      }
+      if (firstWord === 'gemini') {
+        return GeminiIcon;
+      }
+
       const actions = Array.isArray(input?.commandActions) ? input.commandActions as Array<Record<string, unknown>> : [];
       const actionTypes = new Set(
         actions
@@ -63,6 +78,10 @@ export const getToolIcon = (toolName: string, toolInput?: string | Record<string
         if (actionTypes.has('file_read') || actionTypes.has('read')) return FileText;
         if (actionTypes.has('search') || actionTypes.has('grep') || actionTypes.has('find') || actionTypes.has('glob')) return Search;
       }
+
+      // For other commands, only check the first word to avoid false matches
+      if (firstWord === 'rm' || firstWord === 'rmdir') return Trash2;
+
       return Terminal;
     }
     case 'grep': return Search;
