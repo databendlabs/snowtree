@@ -72,3 +72,29 @@ export function GeminiIcon({ className = "w-4 h-4" }: IconProps) {
     </svg>
   );
 }
+
+const KIMI_LOGO_DATA_URI =
+  "data:image/jpeg;base64,/9j/2wCEAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDIBCQkJDAsMGA0NGDIhHCEyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMv/AABEIADAAMAMBIgACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/AOk+JnxMuNKu5ND0OQR3KDFzcgAlCf4V9/U9vrXiN9qN1fzNNd3U1xKeryyFyfxNGo30l/fXF3M2ZZ5Glc+pY5P866b4d+BR411R/tN2tvY2+DKFcebIfRQf1OK00SM9WziXeqsklfVth8OrXQAx0Ca3iJOdl9ZR3A+m4bZPzY4rK8XWml2ujzXPjLwrpktknDXunzKsgz0wH2MD7KzZ96XMVY+Z7bU73TpxPZXc9tMpyJIZCjD8RXu3wk+LtzrOoR+HPEUoku5Bi0uyADIQPuP746Hv069fFfFdnoVnfCbw7qpvtOlyVWVCk0J/uuCBn2YcVh2F/Np2qWt/bsVmtpkmQjsykEfyqWNGy719MeGYvBsPhfSdFv0sluY4FzHqEHkyNIeWK+YAT8xOCK+Xnkr6m8OeOfD+teEdPfVFaGJ4FSVry2b7OXUbW/eEFOoPUg+1OTEjdHhg2+H0nWtSsR1EZm+0RH/gMu7A/wB0ivK/FPxUfStXutC8W+E4tV06KUrHcSWxg8zHG9Uk3A98EEZHPGa9Bv8Aw9Yv4fvLvwZJ5F75LG0GnXmyBpMfLlAfLIzjqK8vn+IvxK8NxNbeMPCKalZjiSSS2wG/4GmY/wBKkoxtQi+DvifTrqXTp73QdTETNDDLuEbSAHAOdygZx0IryNEr1nVPE3wr8Q6ReSN4VuNK1YQuYPs3yxmTB2j5CBjOOq15ciUAXNTtpdO1G6sZwVlt5WicHsVJB/lXZfDT4oz+Bbt7W8R7nRrht0sS/eibpvTP6jvgV6J8XfhJd6zeyeIvDkQlu5Bm6swQDIQPvp746jv1HPX56v8AT77T7loL+zuLWZTgxzxlGH4EU7isfUWqt4T8b+Hrq48HavpVhr8qqYbuOX7LMjBgSH24fkZHIPWuAu/HnxL8ASRxatqOlapDnaoeaKYn/vgrJ+JFeLolWESkM6zxr40bxre29wdHsNOMa/ObeMb5WPUs+ASPQduaw9NsJdQ1C2soFLS3EqxIB3LEAfzosNNvNQnWCytJ7mU8BIYy7H8BXvXwp+FNzo97H4g1+IR3UYza2hIJjJH339/QduvXoAf/2Q==";
+
+export function KimiIcon({ className = "w-4 h-4" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      height="1em"
+      style={{ flex: 'none', lineHeight: 1 }}
+      viewBox="0 0 24 24"
+      width="1em"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>Kimi</title>
+      <image
+        href={KIMI_LOGO_DATA_URI}
+        x="2"
+        y="2"
+        width="20"
+        height="20"
+        preserveAspectRatio="xMidYMid slice"
+      />
+    </svg>
+  );
+}

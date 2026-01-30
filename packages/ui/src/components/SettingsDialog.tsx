@@ -2,7 +2,7 @@ import { Settings, X } from 'lucide-react';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useThemeStore } from '../stores/themeStore';
 import { useEffect } from 'react';
-import { ClaudeIcon, CodexIcon, GeminiIcon } from './icons/ProviderIcons';
+import { ClaudeIcon, CodexIcon, GeminiIcon, KimiIcon } from './icons/ProviderIcons';
 
 function getResolvedTheme(themeSetting: 'light' | 'dark' | 'system'): 'light' | 'dark' {
   if (themeSetting !== 'system') return themeSetting;
@@ -214,6 +214,33 @@ export function SettingsDialog() {
                   <span
                     className="block h-4 w-4 bg-white rounded-full transition-transform"
                     style={{ transform: settings.enabledProviders.gemini ? 'translateX(1.25rem)' : 'translateX(0)' }}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <KimiIcon className="w-4 h-4 flex-shrink-0" />
+                  <label className="text-sm" style={{ color: 'var(--st-text-muted)' }}>
+                    Kimi
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateSettings({
+                    enabledProviders: { ...settings.enabledProviders, kimi: !settings.enabledProviders.kimi }
+                  })}
+                  className="flex-shrink-0 w-10 h-5 cursor-pointer rounded-full p-0.5"
+                  role="switch"
+                  aria-checked={settings.enabledProviders.kimi}
+                  style={{
+                    backgroundColor: settings.enabledProviders.kimi ? 'var(--st-accent)' : 'var(--st-border)',
+                    transition: 'background-color 0.2s'
+                  }}
+                >
+                  <span
+                    className="block h-4 w-4 bg-white rounded-full transition-transform"
+                    style={{ transform: settings.enabledProviders.kimi ? 'translateX(1.25rem)' : 'translateX(0)' }}
                   />
                 </button>
               </div>

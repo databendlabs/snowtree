@@ -35,6 +35,14 @@ exports.PANEL_CAPABILITIES = {
         canAppearInProjects: true, // Gemini can appear in projects
         canAppearInWorktrees: true // Gemini can appear in worktrees
     },
+    kimi: {
+        canEmit: ['files:changed'], // Kimi can change files through tool calls
+        canConsume: [], // Kimi doesn't consume events in initial implementation
+        requiresProcess: true,
+        singleton: false,
+        canAppearInProjects: true, // Kimi can appear in projects
+        canAppearInWorktrees: true // Kimi can appear in worktrees
+    },
     diff: {
         canEmit: ['diff:refreshed'],
         canConsume: ['files:changed', 'terminal:command_executed'],

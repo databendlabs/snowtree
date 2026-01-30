@@ -23,7 +23,7 @@ export interface Session {
   baseBranch?: string;
   archived?: boolean;
   displayOrder?: number;
-  toolType?: 'claude' | 'codex' | 'gemini' | 'none';
+  toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
   executionMode?: 'plan' | 'execute';
   gitStatus?: GitStatus;
   workspaceStage?: import('./workspace').WorkspaceStage;

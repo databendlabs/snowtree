@@ -11,7 +11,7 @@ Snowtree fixes this with **worktree isolation**, **incremental review**, and **s
 
 - **Worktree isolation** – every AI session runs in its own Git worktree, so you can spike multiple ideas in parallel with zero merge headaches.
 - **Incremental review loop** – review, stage, and lock in vetted changes after each AI round; subsequent rounds only diff against staged code.
-- **Native CLI agents** – run Claude Code or Codex directly without wrappers, meaning no extra queues or limits.
+- **Native CLI agents** – run Claude Code, Codex, Gemini CLI, or Kimi Code CLI directly without wrappers, meaning no extra queues or limits.
 - **Stage-as-snapshot** – staged files become the canonical baseline. When you're ready, merge them back and ship the PR.
 
 ## What Snowtree Automates
@@ -31,6 +31,7 @@ Install at least one AI coding agent:
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `npm install -g @anthropic-ai/claude-code` |
 | [Codex](https://github.com/openai/codex) | `npm install -g @openai/codex` |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `npm install -g @google/gemini-cli` |
+| [Kimi Code CLI](https://github.com/MoonshotAI/kimi-cli) | `curl -LsSf https://code.kimi.com/install.sh \| bash` |
 
 ## Install
 

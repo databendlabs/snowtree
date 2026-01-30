@@ -2,7 +2,7 @@ import type { Session } from '../../types/session';
 import type { DiffTarget } from '../../types/diff';
 import type { TodoItem } from '../../stores/sessionStore';
 
-export type CLITool = 'claude' | 'codex' | 'gemini';
+export type CLITool = 'claude' | 'codex' | 'gemini' | 'kimi';
 
 export interface FileChange {
   path: string;

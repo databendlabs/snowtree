@@ -6,12 +6,12 @@ export interface ToolPanel {
     state: ToolPanelState;
     metadata: ToolPanelMetadata;
 }
-export type ToolPanelType = 'terminal' | 'claude' | 'codex' | 'gemini' | 'diff' | 'editor' | 'logs' | 'dashboard' | 'setup-tasks';
+export type ToolPanelType = 'terminal' | 'claude' | 'codex' | 'gemini' | 'kimi' | 'diff' | 'editor' | 'logs' | 'dashboard' | 'setup-tasks';
 export interface ToolPanelState {
     isActive: boolean;
     isPinned?: boolean;
     hasBeenViewed?: boolean;
-    customState?: TerminalPanelState | ClaudePanelState | CodexPanelState | GeminiPanelState | DiffPanelState | EditorPanelState | LogsPanelState | DashboardPanelState | SetupTasksPanelState | Record<string, unknown>;
+    customState?: TerminalPanelState | ClaudePanelState | CodexPanelState | GeminiPanelState | KimiPanelState | DiffPanelState | EditorPanelState | LogsPanelState | DashboardPanelState | SetupTasksPanelState | Record<string, unknown>;
 }
 export interface TerminalPanelState {
     isInitialized?: boolean;
@@ -84,6 +84,9 @@ export interface CodexPanelState extends BaseAIPanelState {
 export interface GeminiPanelState extends BaseAIPanelState {
     approvalMode?: 'default' | 'auto_edit' | 'yolo' | 'plan';
 }
+export interface KimiPanelState extends BaseAIPanelState {
+    approvalMode?: 'default' | 'yolo';
+}
 export interface EditorPanelState {
     filePath?: string;
     content?: string;
@@ -135,7 +138,7 @@ export interface CreatePanelRequest {
     sessionId: string;
     type: ToolPanelType;
     title?: string;
-    initialState?: TerminalPanelState | ClaudePanelState | CodexPanelState | GeminiPanelState | DiffPanelState | EditorPanelState | LogsPanelState | DashboardPanelState | SetupTasksPanelState | {
+    initialState?: TerminalPanelState | ClaudePanelState | CodexPanelState | GeminiPanelState | KimiPanelState | DiffPanelState | EditorPanelState | LogsPanelState | DashboardPanelState | SetupTasksPanelState | {
         customState?: unknown;
     };
     metadata?: Partial<ToolPanelMetadata>;

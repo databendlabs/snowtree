@@ -94,11 +94,12 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     if (!session) return;
 
     // Get list of enabled tools based on settings
-    const allTools: CLITool[] = ['claude', 'codex', 'gemini'];
+    const allTools: CLITool[] = ['claude', 'codex', 'kimi', 'gemini'];
     const enabledTools = allTools.filter(tool => {
       if (tool === 'claude') return settings.enabledProviders.claude;
       if (tool === 'codex') return settings.enabledProviders.codex;
       if (tool === 'gemini') return settings.enabledProviders.gemini;
+      if (tool === 'kimi') return settings.enabledProviders.kimi;
       return false;
     });
 
@@ -144,7 +145,9 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
               ? 'codex'
               : response.data.toolType === 'gemini'
                 ? 'gemini'
-                : 'claude'
+                : response.data.toolType === 'kimi'
+                  ? 'kimi'
+                  : 'claude'
           );
           setExecutionMode(response.data.executionMode === 'plan' ? 'plan' : 'execute');
           setIsProcessing(
@@ -166,7 +169,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
         if (panelsResponse?.success && panelsResponse.data) {
           const panels: ToolPanel[] = panelsResponse.data;
 
-          const ai = panels.find(p => ['claude', 'codex', 'gemini'].includes(p.type)) || null;
+          const ai = panels.find(p => ['claude', 'codex', 'gemini', 'kimi'].includes(p.type)) || null;
           setAiPanel(ai);
           const terminal = panels.find(p => p.type === 'terminal') || null;
           setTerminalPanel(terminal);
@@ -250,7 +253,9 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
           ? 'codex'
           : createdSession.toolType === 'gemini'
             ? 'gemini'
-            : 'claude'
+            : createdSession.toolType === 'kimi'
+              ? 'kimi'
+              : 'claude'
       );
       setIsProcessing(
         createdSession.status === 'running' || createdSession.status === 'initializing'
@@ -279,7 +284,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     };
   }, [sessionId]);
 
-  const ensureAiPanel = useCallback(async (desiredPanelType: 'claude' | 'codex' | 'gemini') => {
+  const ensureAiPanel = useCallback(async (desiredPanelType: 'claude' | 'codex' | 'gemini' | 'kimi') => {
     if (!session) return null;
 
     let panelToUse = aiPanel;
@@ -309,7 +314,13 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
       const createResponse = await window.electronAPI.panels.create({
         sessionId: session.id,
         type: desiredPanelType,
-        name: desiredPanelType === 'codex' ? 'Codex' : desiredPanelType === 'gemini' ? 'Gemini' : 'Claude'
+        name: desiredPanelType === 'codex'
+          ? 'Codex'
+          : desiredPanelType === 'gemini'
+            ? 'Gemini'
+            : desiredPanelType === 'kimi'
+              ? 'Kimi'
+              : 'Claude'
       });
 
       if (createResponse?.success && createResponse.data) {
@@ -352,7 +363,13 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     setIsProcessing(true);
 
     try {
-      const desiredPanelType = selectedTool === 'codex' ? 'codex' : selectedTool === 'gemini' ? 'gemini' : 'claude';
+      const desiredPanelType = selectedTool === 'codex'
+        ? 'codex'
+        : selectedTool === 'gemini'
+          ? 'gemini'
+          : selectedTool === 'kimi'
+            ? 'kimi'
+            : 'claude';
       const panelToUse = await ensureAiPanel(desiredPanelType);
 
       if (!panelToUse) {
@@ -378,7 +395,13 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     setIsProcessing(true);
 
     try {
-      const desiredPanelType = tool === 'codex' ? 'codex' : tool === 'gemini' ? 'gemini' : 'claude';
+      const desiredPanelType = tool === 'codex'
+        ? 'codex'
+        : tool === 'gemini'
+          ? 'gemini'
+          : tool === 'kimi'
+            ? 'kimi'
+            : 'claude';
       const panelToUse = await ensureAiPanel(desiredPanelType);
 
       if (!panelToUse) {
@@ -416,15 +439,17 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     const isCurrentToolEnabled =
       (selectedTool === 'claude' && settings.enabledProviders.claude) ||
       (selectedTool === 'codex' && settings.enabledProviders.codex) ||
-      (selectedTool === 'gemini' && settings.enabledProviders.gemini);
+      (selectedTool === 'gemini' && settings.enabledProviders.gemini) ||
+      (selectedTool === 'kimi' && settings.enabledProviders.kimi);
 
     // If current tool is disabled, switch to first enabled tool
     if (!isCurrentToolEnabled) {
-      const allTools: CLITool[] = ['claude', 'codex', 'gemini'];
+      const allTools: CLITool[] = ['claude', 'codex', 'kimi', 'gemini'];
       const enabledTools = allTools.filter(tool => {
         if (tool === 'claude') return settings.enabledProviders.claude;
         if (tool === 'codex') return settings.enabledProviders.codex;
         if (tool === 'gemini') return settings.enabledProviders.gemini;
+        if (tool === 'kimi') return settings.enabledProviders.kimi;
         return false;
       });
 

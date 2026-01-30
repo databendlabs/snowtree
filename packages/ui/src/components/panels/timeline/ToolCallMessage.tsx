@@ -18,7 +18,7 @@ import {
   ArrowRight,
   Trash2
 } from 'lucide-react';
-import { ClaudeIcon, CodexIcon, GeminiIcon } from '../../icons/ProviderIcons';
+import { ClaudeIcon, CodexIcon, GeminiIcon, KimiIcon } from '../../icons/ProviderIcons';
 import './ToolCallMessage.css';
 import { InlineDiffViewer } from './InlineDiffViewer';
 
@@ -52,7 +52,7 @@ export const getToolIcon = (toolName: string, toolInput?: string | Record<string
     case 'commandexecution': {
       const input = parseToolInput(toolInput);
 
-      // Check if this is a claude/codex/gemini command - use their provider icons
+      // Check if this is a claude/codex/gemini/kimi command - use their provider icons
       const command = typeof input?.command === 'string' ? input.command.trim() : '';
       const firstWord = command.split(/\s+/)[0]?.toLowerCase() || '';
       if (firstWord === 'claude') {
@@ -63,6 +63,9 @@ export const getToolIcon = (toolName: string, toolInput?: string | Record<string
       }
       if (firstWord === 'gemini') {
         return GeminiIcon;
+      }
+      if (firstWord === 'kimi') {
+        return KimiIcon;
       }
 
       const actions = Array.isArray(input?.commandActions) ? input.commandActions as Array<Record<string, unknown>> : [];

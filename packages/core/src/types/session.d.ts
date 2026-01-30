@@ -24,7 +24,7 @@ export interface Session {
     displayOrder?: number;
     isFavorite?: boolean;
     autoCommit?: boolean;
-    toolType: 'claude' | 'codex' | 'gemini' | 'none';
+    toolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
     baseCommit?: string;
     baseBranch?: string;
     commitMode?: 'structured' | 'checkpoint' | 'disabled';
@@ -45,7 +45,7 @@ export interface SessionUpdate {
     baseCommit?: string | null;
     baseBranch?: string | null;
     skipContinueNext?: boolean;
-    toolType?: 'claude' | 'codex' | 'gemini' | 'none';
+    toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
     executionMode?: 'plan' | 'execute';
 }
 export interface GitStatus {

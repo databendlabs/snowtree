@@ -7,7 +7,7 @@ import type { TimelineEvent } from '../../types/timeline';
 import { clearSessionDraft, getSessionDraft, setSessionDraft } from './sessionDraftCache';
 import { InputBarEditor, type InputBarEditorHandle } from './InputBarEditor';
 import { isTerminalEventTarget } from './terminalUtils';
-import { ClaudeIcon, CodexIcon, GeminiIcon } from '../icons/ProviderIcons';
+import { ClaudeIcon, CodexIcon, GeminiIcon, KimiIcon } from '../icons/ProviderIcons';
 
 const KnightRiderSpinner: React.FC<{ color?: string }> = ({ color = 'var(--st-accent)' }) => {
   const [frame, setFrame] = useState(0);
@@ -58,6 +58,7 @@ type AiToolsStatus = {
   claude: ToolAvailability;
   codex: ToolAvailability;
   gemini: ToolAvailability;
+  kimi: ToolAvailability;
 };
 
 type ToolDisplaySettings = {
@@ -69,6 +70,7 @@ type AiToolSettingsResponse = {
   claude?: { model?: string };
   codex?: { model?: string; reasoningEffort?: string; sandbox?: string; askForApproval?: string };
   gemini?: { model?: string };
+  kimi?: { model?: string };
 };
 
 const formatCliVersion = (version?: string): string | undefined => {
@@ -113,6 +115,7 @@ const CLISelector: React.FC<{
   const tools: { id: CLITool; label: string; icon: React.ReactNode }[] = [
     { id: 'claude', label: 'Claude', icon: <Sparkles className="w-3.5 h-3.5" /> },
     { id: 'codex', label: 'Codex', icon: <Code2 className="w-3.5 h-3.5" /> },
+    { id: 'kimi', label: 'Kimi', icon: <KimiIcon className="w-3.5 h-3.5" /> },
     { id: 'gemini', label: 'Gemini', icon: <Star className="w-3.5 h-3.5" /> },
   ];
 
@@ -226,7 +229,8 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   const [toolSettings, setToolSettings] = useState<Record<CLITool, ToolDisplaySettings>>({
     claude: {},
     codex: {},
-    gemini: {}
+    gemini: {},
+    kimi: {}
   });
   const [escPending, setEscPending] = useState(false);
   const escTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -694,7 +698,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
   const applyTimelineEventToSettings = useCallback((event: TimelineEvent) => {
     if (event.kind !== 'cli.command') return;
-    if (event.tool !== 'claude' && event.tool !== 'codex' && event.tool !== 'gemini') return;
+    if (event.tool !== 'claude' && event.tool !== 'codex' && event.tool !== 'gemini' && event.tool !== 'kimi') return;
     const meta = (event.meta || {}) as Record<string, unknown>;
     const cliModel = typeof meta.cliModel === 'string' ? meta.cliModel : undefined;
     const cliReasoningEffort = typeof meta.cliReasoningEffort === 'string' ? meta.cliReasoningEffort : undefined;
@@ -712,10 +716,15 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
           model: cliModel ?? next.codex.model,
           level: cliReasoningEffort ?? next.codex.level,
         };
-      } else {
+      } else if (event.tool === 'gemini') {
         next.gemini = {
           ...next.gemini,
           model: cliModel ?? next.gemini.model,
+        };
+      } else if (event.tool === 'kimi') {
+        next.kimi = {
+          ...next.kimi,
+          model: cliModel ?? next.kimi.model,
         };
       }
       return next;
@@ -739,6 +748,9 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
         gemini: {
           model: typeof data.gemini?.model === 'string' ? data.gemini?.model : prev.gemini.model,
         },
+        kimi: {
+          model: typeof data.kimi?.model === 'string' ? data.kimi?.model : prev.kimi.model,
+        },
       }));
     } catch {
     } finally {
@@ -756,15 +768,18 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       let lastClaude: TimelineEvent | null = null;
       let lastCodex: TimelineEvent | null = null;
       let lastGemini: TimelineEvent | null = null;
+      let lastKimi: TimelineEvent | null = null;
       for (const e of events) {
         if (e.kind !== 'cli.command') continue;
         if (e.tool === 'claude') lastClaude = e;
         if (e.tool === 'codex') lastCodex = e;
         if (e.tool === 'gemini') lastGemini = e;
+        if (e.tool === 'kimi') lastKimi = e;
       }
       if (lastClaude) applyTimelineEventToSettings(lastClaude);
       if (lastCodex) applyTimelineEventToSettings(lastCodex);
       if (lastGemini) applyTimelineEventToSettings(lastGemini);
+      if (lastKimi) applyTimelineEventToSettings(lastKimi);
     } catch {
     } finally {
       setToolSettingsTimelineLoading(false);
@@ -791,7 +806,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     void loadAvailability();
   }, [loadAvailability]);
 
-  const agentName = selectedTool === 'claude' ? 'Claude' : selectedTool === 'codex' ? 'Codex' : 'Gemini';
+  const agentName = selectedTool === 'claude' ? 'Claude' : selectedTool === 'codex' ? 'Codex' : selectedTool === 'gemini' ? 'Gemini' : 'Kimi';
   const modeName = executionMode === 'plan' ? 'Plan' : 'Execute';
   const selectedSettings = toolSettings[selectedTool];
   const availabilityForSelected = aiToolsStatus?.[selectedTool];
@@ -841,6 +856,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                   {selectedTool === 'claude' && <ClaudeIcon className="w-3.5 h-3.5" />}
                   {selectedTool === 'codex' && <CodexIcon className="w-3.5 h-3.5" />}
                   {selectedTool === 'gemini' && <GeminiIcon className="w-3.5 h-3.5" />}
+                  {selectedTool === 'kimi' && <KimiIcon className="w-3.5 h-3.5" />}
                   <span data-testid="input-agent">{agentName}</span>
                 </div>
                 <span

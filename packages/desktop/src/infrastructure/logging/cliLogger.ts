@@ -6,7 +6,7 @@
 
 import { fileLogger } from './fileLogger';
 
-export type CliTool = 'Claude' | 'Codex' | 'Gemini' | 'CLI';
+export type CliTool = 'Claude' | 'Codex' | 'Gemini' | 'Kimi' | 'CLI';
 
 interface CliRequest {
   tool: CliTool;

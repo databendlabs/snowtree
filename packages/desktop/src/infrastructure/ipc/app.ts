@@ -6,12 +6,12 @@ import type { AppServices } from './types';
 
 export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): void {
   const { app } = services;
-  const { claudeExecutor, codexExecutor, geminiExecutor } = services;
+  const { claudeExecutor, codexExecutor, geminiExecutor, kimiExecutor } = services;
 
   let cachedAiToolStatus:
-    | { fetchedAtMs: number; data: { claude: unknown; codex: unknown; gemini: unknown } }
+    | { fetchedAtMs: number; data: { claude: unknown; codex: unknown; gemini: unknown; kimi: unknown } }
     | null = null;
-  let inFlightAiToolStatus: Promise<{ claude: unknown; codex: unknown; gemini: unknown }> | null = null;
+  let inFlightAiToolStatus: Promise<{ claude: unknown; codex: unknown; gemini: unknown; kimi: unknown }> | null = null;
 
   // Basic app info handlers
   ipcMain.handle('get-app-version', () => {
@@ -149,7 +149,7 @@ export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): vo
 
     if (!inFlightAiToolStatus) {
       inFlightAiToolStatus = (async () => {
-        const [claude, codex, gemini] = await Promise.all([
+        const [claude, codex, gemini, kimi] = await Promise.all([
           (async () => {
             if (force) claudeExecutor.clearAvailabilityCache();
             return claudeExecutor.getCachedAvailability();
@@ -161,12 +161,17 @@ export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): vo
           (async () => {
             if (force) geminiExecutor.clearAvailabilityCache();
             return geminiExecutor.getCachedAvailability();
+          })(),
+          (async () => {
+            if (force) kimiExecutor.clearAvailabilityCache();
+            return kimiExecutor.getCachedAvailability();
           })()
         ]);
         return {
           claude: claude ?? { available: false, error: 'Claude executor unavailable' },
           codex: codex ?? { available: false, error: 'Codex executor unavailable' },
-          gemini: gemini ?? { available: false, error: 'Gemini executor unavailable' }
+          gemini: gemini ?? { available: false, error: 'Gemini executor unavailable' },
+          kimi: kimi ?? { available: false, error: 'Kimi executor unavailable' }
         };
       })().finally(() => {
         inFlightAiToolStatus = null;
@@ -258,6 +263,42 @@ export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): vo
         }
       }
 
+      const kimiConfigTomlPath = path.join(home, '.kimi', 'config.toml');
+      const kimiConfigJsonPath = path.join(home, '.kimi', 'config.json');
+      let kimiModel: string | undefined;
+      const kimiTomlExists = fs.existsSync(kimiConfigTomlPath);
+      const kimiJsonExists = fs.existsSync(kimiConfigJsonPath);
+      if (kimiTomlExists) {
+        try {
+          const raw = fs.readFileSync(kimiConfigTomlPath, 'utf8');
+          const lines = raw.split(/\r?\n/);
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+            if (trimmed.startsWith('[')) break;
+            const match = /^([A-Za-z0-9_\-.]+)\s*=\s*(.+)$/.exec(trimmed);
+            if (!match) continue;
+            const key = match[1].replace(/^\uFEFF/, '');
+            let value = match[2].trim();
+            const hash = value.indexOf(' #');
+            if (hash >= 0) value = value.slice(0, hash).trim();
+            if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+            if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+            if (key === 'default_model') kimiModel = value;
+          }
+        } catch {
+          // ignore parse issues
+        }
+      } else if (kimiJsonExists) {
+        try {
+          const raw = fs.readFileSync(kimiConfigJsonPath, 'utf8');
+          const parsed = JSON.parse(raw) as { default_model?: unknown };
+          if (typeof parsed.default_model === 'string') kimiModel = parsed.default_model;
+        } catch {
+          // ignore invalid JSON
+        }
+      }
+
       // Debug-only log for diagnosing detection issues; never include secrets.
       // This will appear in the main process log when the UI opens the CLI selector.
       console.log('[AI Tools] settings probe', {
@@ -265,12 +306,15 @@ export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): vo
         claudeSettingsExists,
         codexConfigExists,
         geminiSettingsExists,
+        kimiTomlExists,
+        kimiJsonExists,
         claudeModel,
         codexModel,
         codexReasoningEffort,
         codexSandbox,
         codexAskForApproval,
         geminiModel,
+        kimiModel,
       });
 
       return {
@@ -287,6 +331,9 @@ export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): vo
           },
           gemini: {
             model: geminiModel,
+          },
+          kimi: {
+            model: kimiModel,
           }
         }
       };

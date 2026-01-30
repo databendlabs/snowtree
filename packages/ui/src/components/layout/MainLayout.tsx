@@ -225,7 +225,7 @@ export const MainLayout: React.FC = React.memo(() => {
   // Push and create/update PR - AI executes git push and gh pr directly
   const handleRequestPushPR = useCallback(async () => {
     if (!session || isProcessing) return;
-    if (session.toolType !== 'codex' && session.toolType !== 'claude' && session.toolType !== 'gemini') return;
+    if (session.toolType !== 'codex' && session.toolType !== 'claude' && session.toolType !== 'gemini' && session.toolType !== 'kimi') return;
 
     handleCloseDiff();
     setInputFocusRequestId((prev) => prev + 1);
@@ -293,7 +293,7 @@ export const MainLayout: React.FC = React.memo(() => {
   // Update branch - AI executes git rebase on main
   const handleUpdateBranch = useCallback(async () => {
     if (!session || isProcessing) return;
-    if (session.toolType !== 'codex' && session.toolType !== 'claude' && session.toolType !== 'gemini') return;
+    if (session.toolType !== 'codex' && session.toolType !== 'claude' && session.toolType !== 'gemini' && session.toolType !== 'kimi') return;
 
     handleCloseDiff();
     setInputFocusRequestId((prev) => prev + 1);
@@ -348,7 +348,7 @@ export const MainLayout: React.FC = React.memo(() => {
   // Sync PR changes - AI fetches and rebases remote PR updates
   const handleSyncPR = useCallback(async () => {
     if (!session || isProcessing) return;
-    if (session.toolType !== 'codex' && session.toolType !== 'claude' && session.toolType !== 'gemini') return;
+    if (session.toolType !== 'codex' && session.toolType !== 'claude' && session.toolType !== 'gemini' && session.toolType !== 'kimi') return;
 
     handleCloseDiff();
     setInputFocusRequestId((prev) => prev + 1);
@@ -477,7 +477,7 @@ export const MainLayout: React.FC = React.memo(() => {
     );
   }
 
-  const isCliAgent = displaySession.toolType === 'claude' || displaySession.toolType === 'codex' || displaySession.toolType === 'gemini';
+  const isCliAgent = displaySession.toolType === 'claude' || displaySession.toolType === 'codex' || displaySession.toolType === 'gemini' || displaySession.toolType === 'kimi';
 
   return (
     <div className="flex-1 flex h-full overflow-hidden st-bg" data-testid="main-layout">

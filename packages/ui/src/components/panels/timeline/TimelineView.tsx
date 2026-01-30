@@ -12,7 +12,7 @@ import { ThinkingMessage } from './ThinkingMessage';
 import { ToolCallMessage, getToolIcon } from './ToolCallMessage';
 import { UserQuestionDialog, type Question } from './UserQuestionDialog';
 import { InlineDiffViewer, setDiffCollapseHook } from './InlineDiffViewer';
-import { ClaudeIcon, CodexIcon, GeminiIcon } from '../../icons/ProviderIcons';
+import { ClaudeIcon, CodexIcon, GeminiIcon, KimiIcon } from '../../icons/ProviderIcons';
 import './MessageStyles.css';
 
 const colors = {
@@ -162,7 +162,7 @@ const getCommandIcon = (_kind: 'cli' | 'git' | 'worktree', command: string, meta
     return getToolIcon(toolName, { command, commandActions: meta?.commandActions });
   }
 
-  // Check if this is a claude/codex/gemini command - use their provider icons
+  // Check if this is a claude/codex/gemini/kimi command - use their provider icons
   const firstWord = command.trim().split(/\s+/)[0]?.toLowerCase() || '';
   if (firstWord === 'claude') {
     return ClaudeIcon;
@@ -172,6 +172,9 @@ const getCommandIcon = (_kind: 'cli' | 'git' | 'worktree', command: string, meta
   }
   if (firstWord === 'gemini') {
     return GeminiIcon;
+  }
+  if (firstWord === 'kimi') {
+    return KimiIcon;
   }
 
   // Check for Edit tool (has oldString/newString in meta)
@@ -227,7 +230,7 @@ const formatCommandDisplay = (command: string, meta?: Record<string, unknown>) =
 };
 
 const getAgentModelLabelFromCommands = (commands: CommandInfo[]): string | null => {
-  const labelsByAgent = new Map<'Codex' | 'Claude' | 'Gemini', Set<string>>();
+  const labelsByAgent = new Map<'Codex' | 'Claude' | 'Gemini' | 'Kimi', Set<string>>();
   for (const c of commands) {
     if (c.kind !== 'cli') continue;
     const rawTool = typeof c.tool === 'string' ? c.tool : '';
@@ -236,7 +239,8 @@ const getAgentModelLabelFromCommands = (commands: CommandInfo[]): string | null 
       tool.includes('codex') ? 'Codex'
         : tool.includes('claude') ? 'Claude'
           : tool.includes('gemini') ? 'Gemini'
-            : null;
+            : tool.includes('kimi') ? 'Kimi'
+              : null;
     if (!agent) continue;
 
     const meta = c.meta || {};
@@ -1369,7 +1373,13 @@ export const TimelineView: React.FC<{
                   console.error('Failed to answer question: panelId not found in pending question');
                   return;
                 }
-                const panelType = session.toolType === 'codex' ? 'codex' : session.toolType === 'gemini' ? 'gemini' : 'claude';
+                const panelType = session.toolType === 'codex'
+                  ? 'codex'
+                  : session.toolType === 'gemini'
+                    ? 'gemini'
+                    : session.toolType === 'kimi'
+                      ? 'kimi'
+                      : 'claude';
                 window.electronAPI.panels
                   .answerQuestion(panelId, panelType, answers)
                   .catch((error: unknown) => {

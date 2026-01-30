@@ -46,6 +46,7 @@ describe('setupEventListeners - assistant streaming retention', () => {
   let claudeExecutor: MockExecutor;
   let codexExecutor: MockExecutor;
   let geminiExecutor: MockExecutor;
+  let kimiExecutor: MockExecutor;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -54,6 +55,7 @@ describe('setupEventListeners - assistant streaming retention', () => {
     claudeExecutor = new MockExecutor();
     codexExecutor = new MockExecutor();
     geminiExecutor = new MockExecutor();
+    kimiExecutor = new MockExecutor();
 
     const services = {
       sessionManager,
@@ -61,6 +63,7 @@ describe('setupEventListeners - assistant streaming retention', () => {
       claudeExecutor,
       codexExecutor,
       geminiExecutor,
+      kimiExecutor,
     } as unknown as AppServices;
 
     setupEventListeners(services, () => null);

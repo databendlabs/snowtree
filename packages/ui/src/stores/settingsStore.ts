@@ -12,6 +12,7 @@ export interface AppSettings {
     claude: boolean;
     codex: boolean;
     gemini: boolean;
+    kimi: boolean;
   };
 
   // Terminal
@@ -29,6 +30,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     claude: true,
     codex: true,
     gemini: true,
+    kimi: true,
   },
   terminalFontSize: 13,
   terminalScrollback: 1000,
@@ -50,8 +52,15 @@ function loadSettings(): AppSettings {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored);
-      return { ...DEFAULT_SETTINGS, ...parsed };
+      const parsed = JSON.parse(stored) as Partial<AppSettings>;
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        enabledProviders: {
+          ...DEFAULT_SETTINGS.enabledProviders,
+          ...(parsed.enabledProviders || {}),
+        },
+      };
     }
   } catch (error) {
     console.error('Failed to load settings:', error);

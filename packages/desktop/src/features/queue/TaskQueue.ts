@@ -40,7 +40,7 @@ interface CreateSessionJob {
   folderId?: string;
   baseBranch?: string;
   autoCommit?: boolean;
-  toolType?: 'claude' | 'codex' | 'gemini' | 'none';
+  toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
   commitMode?: 'structured' | 'checkpoint' | 'disabled';
   commitModeSettings?: string; // JSON string of CommitModeSettings
   codexConfig?: {
@@ -59,6 +59,10 @@ interface CreateSessionJob {
   geminiConfig?: {
     model?: string;
     approvalMode?: 'default' | 'auto_edit' | 'yolo' | 'plan';
+  };
+  kimiConfig?: {
+    model?: string;
+    approvalMode?: 'default' | 'yolo';
   };
 }
 
@@ -161,7 +165,7 @@ export class TaskQueue {
     const sessionConcurrency = isLinux ? 1 : 5;
     
     this.sessionQueue.process(sessionConcurrency, async (job) => {
-      const { prompt, worktreeTemplate, index, permissionMode, projectId, baseBranch, autoCommit, toolType, codexConfig, claudeConfig, geminiConfig } = job.data;
+      const { prompt, worktreeTemplate, index, permissionMode, projectId, baseBranch, autoCommit, toolType, codexConfig, claudeConfig, geminiConfig, kimiConfig } = job.data;
       const { sessionManager, worktreeManager, claudeExecutor } = this.options;
 
       // Processing session creation job - verbose debug logging removed
@@ -337,6 +341,10 @@ export class TaskQueue {
         if (geminiConfig) {
           (session as Session & { geminiConfig?: typeof geminiConfig }).geminiConfig = geminiConfig;
         }
+        // Attach kimiConfig to the session object for the panel creation in events.ts
+        if (kimiConfig) {
+          (session as Session & { kimiConfig?: typeof kimiConfig }).kimiConfig = kimiConfig;
+        }
 
         // Only add prompt-related data if there's actually a prompt
         if (prompt && prompt.trim().length > 0) {
@@ -383,7 +391,7 @@ export class TaskQueue {
 
         // Only start an AI panel if there's a prompt
         if (prompt && prompt.trim().length > 0) {
-          const resolvedToolType: 'claude' | 'codex' | 'gemini' | 'none' = toolType || 'claude';
+          const resolvedToolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' = toolType || 'claude';
 
           if (resolvedToolType === 'codex') {
             // Update status message
@@ -528,6 +536,51 @@ export class TaskQueue {
               console.error(`[TaskQueue] No Gemini panel found for session ${session.id} after ${maxAttempts} attempts`);
               throw new Error('No Gemini panel found - cannot start Gemini without a real panel ID');
             }
+          } else if (resolvedToolType === 'kimi') {
+            // Update status message
+            sessionManager.updateSessionStatus(session.id, 'initializing', 'Starting Kimi CLI...');
+
+            let kimiPanel = null;
+            let attempts = 0;
+            const maxAttempts = 15;
+
+            while (!kimiPanel && attempts < maxAttempts) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+              const { panelManager } = require('./panelManager');
+              const existingPanels = panelManager.getPanelsForSession(session.id);
+              kimiPanel = existingPanels.find((p: ToolPanel) => p.type === 'kimi');
+              attempts++;
+            }
+
+            if (kimiPanel) {
+              const { kimiPanelManager } = require('../ipc/kimiPanel');
+              if (kimiPanelManager) {
+                try {
+                  try {
+                    sessionManager.addPanelConversationMessage(kimiPanel.id, 'user', prompt);
+                  } catch (e) {
+                    console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
+                  }
+
+                  await kimiPanelManager.startPanel({
+                    panelId: kimiPanel.id,
+                    worktreePath: session.worktreePath,
+                    prompt,
+                    model: kimiConfig?.model,
+                    approvalMode: kimiConfig?.approvalMode,
+                  });
+                } catch (error) {
+                  console.error('[TaskQueue] Failed to start Kimi via panel manager:', error);
+                  throw new Error(`Failed to start Kimi panel: ${error}`);
+                }
+              } else {
+                console.error('[TaskQueue] KimiPanelManager not available, cannot start Kimi');
+                throw new Error('Kimi panel manager not available');
+              }
+            } else {
+              console.error(`[TaskQueue] No Kimi panel found for session ${session.id} after ${maxAttempts} attempts`);
+              throw new Error('No Kimi panel found - cannot start Kimi without a real panel ID');
+            }
           } else if (resolvedToolType === 'none') {
             // No AI tool selected - update session status to stopped
             console.log(`[TaskQueue] Session ${session.id} has no AI tool configured, marking as stopped`);
@@ -546,7 +599,7 @@ export class TaskQueue {
           }
         } else {
           // No prompt provided - set status based on toolType
-          const resolvedToolType: 'claude' | 'codex' | 'gemini' | 'none' = toolType || 'claude';
+          const resolvedToolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' = toolType || 'claude';
           if (resolvedToolType === 'none') {
             console.log(`[TaskQueue] Session ${session.id} has no prompt and no AI tool, marking as stopped`);
             await sessionManager.updateSession(session.id, { status: 'stopped', statusMessage: undefined });
@@ -633,7 +686,7 @@ export class TaskQueue {
     projectId?: number,
     baseBranch?: string,
     autoCommit?: boolean,
-    toolType?: 'claude' | 'codex' | 'gemini' | 'none',
+    toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none',
     commitMode?: 'structured' | 'checkpoint' | 'disabled',
     commitModeSettings?: string,
     codexConfig?: {
@@ -652,6 +705,10 @@ export class TaskQueue {
     geminiConfig?: {
       model?: string;
       approvalMode?: 'default' | 'auto_edit' | 'yolo' | 'plan';
+    },
+    kimiConfig?: {
+      model?: string;
+      approvalMode?: 'default' | 'yolo';
     },
     providedFolderId?: string
   ): Promise<(Bull.Job<CreateSessionJob> | { id: string; data: CreateSessionJob; status: string })[]> {
@@ -705,7 +762,7 @@ export class TaskQueue {
     for (let i = 0; i < count; i++) {
       // Use the generated base name if no template was provided
       const templateToUse = worktreeTemplate || generatedBaseName || '';
-      jobs.push(this.sessionQueue.add({ prompt, worktreeTemplate: templateToUse, index: i, permissionMode, projectId, folderId, baseBranch, autoCommit, toolType, commitMode, commitModeSettings, codexConfig, claudeConfig, geminiConfig }));
+      jobs.push(this.sessionQueue.add({ prompt, worktreeTemplate: templateToUse, index: i, permissionMode, projectId, folderId, baseBranch, autoCommit, toolType, commitMode, commitModeSettings, codexConfig, claudeConfig, geminiConfig, kimiConfig }));
     }
     return Promise.all(jobs);
   }

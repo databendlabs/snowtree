@@ -8,7 +8,7 @@ type ExecutorLike = {
 };
 
 export function setupEventListeners(services: AppServices, getMainWindow: () => BrowserWindow | null): void {
-  const { sessionManager, gitStatusManager, claudeExecutor, codexExecutor, geminiExecutor } = services;
+  const { sessionManager, gitStatusManager, claudeExecutor, codexExecutor, geminiExecutor, kimiExecutor } = services;
   const lastSessionStatusById = new Map<string, string>();
 
   const send = (channel: string, ...args: unknown[]) => {
@@ -321,4 +321,5 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
   wireExecutorLifecycle(claudeExecutor);
   wireExecutorLifecycle(codexExecutor);
   wireExecutorLifecycle(geminiExecutor);
+  wireExecutorLifecycle(kimiExecutor);
 }

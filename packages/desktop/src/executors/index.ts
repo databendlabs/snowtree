@@ -15,6 +15,7 @@
  *   - CodexExecutor.ts - Main executor (JSON-RPC)
  *   - CodexMessageParser.ts - Event notification parser
  * - gemini/         - Gemini CLI executor
+ * - kimi/           - Kimi CLI executor
  *   - GeminiExecutor.ts - Main executor (stream-json)
  *   - GeminiMessageParser.ts - Event parser
  */
@@ -34,6 +35,9 @@ export { CodexExecutor, CodexMessageParser } from './codex';
 // Gemini executor
 export { GeminiExecutor, GeminiMessageParser } from './gemini';
 
+// Kimi executor
+export { KimiExecutor, KimiMessageParser } from './kimi';
+
 // Git executor (Snowtree-run git operations)
 export { GitExecutor } from './git';
 
@@ -41,6 +45,7 @@ export { GitExecutor } from './git';
 import { ClaudeExecutor } from './claude';
 import { CodexExecutor } from './codex';
 import { GeminiExecutor } from './gemini';
+import { KimiExecutor } from './kimi';
 import type { ExecutorTool } from './types';
 import type { Logger } from '../infrastructure/logging/logger';
 import type { ConfigManager } from '../infrastructure/config/configManager';
@@ -59,6 +64,8 @@ export function createExecutor(
       return new CodexExecutor(sessionManager, logger, configManager);
     case 'gemini':
       return new GeminiExecutor(sessionManager, logger, configManager);
+    case 'kimi':
+      return new KimiExecutor(sessionManager, logger, configManager);
     default:
       throw new Error(`Unknown executor tool: ${tool}`);
   }

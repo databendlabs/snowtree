@@ -43,6 +43,17 @@ export class DiffMetadataExtractor {
       return this.extractClaudeBash(metadata);
     }
 
+    // Kimi tools
+    if (toolName === 'StrReplaceFile') {
+      return this.extractKimiReplace(metadata);
+    }
+    if (toolName === 'WriteFile') {
+      return this.extractKimiWrite(metadata);
+    }
+    if (toolName === 'Shell') {
+      return this.extractKimiShell(metadata);
+    }
+
     // Codex tools
     if (toolName === 'fileChange') {
       return this.extractCodexFileChange(metadata);
@@ -95,6 +106,80 @@ export class DiffMetadataExtractor {
   }
 
   private async extractClaudeBash(metadata: Record<string, unknown>): Promise<DiffMetadata[] | null> {
+    const input = metadata.input as Record<string, unknown> | undefined;
+    if (!input) return null;
+
+    const command = input.command as string | undefined;
+    if (!command) return null;
+
+    const deleteInfo = this.parseDeleteCommand(command);
+    if (!deleteInfo) return null;
+
+    const results: DiffMetadata[] = [];
+    for (const filePath of deleteInfo.files) {
+      const content = await this.readFileIfExists(filePath);
+      if (content !== null) {
+        results.push({
+          filePath,
+          oldString: content,
+          newString: '',
+          isDelete: true,
+        });
+      }
+    }
+
+    return results.length > 0 ? results : null;
+  }
+
+  private async extractKimiWrite(metadata: Record<string, unknown>): Promise<DiffMetadata[] | null> {
+    const input = metadata.input as Record<string, unknown> | undefined;
+    if (!input) return null;
+
+    const filePath = (input.path || input.file_path) as string | undefined;
+    const content = input.content as string | undefined;
+    const mode = (input.mode as string | undefined) || 'overwrite';
+
+    if (!filePath || content === undefined) return null;
+
+    const oldString = await this.readFileIfExists(filePath);
+    const newString = mode === 'append'
+      ? `${oldString ?? ''}${content}`
+      : content;
+
+    return [{
+      filePath,
+      oldString: oldString ?? '',
+      newString,
+      isNewFile: oldString === null,
+    }];
+  }
+
+  private async extractKimiReplace(metadata: Record<string, unknown>): Promise<DiffMetadata[] | null> {
+    const input = metadata.input as Record<string, unknown> | undefined;
+    if (!input) return null;
+
+    const filePath = (input.path || input.file_path) as string | undefined;
+    const edit = input.edit as Record<string, unknown> | Array<Record<string, unknown>> | undefined;
+
+    if (!filePath || !edit) return null;
+
+    const edits = Array.isArray(edit) ? edit : [edit];
+    const results: DiffMetadata[] = [];
+    for (const item of edits) {
+      const oldString = item.old as string | undefined;
+      const newString = item.new as string | undefined;
+      if (oldString === undefined || newString === undefined) continue;
+      results.push({
+        filePath,
+        oldString,
+        newString,
+      });
+    }
+
+    return results.length > 0 ? results : null;
+  }
+
+  private async extractKimiShell(metadata: Record<string, unknown>): Promise<DiffMetadata[] | null> {
     const input = metadata.input as Record<string, unknown> | undefined;
     if (!input) return null;
 

@@ -110,9 +110,9 @@ export abstract class AbstractAIPanelManager {
 
       // Confirm session ID on first assistant message (CLI has persisted successfully)
       if (data.type === 'json' && typeof data.data === 'object' && data.data !== null) {
-        const jsonData = data.data as { type?: string };
+        const jsonData = data.data as { type?: string; role?: string };
         // Confirm on assistant message OR result message (both indicate successful CLI execution)
-        if (jsonData.type === 'assistant' || jsonData.type === 'result') {
+        if (jsonData.type === 'assistant' || jsonData.type === 'result' || jsonData.role === 'assistant') {
           this.confirmAndPersistSessionId(panelId);
         }
       }

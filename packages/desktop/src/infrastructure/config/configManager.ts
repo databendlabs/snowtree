@@ -9,6 +9,7 @@ export interface AppConfig {
   claudeExecutablePath?: string;
   codexExecutablePath?: string;
   geminiExecutablePath?: string;
+  kimiExecutablePath?: string;
   anthropicApiKey?: string;
   openaiApiKey?: string;
   verbose?: boolean;

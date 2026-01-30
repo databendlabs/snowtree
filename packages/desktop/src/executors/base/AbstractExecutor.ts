@@ -125,6 +125,7 @@ export abstract class AbstractExecutor extends EventEmitter {
     if (type === 'claude') return 'Claude';
     if (type === 'codex') return 'Codex';
     if (type === 'gemini') return 'Gemini';
+    if (type === 'kimi') return 'Kimi';
     return 'CLI';
   }
 

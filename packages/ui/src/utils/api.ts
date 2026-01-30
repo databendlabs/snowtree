@@ -24,12 +24,12 @@ export class API {
       return window.electronAPI.sessions.get(sessionId);
     },
 
-    async create(request: { projectId: number; prompt: string; toolType: 'claude' | 'codex' | 'gemini' | 'none' }) {
+    async create(request: { projectId: number; prompt: string; toolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' }) {
       requireElectron();
       return window.electronAPI.sessions.create(request);
     },
 
-    async update(sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'gemini' | 'none'; executionMode?: 'plan' | 'execute' }) {
+    async update(sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none'; executionMode?: 'plan' | 'execute' }) {
       requireElectron();
       return window.electronAPI.sessions.update(sessionId, updates);
     },

@@ -7,13 +7,13 @@ export interface ToolPanel {
   metadata: ToolPanelMetadata;   // Creation time, position, etc.
 }
 
-export type ToolPanelType = 'terminal' | 'claude' | 'codex' | 'gemini' | 'diff' | 'editor' | 'logs' | 'dashboard' | 'setup-tasks'; // Will expand later
+export type ToolPanelType = 'terminal' | 'claude' | 'codex' | 'gemini' | 'kimi' | 'diff' | 'editor' | 'logs' | 'dashboard' | 'setup-tasks'; // Will expand later
 
 export interface ToolPanelState {
   isActive: boolean;
   isPinned?: boolean;
   hasBeenViewed?: boolean;       // Track if panel has ever been viewed
-  customState?: TerminalPanelState | ClaudePanelState | CodexPanelState | GeminiPanelState | DiffPanelState | EditorPanelState | LogsPanelState | DashboardPanelState | SetupTasksPanelState | Record<string, unknown>;
+  customState?: TerminalPanelState | ClaudePanelState | CodexPanelState | GeminiPanelState | KimiPanelState | DiffPanelState | EditorPanelState | LogsPanelState | DashboardPanelState | SetupTasksPanelState | Record<string, unknown>;
 }
 
 export interface TerminalPanelState {
@@ -112,6 +112,10 @@ export interface GeminiPanelState extends BaseAIPanelState {
   approvalMode?: 'default' | 'auto_edit' | 'yolo' | 'plan';
 }
 
+export interface KimiPanelState extends BaseAIPanelState {
+  approvalMode?: 'default' | 'yolo';
+}
+
 export interface EditorPanelState {
   filePath?: string;              // Currently open file
   content?: string;               // File content (for unsaved changes)
@@ -170,7 +174,7 @@ export interface CreatePanelRequest {
   sessionId: string;
   type: ToolPanelType;
   title?: string;                // Optional custom title
-  initialState?: TerminalPanelState | ClaudePanelState | CodexPanelState | GeminiPanelState | DiffPanelState | EditorPanelState | LogsPanelState | DashboardPanelState | SetupTasksPanelState | { customState?: unknown };
+  initialState?: TerminalPanelState | ClaudePanelState | CodexPanelState | GeminiPanelState | KimiPanelState | DiffPanelState | EditorPanelState | LogsPanelState | DashboardPanelState | SetupTasksPanelState | { customState?: unknown };
   metadata?: Partial<ToolPanelMetadata>; // Optional metadata overrides
 }
 
@@ -274,6 +278,14 @@ export const PANEL_CAPABILITIES: Record<ToolPanelType, PanelCapabilities> = {
     singleton: false,
     canAppearInProjects: true,       // Gemini can appear in projects
     canAppearInWorktrees: true       // Gemini can appear in worktrees
+  },
+  kimi: {
+    canEmit: ['files:changed'], // Kimi can change files through tool calls
+    canConsume: [], // Kimi doesn't consume events in initial implementation
+    requiresProcess: true,
+    singleton: false,
+    canAppearInProjects: true,       // Kimi can appear in projects
+    canAppearInWorktrees: true       // Kimi can appear in worktrees
   },
   diff: {
     canEmit: ['diff:refreshed'],

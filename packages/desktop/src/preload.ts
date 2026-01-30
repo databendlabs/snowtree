@@ -46,9 +46,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sessions: {
     getAll: (): Promise<IPCResponse> => ipcRenderer.invoke('sessions:get-all'),
     get: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('sessions:get', sessionId),
-    create: (request: { projectId: number; prompt?: string; toolType?: 'claude' | 'codex' | 'gemini' | 'none'; baseBranch?: string }): Promise<IPCResponse> =>
+    create: (request: { projectId: number; prompt?: string; toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none'; baseBranch?: string }): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:create', request),
-    update: (sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'gemini' | 'none'; executionMode?: 'plan' | 'execute' }): Promise<IPCResponse> =>
+    update: (sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none'; executionMode?: 'plan' | 'execute' }): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:update', sessionId, updates),
     stop: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('sessions:stop', sessionId),
     delete: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('sessions:delete', sessionId),
@@ -109,15 +109,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   panels: {
-    create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini' | 'terminal'; name?: string }): Promise<IPCResponse> =>
+    create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini' | 'kimi' | 'terminal'; name?: string }): Promise<IPCResponse> =>
       ipcRenderer.invoke('panels:create', request),
     list: (sessionId: string): Promise<IPCResponse> => ipcRenderer.invoke('panels:list', sessionId),
     update: (panelId: string, updates: { state?: unknown; title?: string; metadata?: unknown }): Promise<IPCResponse> =>
       ipcRenderer.invoke('panels:update', panelId, updates),
     continue: (panelId: string, input: string, model?: string, options?: { skipCheckpointAutoCommit?: boolean; planMode?: boolean }, images?: Array<{ id: string; filename: string; mime: string; dataUrl: string }>): Promise<IPCResponse> =>
       ipcRenderer.invoke('panels:continue', panelId, input, model, options, images),
-    answerQuestion: (panelId: string, panelType: 'claude' | 'codex' | 'gemini', answers: Record<string, string | string[]>): Promise<IPCResponse> => {
-      const ipcPrefix = panelType === 'claude' ? 'claude-panels' : panelType === 'gemini' ? 'geminiPanel' : 'codexPanel';
+    answerQuestion: (panelId: string, panelType: 'claude' | 'codex' | 'gemini' | 'kimi', answers: Record<string, string | string[]>): Promise<IPCResponse> => {
+      const ipcPrefix = panelType === 'claude'
+        ? 'claude-panels'
+        : panelType === 'gemini'
+          ? 'geminiPanel'
+          : panelType === 'kimi'
+            ? 'kimiPanel'
+            : 'codexPanel';
       return ipcRenderer.invoke(`${ipcPrefix}:answer-question`, panelId, answers);
     },
   },

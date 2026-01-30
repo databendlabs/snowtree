@@ -373,14 +373,16 @@ export class SessionManager extends EventEmitter {
   }
 
   private convertDbSessionToSession(dbSession: DbSession): Session {
-    const toolTypeFromDb = (dbSession as DbSession & { tool_type?: string }).tool_type as 'claude' | 'codex' | 'gemini' | 'none' | null | undefined;
-    const normalizedToolType: 'claude' | 'codex' | 'gemini' | 'none' = toolTypeFromDb === 'codex'
+    const toolTypeFromDb = (dbSession as DbSession & { tool_type?: string }).tool_type as 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' | null | undefined;
+    const normalizedToolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' = toolTypeFromDb === 'codex'
       ? 'codex'
       : toolTypeFromDb === 'gemini'
         ? 'gemini'
-        : toolTypeFromDb === 'none'
-          ? 'none'
-          : 'claude';
+        : toolTypeFromDb === 'kimi'
+          ? 'kimi'
+          : toolTypeFromDb === 'none'
+            ? 'none'
+            : 'claude';
     const executionModeFromDb = (dbSession as DbSession & { execution_mode?: 'plan' | 'execute' | null }).execution_mode;
     const normalizedExecutionMode: 'plan' | 'execute' = executionModeFromDb === 'plan' ? 'plan' : 'execute';
 
@@ -508,7 +510,7 @@ export class SessionManager extends EventEmitter {
       isMainRepo?: boolean;
       autoCommit?: boolean;
       folderId?: string;
-      toolType?: 'claude' | 'codex' | 'gemini' | 'none';
+      toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
       baseCommit?: string;
       baseBranch?: string;
       commitMode?: 'structured' | 'checkpoint' | 'disabled';
@@ -522,7 +524,7 @@ export class SessionManager extends EventEmitter {
     isMainRepo?: boolean,
     autoCommit?: boolean,
     folderId?: string,
-    toolType?: 'claude' | 'codex' | 'gemini' | 'none',
+    toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none',
     baseCommit?: string,
     baseBranch?: string,
     commitMode?: 'structured' | 'checkpoint' | 'disabled',
@@ -538,7 +540,7 @@ export class SessionManager extends EventEmitter {
     let resolvedIsMainRepo: boolean | undefined;
     let resolvedAutoCommit: boolean | undefined;
     let resolvedFolderId: string | undefined;
-    let resolvedToolType: 'claude' | 'codex' | 'gemini' | 'none' | undefined;
+    let resolvedToolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' | undefined;
     let resolvedBaseCommit: string | undefined;
     let resolvedBaseBranch: string | undefined;
     let resolvedCommitMode: 'structured' | 'checkpoint' | 'disabled' | undefined;
@@ -611,7 +613,7 @@ export class SessionManager extends EventEmitter {
       isMainRepo?: boolean;
       autoCommit?: boolean;
       folderId?: string;
-      toolType?: 'claude' | 'codex' | 'gemini' | 'none';
+      toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
       baseCommit?: string;
       baseBranch?: string;
       commitMode?: 'structured' | 'checkpoint' | 'disabled';
@@ -625,7 +627,7 @@ export class SessionManager extends EventEmitter {
     isMainRepo?: boolean,
     autoCommit?: boolean,
     folderId?: string,
-    toolType?: 'claude' | 'codex' | 'gemini' | 'none',
+    toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none',
     baseCommit?: string,
     baseBranch?: string,
     commitMode?: 'structured' | 'checkpoint' | 'disabled',
@@ -641,7 +643,7 @@ export class SessionManager extends EventEmitter {
     let resolvedIsMainRepo: boolean | undefined;
     let resolvedAutoCommit: boolean | undefined;
     let resolvedFolderId: string | undefined;
-    let resolvedToolType: 'claude' | 'codex' | 'gemini' | 'none' | undefined;
+    let resolvedToolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' | undefined;
     let resolvedBaseCommit: string | undefined;
     let resolvedBaseBranch: string | undefined;
     let resolvedCommitMode: 'structured' | 'checkpoint' | 'disabled' | undefined;
@@ -713,7 +715,7 @@ export class SessionManager extends EventEmitter {
     isMainRepo?: boolean,
     autoCommit?: boolean,
     folderId?: string,
-    toolType?: 'claude' | 'codex' | 'gemini' | 'none',
+    toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none',
     baseCommit?: string,
     baseBranch?: string,
     commitMode?: 'structured' | 'checkpoint' | 'disabled',

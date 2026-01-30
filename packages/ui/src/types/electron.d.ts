@@ -99,8 +99,8 @@ export interface ElectronAPI {
   sessions: {
     getAll: () => Promise<IPCResponse<Session[]>>;
     get: (sessionId: string) => Promise<IPCResponse<Session>>;
-    create: (request: { projectId: number; prompt?: string; toolType?: 'claude' | 'codex' | 'gemini' | 'none'; baseBranch?: string }) => Promise<IPCResponse<{ id: string }>>;
-    update: (sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'gemini' | 'none'; executionMode?: 'plan' | 'execute' }) => Promise<IPCResponse<unknown>>;
+    create: (request: { projectId: number; prompt?: string; toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none'; baseBranch?: string }) => Promise<IPCResponse<{ id: string }>>;
+    update: (sessionId: string, updates: { toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none'; executionMode?: 'plan' | 'execute' }) => Promise<IPCResponse<unknown>>;
     stop: (sessionId: string) => Promise<IPCResponse<unknown>>;
     delete: (sessionId: string) => Promise<IPCResponse<unknown>>;
     openWorktree: (request: { projectId: number; worktreePath: string; branch?: string | null }) => Promise<IPCResponse<{ id: string }>>;
@@ -172,11 +172,11 @@ export interface ElectronAPI {
   };
 
   panels: {
-    create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini' | 'terminal'; name?: string }) => Promise<IPCResponse<ToolPanel>>;
+    create: (request: { sessionId: string; type: 'claude' | 'codex' | 'gemini' | 'kimi' | 'terminal'; name?: string }) => Promise<IPCResponse<ToolPanel>>;
     list: (sessionId: string) => Promise<IPCResponse<ToolPanel[]>>;
     update: (panelId: string, updates: { state?: unknown; title?: string; metadata?: unknown }) => Promise<IPCResponse<unknown>>;
     continue: (panelId: string, input: string, model?: string, options?: { skipCheckpointAutoCommit?: boolean; planMode?: boolean }, images?: Array<{ id: string; filename: string; mime: string; dataUrl: string }>) => Promise<IPCResponse<unknown>>;
-    answerQuestion: (panelId: string, panelType: 'claude' | 'codex' | 'gemini', answers: Record<string, string | string[]>) => Promise<IPCResponse<unknown>>;
+    answerQuestion: (panelId: string, panelType: 'claude' | 'codex' | 'gemini' | 'kimi', answers: Record<string, string | string[]>) => Promise<IPCResponse<unknown>>;
   };
 
   updater: {

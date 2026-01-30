@@ -28,6 +28,7 @@ import type { AppServices } from './infrastructure/ipc';
 import { ClaudeExecutor } from './executors/claude';
 import { CodexExecutor } from './executors/codex';
 import { GeminiExecutor } from './executors/gemini';
+import { KimiExecutor } from './executors/kimi';
 import { GitExecutor } from './executors/git';
 import { setupConsoleWrapper } from './infrastructure/logging/consoleWrapper';
 import { panelManager } from './features/panels/PanelManager';
@@ -118,6 +119,7 @@ let gitExecutor: GitExecutor;
 let claudeExecutor: ClaudeExecutor;
 let codexExecutor: CodexExecutor;
 let geminiExecutor: GeminiExecutor;
+let kimiExecutor: KimiExecutor;
 let gitDiffManager: GitDiffManager;
 let gitStatusManager: GitStatusManager;
 let gitStagingManager: GitStagingManager;
@@ -178,16 +180,32 @@ if (isDevelopment) {
   // Devtron can be installed manually in DevTools console with: require('devtron').install()
 }
 
+const resolveIconPath = (): string => {
+  const appPath = app.getAppPath();
+  const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--snowtree-dev');
+  const candidates = [
+    ...(isDev ? [path.join(process.cwd(), 'packages/desktop/assets/icon.png')] : []),
+    path.join(appPath, 'assets/icon.png'),
+    path.join(appPath, 'main/assets/icon.png'),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return candidates[candidates.length - 1];
+};
+
 async function createWindow() {
   const initialTitle = setAppTitle();
   const isTest = process.env.NODE_ENV === 'test';
+  const iconPath = resolveIconPath();
 
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     title: initialTitle,
     show: !isTest,
-    icon: path.join(app.getAppPath(), 'main/assets/icon.png'),
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -629,6 +647,7 @@ async function initializeServices() {
   claudeExecutor = new ClaudeExecutor(sessionManager, logger, configManager);
   codexExecutor = new CodexExecutor(sessionManager, logger, configManager);
   geminiExecutor = new GeminiExecutor(sessionManager, logger, configManager);
+  kimiExecutor = new KimiExecutor(sessionManager, logger, configManager);
 
   gitDiffManager = new GitDiffManager(gitExecutor, logger);
   gitStatusManager = new GitStatusManager(sessionManager, worktreeManager, gitDiffManager, gitExecutor, logger);
@@ -657,6 +676,7 @@ async function initializeServices() {
     claudeExecutor,
     codexExecutor,
     geminiExecutor,
+    kimiExecutor,
     gitDiffManager,
     gitStatusManager,
     gitStagingManager,
@@ -724,7 +744,7 @@ app.whenReady().then(async () => {
   // Set Dock icon on macOS (dev + runtime). Packaged apps also have icons via electron-builder,
   // but this ensures the correct icon while running via `electron .`.
   if (process.platform === 'darwin' && app.dock) {
-    const iconPath = path.join(app.getAppPath(), 'main/assets/icon.png');
+    const iconPath = resolveIconPath();
     try {
       const img = nativeImage.createFromPath(iconPath);
       if (!img.isEmpty()) app.dock.setIcon(img);
@@ -852,6 +872,13 @@ app.on('before-quit', async (event) => {
         // best-effort
       }
     }
+    if (kimiExecutor) {
+      try {
+        await kimiExecutor.cleanup();
+      } catch {
+        // best-effort
+      }
+    }
     if (taskQueue) {
       try {
         await taskQueue.close();
@@ -901,6 +928,11 @@ app.on('before-quit', async (event) => {
     console.log('[Main] Shutting down Gemini executor...');
     await geminiExecutor.cleanup();
     console.log('[Main] Gemini executor shutdown complete');
+  }
+  if (kimiExecutor) {
+    console.log('[Main] Shutting down Kimi executor...');
+    await kimiExecutor.cleanup();
+    console.log('[Main] Kimi executor shutdown complete');
   }
 
   // Close task queue

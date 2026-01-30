@@ -12,6 +12,7 @@ import type { DatabaseService } from '../database/database';
 import type { ClaudeExecutor } from '../../executors/claude';
 import type { CodexExecutor } from '../../executors/codex';
 import type { GeminiExecutor } from '../../executors/gemini';
+import type { KimiExecutor } from '../../executors/kimi';
 import type { GitExecutor } from '../../executors/git';
 import type { Logger } from '../logging/logger';
 import type { UpdateManager } from '../../features/updater/UpdateManager';
@@ -26,6 +27,7 @@ export interface AppServices {
   claudeExecutor: ClaudeExecutor;
   codexExecutor: CodexExecutor;
   geminiExecutor: GeminiExecutor;
+  kimiExecutor: KimiExecutor;
   gitDiffManager: GitDiffManager;
   gitStatusManager: GitStatusManager;
   gitStagingManager: GitStagingManager;

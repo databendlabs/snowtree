@@ -10,7 +10,7 @@ import type { ChildProcessWithoutNullStreams } from 'child_process';
 // Executor Types
 // ============================================================================
 
-export type ExecutorTool = 'claude' | 'codex' | 'gemini';
+export type ExecutorTool = 'claude' | 'codex' | 'gemini' | 'kimi';
 
 export interface ExecutorSpawnOptions {
   panelId: string;

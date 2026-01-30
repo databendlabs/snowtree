@@ -21,7 +21,7 @@ export interface AIPanelConfig {
   webSearch?: boolean;
   thinkingLevel?: 'low' | 'medium' | 'high';
 
-  // Gemini-specific
+  // Gemini/Kimi-specific (Kimi supports 'default' | 'yolo')
   approvalMode?: 'default' | 'auto_edit' | 'yolo' | 'plan';
   
   // Future extensibility - specific config values can be added here
