@@ -10,6 +10,7 @@
 // ============================================================================
 
 export type SnowTreeCommandName =
+  | 'get_chat_id'
   | 'list_projects'
   | 'open_project'
   | 'list_sessions'

@@ -75,6 +75,11 @@ export interface ElectronAPI {
     getAll: () => Promise<IPCResponse<Record<string, string>>>;
   };
 
+  settings: {
+    load: () => Promise<IPCResponse<unknown>>;
+    save: (settings: unknown) => Promise<IPCResponse<unknown>>;
+  };
+
   dialog: {
     openDirectory: (options?: Electron.OpenDialogOptions) => Promise<IPCResponse<string | null>>;
   };

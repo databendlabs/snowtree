@@ -19,7 +19,6 @@ import {
   SnowTreeAPI,
   CommandInterpreter,
   ChannelContextStore,
-  SNOWTREE_COMMANDS,
   type SnowTreeCommandRequest,
   type SnowTreeCommandResponse,
   type ChannelAdapter,
@@ -79,7 +78,7 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
 
     // Initialize channel-agnostic components
     this.contextStore = new ChannelContextStore();
-    this.interpreter = new CommandInterpreter(deps.sessionManager, deps.logger, SNOWTREE_COMMANDS);
+    this.interpreter = new CommandInterpreter();
     this.api = new SnowTreeAPI({
       sessionManager: deps.sessionManager,
       taskQueue: deps.taskQueue,

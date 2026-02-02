@@ -1,62 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ChannelContext, SnowTreeCommandDefinition } from '../types';
-
-// Mock child_process
-vi.mock('child_process', () => ({
-  spawn: vi.fn(),
-  execSync: vi.fn(() => { throw new Error('not found'); }),
-}));
-
-const mockSessionManager = {
-  db: {
-    getProject: vi.fn(),
-  },
-  getSession: vi.fn(),
-};
-
-const mockLogger = {
-  info: vi.fn(),
-  error: vi.fn(),
-  warn: vi.fn(),
-};
-
-const mockCommands: SnowTreeCommandDefinition[] = [
-  { name: 'list_projects', description: 'List projects' },
-  { name: 'open_project', description: 'Open project', args: '{ name: string }' },
-  { name: 'list_sessions', description: 'List sessions' },
-  { name: 'select_session', description: 'Select session', args: '{ id: string }' },
-  { name: 'new_session', description: 'New session', args: '{ prompt: string }' },
-  { name: 'status', description: 'Show status' },
-  { name: 'send_message', description: 'Send message', args: '{ message: string }' },
-  { name: 'switch_executor', description: 'Switch executor', args: '{ executor: string }' },
-  { name: 'stop_session', description: 'Stop session' },
-  { name: 'delete_session', description: 'Delete session', args: '{ id: string }' },
-  { name: 'help', description: 'Show help' },
-  { name: 'unknown', description: 'Unknown command' },
-];
-
-const { CommandInterpreter } = await import('../CommandInterpreter');
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { ChannelContext } from '../types';
+import { CommandInterpreter } from '../CommandInterpreter';
 
 describe('CommandInterpreter', () => {
-  let interpreter: InstanceType<typeof CommandInterpreter>;
+  let interpreter: CommandInterpreter;
   let context: ChannelContext;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    interpreter = new CommandInterpreter(
-      mockSessionManager as any,
-      mockLogger as any,
-      mockCommands
-    );
+    interpreter = new CommandInterpreter();
     context = {
       activeProjectId: null,
       activeSessionId: null,
     };
   });
 
-  describe('fallback interpretation', () => {
+  describe('interpret', () => {
+    it('should recognize chat id', async () => {
+      const result = await interpreter.interpret('chatid', context);
+      expect(result.name).toBe('get_chat_id');
+    });
+
     it('should recognize list projects', async () => {
       const result = await interpreter.interpret('list projects', context);
+      expect(result.name).toBe('list_projects');
+    });
+
+    it('should recognize show all projects', async () => {
+      const result = await interpreter.interpret('show all projects', context);
       expect(result.name).toBe('list_projects');
     });
 
@@ -66,7 +36,18 @@ describe('CommandInterpreter', () => {
       expect(result.args?.name).toBe('databend');
     });
 
+    it('should recognize switch to project', async () => {
+      const result = await interpreter.interpret('switch to myproject', context);
+      expect(result.name).toBe('open_project');
+      expect(result.args?.name).toBe('myproject');
+    });
+
     it('should recognize list sessions', async () => {
+      const result = await interpreter.interpret('list sessions', context);
+      expect(result.name).toBe('list_sessions');
+    });
+
+    it('should recognize show sessions', async () => {
       const result = await interpreter.interpret('show sessions', context);
       expect(result.name).toBe('list_sessions');
     });
@@ -78,9 +59,15 @@ describe('CommandInterpreter', () => {
     });
 
     it('should recognize new session', async () => {
-      const result = await interpreter.interpret('new session fix bug', context);
+      const result = await interpreter.interpret('new fix the bug', context);
       expect(result.name).toBe('new_session');
-      expect(result.args?.prompt).toBe('fix bug');
+      expect(result.args?.prompt).toBe('fix the bug');
+    });
+
+    it('should recognize create session', async () => {
+      const result = await interpreter.interpret('create add new feature', context);
+      expect(result.name).toBe('new_session');
+      expect(result.args?.prompt).toBe('add new feature');
     });
 
     it('should recognize status', async () => {
@@ -92,6 +79,17 @@ describe('CommandInterpreter', () => {
       const result = await interpreter.interpret('use codex', context);
       expect(result.name).toBe('switch_executor');
       expect(result.args?.executor).toBe('codex');
+    });
+
+    it('should recognize use claude', async () => {
+      const result = await interpreter.interpret('use claude', context);
+      expect(result.name).toBe('switch_executor');
+      expect(result.args?.executor).toBe('claude');
+    });
+
+    it('should recognize stop', async () => {
+      const result = await interpreter.interpret('stop', context);
+      expect(result.name).toBe('stop_session');
     });
 
     it('should recognize stop session', async () => {
@@ -110,28 +108,20 @@ describe('CommandInterpreter', () => {
       expect(result.name).toBe('help');
     });
 
-    it('should default to send_message with active session', async () => {
-      context.activeSessionId = 'session-123';
-      const result = await interpreter.interpret('fix this bug', context);
-      expect(result.name).toBe('send_message');
-      expect(result.args?.message).toBe('fix this bug');
+    it('should recognize ?', async () => {
+      const result = await interpreter.interpret('?', context);
+      expect(result.name).toBe('help');
     });
 
-    it('should convert unknown to send_message with active session', async () => {
-      context.activeSessionId = 'session-123';
-      const result = await interpreter.interpret('random text', context);
+    it('should default to send_message for unknown input', async () => {
+      const result = await interpreter.interpret('fix this bug please', context);
       expect(result.name).toBe('send_message');
+      expect(result.args?.message).toBe('fix this bug please');
     });
 
     it('should strip leading slash', async () => {
       const result = await interpreter.interpret('/status', context);
       expect(result.name).toBe('status');
-    });
-  });
-
-  describe('isAvailable', () => {
-    it('should return false when claude CLI not detected', () => {
-      expect(interpreter.isAvailable()).toBe(false);
     });
   });
 });

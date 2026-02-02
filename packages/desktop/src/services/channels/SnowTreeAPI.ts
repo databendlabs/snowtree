@@ -181,8 +181,21 @@ export class SnowTreeAPI {
     context: ChannelContext,
     label: string
   ): Promise<SnowTreeCommandResponse> {
+    // Auto-select project if not set
     if (!context.activeProjectId) {
-      return { message: 'No project selected. Say "open <name>" first.' };
+      const activeProject = this.deps.sessionManager.getActiveProject();
+      if (activeProject) {
+        context.activeProjectId = activeProject.id;
+      } else {
+        const projects = this.deps.sessionManager.db.getAllProjects();
+        if (projects.length > 0) {
+          context.activeProjectId = projects[0].id;
+          this.deps.sessionManager.db.setActiveProject(projects[0].id);
+          this.deps.sessionManager.setActiveProject(projects[0]);
+        } else {
+          return { message: 'No projects found. Please add a project first.' };
+        }
+      }
     }
 
     if (!this.deps.taskQueue) {
