@@ -697,6 +697,35 @@ index 5555555..6666666 100644
             return { success: true };
           },
         },
+        // Mock settings API (used by settingsStore)
+        settings: {
+          async load() {
+            console.log('[Mock Settings] load() called');
+            return { success: true, data: null };
+          },
+          async save(settings: any) {
+            console.log('[Mock Settings] save() called', settings);
+            return { success: true };
+          },
+        },
+        // Mock telegram API (used by App.tsx)
+        telegram: {
+          async getStatus() {
+            return { success: true, data: { status: 'disconnected' } };
+          },
+          async start(settings: any) {
+            console.log('[Mock Telegram] start() called');
+            return { success: true };
+          },
+          async stop() {
+            console.log('[Mock Telegram] stop() called');
+            return { success: true };
+          },
+          async restart(settings: any) {
+            console.log('[Mock Telegram] restart() called');
+            return { success: true };
+          },
+        },
         invoke: async (channel: string, ...args: any[]) => {
           // Handle invoke calls
           console.log('[Mock IPC] invoke:', channel, args);
