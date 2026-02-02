@@ -651,9 +651,6 @@ async function initializeServices() {
   geminiExecutor = new GeminiExecutor(sessionManager, logger, configManager);
   kimiExecutor = new KimiExecutor(sessionManager, logger, configManager);
 
-  // Initialize Telegram service
-  telegramService = new TelegramService(sessionManager, claudeExecutor, logger, () => mainWindow);
-
   gitDiffManager = new GitDiffManager(gitExecutor, logger);
   gitStatusManager = new GitStatusManager(sessionManager, worktreeManager, gitDiffManager, gitExecutor, logger);
   gitStagingManager = new GitStagingManager(gitExecutor, gitStatusManager);
@@ -669,6 +666,19 @@ async function initializeServices() {
     worktreeNameGenerator,
     getMainWindow: () => mainWindow,
     gitExecutor
+  });
+
+  // Initialize Telegram service
+  telegramService = new TelegramService({
+    sessionManager,
+    taskQueue,
+    worktreeManager,
+    claudeExecutor,
+    codexExecutor,
+    geminiExecutor,
+    kimiExecutor,
+    logger,
+    configManager,
   });
 
   const services: AppServices = {

@@ -67,7 +67,7 @@ function isForkOfUpstream(originUrl: string, upstreamUrl: string): boolean {
  * Fetch and cache repo information (branch, owner/repo, isFork, originOwnerRepo) for a session.
  * This should be called once per session to populate the cache.
  */
-async function fetchAndCacheRepoInfo(
+export async function fetchAndCacheRepoInfo(
   sessionId: string,
   worktreePath: string,
   sessionManager: AppServices['sessionManager'],

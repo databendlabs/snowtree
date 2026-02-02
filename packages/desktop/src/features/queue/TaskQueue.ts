@@ -12,12 +12,13 @@ import type { ExecutionTracker } from './ExecutionTracker';
 import { formatForDisplay } from '../../infrastructure/utils/timestampUtils';
 import * as os from 'os';
 import { panelManager } from '../panels/PanelManager';
-import { getCodexModelConfig } from '@snowtree/core/types/models';
+import type { AIPanelState } from '@snowtree/core/types/aiPanelConfig';
 import type { Session } from '@snowtree/core/types/session';
 import type { ToolPanel } from '@snowtree/core/types/panels';
 import type { Database as DatabaseService } from '../../infrastructure/database';
 import type { Project } from '../../infrastructure/database';
 import { fetchAndCacheRepoInfo } from '../../infrastructure/ipc/git';
+import { getPanelManagerForType } from '../panels/ai/panelManagerRegistry';
 
 interface TaskQueueOptions {
   sessionManager: SessionManager;
@@ -397,189 +398,110 @@ export class TaskQueue {
             // Update status message
             sessionManager.updateSessionStatus(session.id, 'initializing', 'Starting Codex...');
 
-            // Wait for the Codex panel to be created by the session-created event handler in events.ts
-            let codexPanel = null;
-            let attempts = 0;
-            const maxAttempts = 15;
+            const codexPanel = await this.ensureAiPanel(session.id, 'codex');
+            const { manager } = this.ensureAiPanelManager(codexPanel, session.id);
 
-            while (!codexPanel && attempts < maxAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 200));
-              const { panelManager } = require('./panelManager');
-              const existingPanels = panelManager.getPanelsForSession(session.id);
-              codexPanel = existingPanels.find((p: ToolPanel) => p.type === 'codex');
-              attempts++;
+            // Record initial prompt in panel conversation history
+            try {
+              sessionManager.addPanelConversationMessage(codexPanel.id, 'user', prompt);
+            } catch (e) {
+              console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
             }
 
-            if (codexPanel) {
-              const { codexPanelManager } = require('../ipc/codexPanel');
-              if (codexPanelManager) {
-                try {
-                  // Record initial prompt in panel conversation history
-                  try {
-                    sessionManager.addPanelConversationMessage(codexPanel.id, 'user', prompt);
-                  } catch (e) {
-                    console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
-                  }
-
-                  await codexPanelManager.startPanel(
-                    codexPanel.id,
-                    session.worktreePath,
-                    prompt,
-                    codexConfig?.model,
-                    codexConfig?.modelProvider,
-                    codexConfig?.approvalPolicy,
-                    codexConfig?.sandboxMode,
-                    codexConfig?.webSearch,
-                    codexConfig?.thinkingLevel
-                  );
-                } catch (error) {
-                  console.error('[TaskQueue] Failed to start Codex via panel manager:', error);
-                  throw new Error(`Failed to start Codex panel: ${error}`);
-                }
-              } else {
-                console.error('[TaskQueue] CodexPanelManager not available, cannot start Codex');
-                throw new Error('Codex panel manager not available');
-              }
-            } else {
-              console.error(`[TaskQueue] No Codex panel found for session ${session.id} after ${maxAttempts} attempts`);
-              console.error('[TaskQueue] This indicates the panel creation failed in events.ts.');
-              throw new Error('No Codex panel found - cannot start Codex without a real panel ID');
+            try {
+              await manager.startPanel({
+                panelId: codexPanel.id,
+                worktreePath: session.worktreePath,
+                prompt,
+                model: codexConfig?.model,
+                modelProvider: codexConfig?.modelProvider,
+                approvalPolicy: codexConfig?.approvalPolicy,
+                sandboxMode: codexConfig?.sandboxMode,
+                webSearch: codexConfig?.webSearch,
+                thinkingLevel: codexConfig?.thinkingLevel
+              });
+            } catch (error) {
+              console.error('[TaskQueue] Failed to start Codex via panel manager:', error);
+              throw new Error(`Failed to start Codex panel: ${error}`);
             }
           } else if (resolvedToolType === 'claude') {
             // Update status message
             sessionManager.updateSessionStatus(session.id, 'initializing', 'Starting Claude Code...');
 
-            // Wait for the Claude panel to be created by the session-created event handler in events.ts
-            let claudePanel = null;
-            let attempts = 0;
-            const maxAttempts = 15; // Increased attempts for better reliability
+            const claudePanel = await this.ensureAiPanel(session.id, 'claude');
+            const { manager } = this.ensureAiPanelManager(claudePanel, session.id);
 
-            while (!claudePanel && attempts < maxAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 200)); // Wait 200ms
-              const { panelManager } = require('./panelManager');
-              const existingPanels = panelManager.getPanelsForSession(session.id);
-              claudePanel = existingPanels.find((p: ToolPanel) => p.type === 'claude');
-              attempts++;
+            // Record the initial prompt in panel conversation history
+            try {
+              sessionManager.addPanelConversationMessage(claudePanel.id, 'user', prompt);
+            } catch (e) {
+              console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
             }
 
-            if (claudePanel) {
-              // Import the claude panel manager to start Claude properly
-              const { claudePanelManager } = require('../ipc/claudePanel');
-
-              if (claudePanelManager) {
-                try {
-                  // Record the initial prompt in panel conversation history
-                  try {
-                    sessionManager.addPanelConversationMessage(claudePanel.id, 'user', prompt);
-                  } catch (e) {
-                    console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
-                  }
-
-                  // Use the claude panel manager directly instead of calling IPC handlers
-                  // Model is now managed at panel level
-                  const modelToUse = claudeConfig?.model || 'auto';
-                  await claudePanelManager.startPanel(claudePanel.id, session.worktreePath, prompt, permissionMode, modelToUse);
-                } catch (error) {
-                  console.error(`[TaskQueue] Failed to start Claude via panel manager:`, error);
-                  throw new Error(`Failed to start Claude panel: ${error}`);
-                }
-              } else {
-                console.error(`[TaskQueue] ClaudePanelManager not available, cannot start with real panel ID`);
-                throw new Error('Claude panel manager not available');
-              }
-            } else {
-              console.error(`[TaskQueue] No Claude panel found for session ${session.id} after ${maxAttempts} attempts`);
-              throw new Error('No Claude panel found - cannot start Claude without a real panel ID');
+            try {
+              // Use the claude panel manager directly instead of calling IPC handlers
+              // Model is now managed at panel level
+              const modelToUse = claudeConfig?.model || 'auto';
+              await manager.startPanel({
+                panelId: claudePanel.id,
+                worktreePath: session.worktreePath,
+                prompt,
+                permissionMode,
+                model: modelToUse
+              });
+            } catch (error) {
+              console.error(`[TaskQueue] Failed to start Claude via panel manager:`, error);
+              throw new Error(`Failed to start Claude panel: ${error}`);
             }
           } else if (resolvedToolType === 'gemini') {
             // Update status message
             sessionManager.updateSessionStatus(session.id, 'initializing', 'Starting Gemini CLI...');
 
-            let geminiPanel = null;
-            let attempts = 0;
-            const maxAttempts = 15;
+            const geminiPanel = await this.ensureAiPanel(session.id, 'gemini');
+            const { manager } = this.ensureAiPanelManager(geminiPanel, session.id);
 
-            while (!geminiPanel && attempts < maxAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 200));
-              const { panelManager } = require('./panelManager');
-              const existingPanels = panelManager.getPanelsForSession(session.id);
-              geminiPanel = existingPanels.find((p: ToolPanel) => p.type === 'gemini');
-              attempts++;
+            try {
+              sessionManager.addPanelConversationMessage(geminiPanel.id, 'user', prompt);
+            } catch (e) {
+              console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
             }
 
-            if (geminiPanel) {
-              const { geminiPanelManager } = require('../ipc/geminiPanel');
-              if (geminiPanelManager) {
-                try {
-                  try {
-                    sessionManager.addPanelConversationMessage(geminiPanel.id, 'user', prompt);
-                  } catch (e) {
-                    console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
-                  }
-
-                  await geminiPanelManager.startPanel({
-                    panelId: geminiPanel.id,
-                    worktreePath: session.worktreePath,
-                    prompt,
-                    model: geminiConfig?.model,
-                    approvalMode: geminiConfig?.approvalMode,
-                  });
-                } catch (error) {
-                  console.error('[TaskQueue] Failed to start Gemini via panel manager:', error);
-                  throw new Error(`Failed to start Gemini panel: ${error}`);
-                }
-              } else {
-                console.error('[TaskQueue] GeminiPanelManager not available, cannot start Gemini');
-                throw new Error('Gemini panel manager not available');
-              }
-            } else {
-              console.error(`[TaskQueue] No Gemini panel found for session ${session.id} after ${maxAttempts} attempts`);
-              throw new Error('No Gemini panel found - cannot start Gemini without a real panel ID');
+            try {
+              await manager.startPanel({
+                panelId: geminiPanel.id,
+                worktreePath: session.worktreePath,
+                prompt,
+                model: geminiConfig?.model,
+                approvalMode: geminiConfig?.approvalMode,
+              });
+            } catch (error) {
+              console.error('[TaskQueue] Failed to start Gemini via panel manager:', error);
+              throw new Error(`Failed to start Gemini panel: ${error}`);
             }
           } else if (resolvedToolType === 'kimi') {
             // Update status message
             sessionManager.updateSessionStatus(session.id, 'initializing', 'Starting Kimi CLI...');
 
-            let kimiPanel = null;
-            let attempts = 0;
-            const maxAttempts = 15;
+            const kimiPanel = await this.ensureAiPanel(session.id, 'kimi');
+            const { manager } = this.ensureAiPanelManager(kimiPanel, session.id);
 
-            while (!kimiPanel && attempts < maxAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 200));
-              const { panelManager } = require('./panelManager');
-              const existingPanels = panelManager.getPanelsForSession(session.id);
-              kimiPanel = existingPanels.find((p: ToolPanel) => p.type === 'kimi');
-              attempts++;
+            try {
+              sessionManager.addPanelConversationMessage(kimiPanel.id, 'user', prompt);
+            } catch (e) {
+              console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
             }
 
-            if (kimiPanel) {
-              const { kimiPanelManager } = require('../ipc/kimiPanel');
-              if (kimiPanelManager) {
-                try {
-                  try {
-                    sessionManager.addPanelConversationMessage(kimiPanel.id, 'user', prompt);
-                  } catch (e) {
-                    console.warn('[TaskQueue] Failed to add initial panel conversation message:', e);
-                  }
-
-                  await kimiPanelManager.startPanel({
-                    panelId: kimiPanel.id,
-                    worktreePath: session.worktreePath,
-                    prompt,
-                    model: kimiConfig?.model,
-                    approvalMode: kimiConfig?.approvalMode,
-                  });
-                } catch (error) {
-                  console.error('[TaskQueue] Failed to start Kimi via panel manager:', error);
-                  throw new Error(`Failed to start Kimi panel: ${error}`);
-                }
-              } else {
-                console.error('[TaskQueue] KimiPanelManager not available, cannot start Kimi');
-                throw new Error('Kimi panel manager not available');
-              }
-            } else {
-              console.error(`[TaskQueue] No Kimi panel found for session ${session.id} after ${maxAttempts} attempts`);
-              throw new Error('No Kimi panel found - cannot start Kimi without a real panel ID');
+            try {
+              await manager.startPanel({
+                panelId: kimiPanel.id,
+                worktreePath: session.worktreePath,
+                prompt,
+                model: kimiConfig?.model,
+                approvalMode: kimiConfig?.approvalMode,
+              });
+            } catch (error) {
+              console.error('[TaskQueue] Failed to start Kimi via panel manager:', error);
+              throw new Error(`Failed to start Kimi panel: ${error}`);
             }
           } else if (resolvedToolType === 'none') {
             // No AI tool selected - update session status to stopped
@@ -619,24 +541,11 @@ export class TaskQueue {
 
     this.inputQueue.process(10, async (job) => {
       const { sessionId, input } = job.data;
-      
-      // Find the Claude panel for this session
-      const { panelManager } = require('./panelManager');
-      const existingPanels = panelManager.getPanelsForSession(sessionId);
-      const claudePanel = existingPanels.find((p: ToolPanel) => p.type === 'claude');
-      
-      if (!claudePanel) {
-        throw new Error(`No Claude panel found for session ${sessionId}`);
-      }
 
-      // Use the claude panel manager instead of the legacy session-based approach
-      const { claudePanelManager } = require('../ipc/claudePanel');
-      
-      if (!claudePanelManager) {
-        throw new Error('Claude panel manager not available');
-      }
+      const claudePanel = await this.ensureAiPanel(sessionId, 'claude');
+      const { manager } = this.ensureAiPanelManager(claudePanel, sessionId);
 
-      claudePanelManager.sendInputToPanel(claudePanel.id, input);
+      manager.sendInputToPanel(claudePanel.id, input);
     });
 
     this.continueQueue.process(10, async (job) => {
@@ -648,28 +557,20 @@ export class TaskQueue {
         throw new Error(`Session ${sessionId} not found`);
       }
 
-      // Find the Claude panel for this session
-      const { panelManager } = require('./panelManager');
-      const existingPanels = panelManager.getPanelsForSession(sessionId);
-      const claudePanel = existingPanels.find((p: ToolPanel) => p.type === 'claude');
-      
-      if (!claudePanel) {
-        throw new Error(`No Claude panel found for session ${sessionId}`);
-      }
-
-      // Use the claude panel manager instead of the legacy session-based approach
-      const { claudePanelManager } = require('../ipc/claudePanel');
-      
-      if (!claudePanelManager) {
-        throw new Error('Claude panel manager not available');
-      }
+      const claudePanel = await this.ensureAiPanel(sessionId, 'claude');
+      const { manager } = this.ensureAiPanelManager(claudePanel, sessionId);
 
       // Get conversation history using panel-based method for Claude data
       const conversationHistory = sessionManager.getPanelConversationMessages ? 
         await sessionManager.getPanelConversationMessages(claudePanel.id) :
         await sessionManager.getConversationMessages(sessionId);
 
-      await claudePanelManager.continuePanel(claudePanel.id, session.worktreePath, prompt, conversationHistory);
+      await manager.continuePanel({
+        panelId: claudePanel.id,
+        worktreePath: session.worktreePath,
+        prompt,
+        conversationHistory
+      });
     });
   }
 
@@ -773,6 +674,39 @@ export class TaskQueue {
 
   async continueSession(sessionId: string, prompt: string): Promise<Bull.Job<ContinueSessionJob> | { id: string; data: ContinueSessionJob; status: string }> {
     return this.continueQueue.add({ sessionId, prompt });
+  }
+
+  private async ensureAiPanel(sessionId: string, type: ToolPanel['type']): Promise<ToolPanel> {
+    const existingPanels = panelManager.getPanelsForSession(sessionId);
+    const existing = existingPanels.find((panel) => panel.type === type);
+    if (existing) return existing;
+
+    return await panelManager.createPanel({ sessionId, type });
+  }
+
+  private ensureAiPanelManager(panel: ToolPanel, sessionId: string) {
+    let managerInfo: ReturnType<typeof getPanelManagerForType> | null = null;
+    try {
+      managerInfo = getPanelManagerForType(panel.type);
+    } catch (error) {
+      console.error('[TaskQueue] Panel manager registry not initialized:', error);
+      throw error;
+    }
+
+    if (!managerInfo) {
+      throw new Error(`Panel manager not available for type ${panel.type}`);
+    }
+
+    const { manager } = managerInfo;
+    if (!manager.getPanelState(panel.id)) {
+      manager.registerPanel(panel.id, sessionId, panel.state?.customState as AIPanelState | undefined, false);
+      const persistedAgentSessionId = this.options.sessionManager.getPanelAgentSessionId(panel.id);
+      if (typeof persistedAgentSessionId === 'string' && persistedAgentSessionId) {
+        manager.setAgentSessionId(panel.id, persistedAgentSessionId);
+      }
+    }
+
+    return managerInfo;
   }
 
   private async ensureUniqueSessionName(baseName: string, index?: number): Promise<string> {

@@ -264,6 +264,30 @@ export function SettingsDialog() {
                   />
                 </button>
               </div>
+
+              <div className="flex items-center justify-between">
+                <label className="text-sm" style={{ color: 'var(--st-text-muted)' }}>
+                  Default CLI for new sessions
+                </label>
+                <select
+                  value={settings.defaultToolType}
+                  onChange={(e) => updateSettings({
+                    defaultToolType: e.target.value as typeof settings.defaultToolType
+                  })}
+                  className="px-3 py-1.5 rounded border text-sm w-40 st-focus-ring"
+                  style={{
+                    backgroundColor: 'var(--st-editor)',
+                    borderColor: 'var(--st-border)',
+                    color: 'var(--st-text)',
+                  }}
+                >
+                  <option value="claude">Claude</option>
+                  <option value="codex">Codex</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="kimi">Kimi</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
             </div>
           </section>
 
@@ -369,7 +393,7 @@ export function SettingsDialog() {
             </h3>
             {telegramStatus.status === 'connected' && !settings.telegram.allowedChatId && (
               <div className="text-xs p-2 rounded" style={{ backgroundColor: 'var(--st-info-bg)', color: 'var(--st-info)' }}>
-                Bot connected! Send <code className="px-1 py-0.5 rounded" style={{ backgroundColor: 'var(--st-editor)' }}>/chatid</code> to @{telegramStatus.botUsername} to get your Chat ID.
+                Bot connected! Send <code className="px-1 py-0.5 rounded" style={{ backgroundColor: 'var(--st-editor)' }}>chat id</code> to @{telegramStatus.botUsername} to get your Chat ID.
               </div>
             )}
             {telegramStatus.status === 'error' && telegramStatus.error && (
@@ -428,7 +452,7 @@ export function SettingsDialog() {
                     Your Chat ID
                   </label>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--st-text-faint)' }}>
-                    Send /chatid to your bot to get this
+                    Send chat id to your bot to get this
                   </p>
                 </div>
                 <input

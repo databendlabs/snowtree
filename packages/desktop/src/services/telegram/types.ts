@@ -1,5 +1,3 @@
-import { Context } from 'grammy';
-
 export interface TelegramSettings {
   enabled: boolean;
   botToken: string;
@@ -19,8 +17,33 @@ export interface TelegramContext {
   activeSessionId: string | null;
 }
 
-export interface CommandHandler {
-  name: string;
+export type TelegramCommandName =
+  | 'get_chat_id'
+  | 'list_projects'
+  | 'open_project'
+  | 'list_sessions'
+  | 'select_session'
+  | 'new_session'
+  | 'status'
+  | 'send_message'
+  | 'help'
+  | 'unknown';
+
+export interface TelegramCommandDefinition {
+  name: TelegramCommandName;
   description: string;
-  handler: (ctx: Context, args: string) => Promise<void>;
+  args?: string;
+}
+
+export interface TelegramCommandRequest {
+  name: TelegramCommandName;
+  args?: Record<string, string>;
+  rawText: string;
+  attachments?: string[];
+}
+
+export interface TelegramCommandResponse {
+  message?: string;
+  parseMode?: 'Markdown' | 'HTML';
+  showTyping?: boolean;
 }

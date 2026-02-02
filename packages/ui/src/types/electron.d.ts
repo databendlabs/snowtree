@@ -69,6 +69,12 @@ export interface ElectronAPI {
     getSettings: () => Promise<IPCResponse<unknown>>;
   };
 
+  preferences: {
+    get: (key: string) => Promise<IPCResponse<string | null>>;
+    set: (key: string, value: string) => Promise<IPCResponse<unknown>>;
+    getAll: () => Promise<IPCResponse<Record<string, string>>>;
+  };
+
   dialog: {
     openDirectory: (options?: Electron.OpenDialogOptions) => Promise<IPCResponse<string | null>>;
   };

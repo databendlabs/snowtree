@@ -25,6 +25,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('ai-tools:get-settings'),
   },
 
+  preferences: {
+    get: (key: string): Promise<IPCResponse> => ipcRenderer.invoke('preferences:get', key),
+    set: (key: string, value: string): Promise<IPCResponse> => ipcRenderer.invoke('preferences:set', key, value),
+    getAll: (): Promise<IPCResponse> => ipcRenderer.invoke('preferences:get-all'),
+  },
+
   dialog: {
     openDirectory: (options?: Electron.OpenDialogOptions): Promise<IPCResponse<string | null>> =>
       ipcRenderer.invoke('dialog:open-directory', options),

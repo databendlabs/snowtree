@@ -1,3 +1,12 @@
 export { TelegramService } from './TelegramService';
 export { TelegramAgent } from './TelegramAgent';
-export type { TelegramSettings, TelegramState, TelegramContext, CommandHandler } from './types';
+export { TELEGRAM_COMMANDS } from './commandCatalog';
+export type {
+  TelegramSettings,
+  TelegramState,
+  TelegramContext,
+  TelegramCommandDefinition,
+  TelegramCommandRequest,
+  TelegramCommandResponse,
+  TelegramCommandName,
+} from './types';

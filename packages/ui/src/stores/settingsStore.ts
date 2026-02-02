@@ -14,6 +14,7 @@ export interface AppSettings {
   fontSize: number;
 
   // AI Tool Settings
+  defaultToolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
   enabledProviders: {
     claude: boolean;
     codex: boolean;
@@ -35,6 +36,7 @@ export interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
   fontSize: 15,
+  defaultToolType: 'claude',
   enabledProviders: {
     claude: true,
     codex: true,
@@ -67,9 +69,18 @@ function loadSettings(): AppSettings {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as Partial<AppSettings>;
+      const resolvedDefaultToolType =
+        parsed.defaultToolType === 'codex'
+        || parsed.defaultToolType === 'gemini'
+        || parsed.defaultToolType === 'kimi'
+        || parsed.defaultToolType === 'none'
+        || parsed.defaultToolType === 'claude'
+          ? parsed.defaultToolType
+          : DEFAULT_SETTINGS.defaultToolType;
       return {
         ...DEFAULT_SETTINGS,
         ...parsed,
+        defaultToolType: resolvedDefaultToolType,
         enabledProviders: {
           ...DEFAULT_SETTINGS.enabledProviders,
           ...(parsed.enabledProviders || {}),
@@ -106,13 +117,28 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   closeSettings: () => set({ isOpen: false }),
 
   updateSettings: (updates) => {
-    const newSettings = { ...get().settings, ...updates };
+    const previousSettings = get().settings;
+    const newSettings = { ...previousSettings, ...updates };
     saveSettings(newSettings);
     set({ settings: newSettings });
+
+    if (previousSettings.defaultToolType !== newSettings.defaultToolType && typeof window !== 'undefined') {
+      const preferences = window.electronAPI?.preferences;
+      if (preferences?.set) {
+        void preferences.set('defaultToolType', newSettings.defaultToolType);
+      }
+    }
   },
 
   resetSettings: () => {
     saveSettings(DEFAULT_SETTINGS);
     set({ settings: DEFAULT_SETTINGS });
+
+    if (typeof window !== 'undefined') {
+      const preferences = window.electronAPI?.preferences;
+      if (preferences?.set) {
+        void preferences.set('defaultToolType', DEFAULT_SETTINGS.defaultToolType);
+      }
+    }
   },
 }));
