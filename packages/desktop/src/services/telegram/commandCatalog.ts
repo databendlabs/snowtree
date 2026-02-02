@@ -38,6 +38,20 @@ export const TELEGRAM_COMMANDS: TelegramCommandDefinition[] = [
     args: '{ message: string }'
   },
   {
+    name: 'switch_executor',
+    description: 'Switch AI executor for the active session.',
+    args: '{ executor: "claude" | "codex" | "gemini" | "kimi" }'
+  },
+  {
+    name: 'stop_session',
+    description: 'Stop the active session.'
+  },
+  {
+    name: 'delete_session',
+    description: 'Delete a session by ID prefix.',
+    args: '{ id: string }'
+  },
+  {
     name: 'help',
     description: 'Show usage hints.'
   },

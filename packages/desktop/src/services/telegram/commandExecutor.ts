@@ -55,6 +55,15 @@ export class TelegramCommandExecutor {
       case 'send_message':
         return this.sendMessage(command, context, chatId);
 
+      case 'switch_executor':
+        return this.switchExecutor(command, context);
+
+      case 'stop_session':
+        return this.stopSession(context);
+
+      case 'delete_session':
+        return this.deleteSession(command, chatId);
+
       case 'help':
         return this.help();
 
@@ -265,10 +274,121 @@ export class TelegramCommandExecutor {
       '- new <prompt>',
       '- status',
       '- send <message>',
+      '- switch to claude/codex/gemini/kimi',
+      '- stop session',
+      '- delete <id>',
       '- chat id'
     ].join('\n');
 
     return { message: msg };
+  }
+
+  private switchExecutor(command: TelegramCommandRequest, context: TelegramContext): TelegramCommandResponse {
+    const executor = command.args?.executor?.toLowerCase()?.trim();
+    const validExecutors = ['claude', 'codex', 'gemini', 'kimi'];
+
+    if (!executor || !validExecutors.includes(executor)) {
+      return { message: `Please specify an executor: ${validExecutors.join(', ')}` };
+    }
+
+    if (!context.activeSessionId) {
+      return { message: 'No session selected. Say "select <id>" first.' };
+    }
+
+    const session = this.deps.sessionManager.getSession(context.activeSessionId);
+    if (!session) {
+      return { message: 'Session not found.' };
+    }
+
+    const toolType = executor as 'claude' | 'codex' | 'gemini' | 'kimi';
+    this.deps.sessionManager.updateSession(context.activeSessionId, { toolType });
+
+    // Create new panel for the executor if needed
+    const panels = panelManager.getPanelsForSession(context.activeSessionId);
+    const existingPanel = panels.find(p => p.type === toolType);
+
+    if (!existingPanel) {
+      panelManager.createPanel({
+        sessionId: context.activeSessionId,
+        type: toolType,
+        title: toolType.charAt(0).toUpperCase() + toolType.slice(1)
+      });
+    }
+
+    return {
+      message: `✅ Switched to *${toolType}*`,
+      parseMode: 'Markdown'
+    };
+  }
+
+  private async stopSession(context: TelegramContext): Promise<TelegramCommandResponse> {
+    if (!context.activeSessionId) {
+      return { message: 'No session selected.' };
+    }
+
+    const session = this.deps.sessionManager.getSession(context.activeSessionId);
+    if (!session) {
+      return { message: 'Session not found.' };
+    }
+
+    // Stop all AI executors for this session
+    const panels = panelManager.getPanelsForSession(context.activeSessionId);
+    for (const panel of panels) {
+      if (this.isAiPanel(panel)) {
+        const managerInfo = getPanelManagerForType(panel.type);
+        if (managerInfo) {
+          await managerInfo.executor.kill(panel.id);
+        }
+      }
+    }
+
+    this.deps.sessionManager.updateSessionStatus(context.activeSessionId, 'stopped');
+
+    return {
+      message: `✅ Stopped session: *${session.name}*`,
+      parseMode: 'Markdown'
+    };
+  }
+
+  private async deleteSession(command: TelegramCommandRequest, chatId: string | number): Promise<TelegramCommandResponse> {
+    const id = command.args?.id?.trim();
+    if (!id) {
+      return { message: 'Please specify a session ID to delete.' };
+    }
+
+    const context = this.deps.contextStore.get(chatId);
+    const sessions = context.activeProjectId
+      ? this.deps.sessionManager.getSessionsForProject(context.activeProjectId)
+      : [];
+
+    const session = sessions.find(s => s.id.startsWith(id));
+    if (!session) {
+      return { message: `Session "${id}" not found.` };
+    }
+
+    // Stop any running executors first
+    const panels = panelManager.getPanelsForSession(session.id);
+    for (const panel of panels) {
+      if (this.isAiPanel(panel)) {
+        const managerInfo = getPanelManagerForType(panel.type);
+        if (managerInfo) {
+          await managerInfo.executor.kill(panel.id);
+        }
+      }
+    }
+
+    // Delete the session
+    await this.deps.sessionManager.archiveSession(session.id);
+
+    // Clear from context if it was active
+    if (context.activeSessionId === session.id) {
+      this.deps.contextStore.update(chatId, { activeSessionId: null });
+    }
+
+    return {
+      message: `✅ Deleted session: *${session.name}*`,
+      parseMode: 'Markdown'
+    };
   }
 
   private async dispatchToSession(sessionId: string, message: string, attachments?: string[]): Promise<string | null> {

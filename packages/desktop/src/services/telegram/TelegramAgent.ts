@@ -194,6 +194,29 @@ Rules:
       return { command: 'status' };
     }
 
+    // Switch executor
+    if (lower.includes('switch') || lower.includes('use')) {
+      const executors = ['claude', 'codex', 'gemini', 'kimi'];
+      for (const exec of executors) {
+        if (lower.includes(exec)) {
+          return { command: 'switch_executor', args: { executor: exec } };
+        }
+      }
+    }
+
+    // Stop session
+    if (lower.includes('stop') && (lower.includes('session') || lower.includes('agent'))) {
+      return { command: 'stop_session' };
+    }
+
+    // Delete session
+    if (lower.includes('delete') || lower.includes('remove')) {
+      const match = normalized.match(/(?:delete|remove)\s+(?:session\s+)?(\S+)/i);
+      if (match) {
+        return { command: 'delete_session', args: { id: match[1] } };
+      }
+    }
+
     if (lower.startsWith('send ') || lower.startsWith('message ')) {
       const payload = normalized.replace(/^(send|message)\s+/i, '').trim();
       if (payload) {

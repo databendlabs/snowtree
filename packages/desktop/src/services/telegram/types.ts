@@ -26,6 +26,9 @@ export type TelegramCommandName =
   | 'new_session'
   | 'status'
   | 'send_message'
+  | 'switch_executor'
+  | 'stop_session'
+  | 'delete_session'
   | 'help'
   | 'unknown';
 
