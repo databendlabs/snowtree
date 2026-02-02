@@ -339,27 +339,128 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
   private async handleTimelineEvent(data: { sessionId: string; event: TimelineEvent }) {
     if (!this.bot) return;
     const { sessionId, event } = data;
-    if (event.kind !== 'chat.assistant') return;
-
-    const content = (event.command || event.content || '').trim();
-    if (!content) return;
 
     // Find all chats watching this session
     const keys = this.contextStore.getKeysForSession(sessionId);
+    if (keys.length === 0) return;
+
+    // Format the event based on its kind
+    const formatted = this.formatTimelineEvent(event);
+    if (!formatted) return;
+
     for (const key of keys) {
       const parsed = this.contextStore.parseKey(key);
       if (parsed && parsed.channelType === CHANNEL_TYPE) {
         const chatId = parsed.chatId;
-        const streamKey = `${sessionId}:${chatId}`;
 
-        if (event.is_streaming) {
-          // Streaming in progress - send incremental updates
-          await this.handleStreamingUpdate(streamKey, chatId, content);
+        if (event.kind === 'chat.assistant') {
+          // Handle streaming for assistant messages
+          const streamKey = `${sessionId}:${chatId}`;
+          if (event.is_streaming) {
+            await this.handleStreamingUpdate(streamKey, chatId, formatted);
+          } else {
+            await this.finalizeStreaming(streamKey, chatId, formatted);
+          }
         } else {
-          // Streaming complete - send any remaining content
-          await this.finalizeStreaming(streamKey, chatId, content);
+          // Send other events immediately
+          await this.sendMessage(chatId, formatted);
         }
       }
+    }
+  }
+
+  private formatTimelineEvent(event: TimelineEvent): string | null {
+    switch (event.kind) {
+      case 'chat.assistant': {
+        const content = (event.command || event.content || '').trim();
+        return content || null;
+      }
+
+      case 'tool_use': {
+        if (event.status === 'started') {
+          const toolName = event.tool_name || 'unknown';
+          let input = '';
+          if (event.tool_input) {
+            try {
+              const parsed = JSON.parse(event.tool_input);
+              // Format tool input concisely
+              if (toolName === 'Read' && parsed.file_path) {
+                input = `\n📄 ${parsed.file_path}`;
+              } else if (toolName === 'Edit' && parsed.file_path) {
+                input = `\n📝 ${parsed.file_path}`;
+              } else if (toolName === 'Write' && parsed.file_path) {
+                input = `\n📝 ${parsed.file_path}`;
+              } else if (toolName === 'Bash' && parsed.command) {
+                input = `\n\`${parsed.command}\``;
+              } else if (toolName === 'Glob' && parsed.pattern) {
+                input = `\n🔍 ${parsed.pattern}`;
+              } else if (toolName === 'Grep' && parsed.pattern) {
+                input = `\n🔍 ${parsed.pattern}`;
+              } else {
+                // Show first few keys for other tools
+                const keys = Object.keys(parsed).slice(0, 2);
+                if (keys.length > 0) {
+                  input = '\n' + keys.map(k => `${k}: ${String(parsed[k]).slice(0, 50)}`).join(', ');
+                }
+              }
+            } catch {
+              // Not JSON, show raw (truncated)
+              if (event.tool_input.length > 100) {
+                input = `\n${event.tool_input.slice(0, 100)}...`;
+              } else {
+                input = `\n${event.tool_input}`;
+              }
+            }
+          }
+          return `🔧 *${toolName}*${input}`;
+        }
+        return null;
+      }
+
+      case 'tool_result': {
+        // Only show errors or important results
+        if (event.is_error) {
+          const result = event.tool_result || 'Error';
+          const truncated = result.length > 200 ? result.slice(0, 200) + '...' : result;
+          return `❌ Tool error:\n${truncated}`;
+        }
+        return null;
+      }
+
+      case 'cli.command':
+      case 'git.command': {
+        if (event.status === 'started') {
+          const cmd = event.command || '';
+          const icon = event.kind === 'git.command' ? '🔀' : '💻';
+          return `${icon} \`${cmd}\``;
+        } else if (event.status === 'finished' && event.exit_code !== 0) {
+          return `⚠️ Command exited with code ${event.exit_code}`;
+        }
+        return null;
+      }
+
+      case 'thinking': {
+        // Skip thinking events - too verbose
+        return null;
+      }
+
+      case 'user_question': {
+        if (event.status === 'pending' && event.questions) {
+          try {
+            const questions = JSON.parse(event.questions);
+            if (Array.isArray(questions) && questions.length > 0) {
+              const q = questions[0];
+              return `❓ *Question:* ${q.question || q.text || 'Agent needs input'}`;
+            }
+          } catch {
+            return '❓ Agent is asking a question';
+          }
+        }
+        return null;
+      }
+
+      default:
+        return null;
     }
   }
 
