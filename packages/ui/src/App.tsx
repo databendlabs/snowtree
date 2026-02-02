@@ -50,6 +50,15 @@ export default function App() {
     document.documentElement.style.fontSize = `${settings.fontSize}px`;
   }, [settings.fontSize]);
 
+  // Manage Telegram bot based on settings
+  useEffect(() => {
+    if (settings.telegram.enabled && settings.telegram.botToken) {
+      window.electronAPI.telegram.start(settings.telegram);
+    } else {
+      window.electronAPI.telegram.stop();
+    }
+  }, [settings.telegram.enabled, settings.telegram.botToken, settings.telegram.allowedChatId]);
+
   return (
     <div
       className="h-screen w-screen flex overflow-hidden relative"

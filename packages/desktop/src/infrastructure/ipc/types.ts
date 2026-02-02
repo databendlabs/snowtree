@@ -16,6 +16,7 @@ import type { KimiExecutor } from '../../executors/kimi';
 import type { GitExecutor } from '../../executors/git';
 import type { Logger } from '../logging/logger';
 import type { UpdateManager } from '../../features/updater/UpdateManager';
+import type { TelegramService } from '../../services/telegram';
 
 export interface AppServices {
   app: App;
@@ -37,6 +38,7 @@ export interface AppServices {
   getMainWindow: () => BrowserWindow | null;
   logger?: Logger;
   updateManager?: UpdateManager | null;
+  telegramService?: TelegramService;
 } 
 
 export interface IPCResponse<T = any> {

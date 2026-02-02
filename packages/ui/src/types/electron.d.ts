@@ -184,6 +184,13 @@ export interface ElectronAPI {
     install: () => Promise<IPCResponse<unknown>>;
   };
 
+  telegram: {
+    getStatus: () => Promise<IPCResponse<{ status: string; error?: string; botUsername?: string }>>;
+    start: (settings: { enabled: boolean; botToken: string; allowedChatId: string }) => Promise<IPCResponse<unknown>>;
+    stop: () => Promise<IPCResponse<unknown>>;
+    restart: (settings: { enabled: boolean; botToken: string; allowedChatId: string }) => Promise<IPCResponse<unknown>>;
+  };
+
   events: {
     onSessionsLoaded: (callback: (sessions: Session[]) => void) => () => void;
     onSessionCreated: (callback: (session: Session) => void) => () => void;

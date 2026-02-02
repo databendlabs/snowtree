@@ -133,6 +133,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     install: (): Promise<IPCResponse> => ipcRenderer.invoke('updater:install'),
   },
 
+  telegram: {
+    getStatus: (): Promise<IPCResponse> => ipcRenderer.invoke('telegram:get-status'),
+    start: (settings: { enabled: boolean; botToken: string; allowedChatId: string }): Promise<IPCResponse> =>
+      ipcRenderer.invoke('telegram:start', settings),
+    stop: (): Promise<IPCResponse> => ipcRenderer.invoke('telegram:stop'),
+    restart: (settings: { enabled: boolean; botToken: string; allowedChatId: string }): Promise<IPCResponse> =>
+      ipcRenderer.invoke('telegram:restart', settings),
+  },
+
   events: {
     onSessionsLoaded: (cb: (sessions: unknown[]) => void) => on('sessions:loaded', cb),
     onSessionCreated: (cb: (session: unknown) => void) => on('session:created', cb),
@@ -148,5 +157,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onUpdateDownloaded: (cb: () => void) => on('update:downloaded', cb),
     onAgentCompleted: (cb: (data: { sessionId: string }) => void) => on('agent:completed', cb),
     onSessionTodosUpdate: (cb: (data: { sessionId: string; todos: Array<{ status: string; content: string; activeForm?: string }> }) => void) => on('session-todos:update', cb),
+    onTelegramStateChanged: (cb: (data: { status: string; error?: string; botUsername?: string }) => void) => on('telegram:state-changed', cb),
   },
 });

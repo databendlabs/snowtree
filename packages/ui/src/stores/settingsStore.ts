@@ -2,6 +2,12 @@ import { create } from 'zustand';
 
 const STORAGE_KEY = 'snowtree-settings';
 
+export interface TelegramSettings {
+  enabled: boolean;
+  botToken: string;
+  allowedChatId: string;
+}
+
 export interface AppSettings {
   // Theme & Appearance
   theme: 'light' | 'dark' | 'system';
@@ -21,6 +27,9 @@ export interface AppSettings {
 
   // Worktree
   autoDeleteBranchOnWorktreeRemove: boolean;
+
+  // Telegram Remote Control
+  telegram: TelegramSettings;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -35,6 +44,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   terminalFontSize: 13,
   terminalScrollback: 1000,
   autoDeleteBranchOnWorktreeRemove: false,
+  telegram: {
+    enabled: false,
+    botToken: '',
+    allowedChatId: '',
+  },
 };
 
 interface SettingsStore {
@@ -59,6 +73,10 @@ function loadSettings(): AppSettings {
         enabledProviders: {
           ...DEFAULT_SETTINGS.enabledProviders,
           ...(parsed.enabledProviders || {}),
+        },
+        telegram: {
+          ...DEFAULT_SETTINGS.telegram,
+          ...(parsed.telegram || {}),
         },
       };
     }

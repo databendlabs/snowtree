@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "type": "commonjs",
   "dependencies": {
-    "@snowtree/core": "workspace:*"
+    "@snowtree/core": "workspace:*",
+    "grammy": "^1.21.1"
   },
   "scripts": {
     "dev": "npm run copy:assets && tsc -w",
