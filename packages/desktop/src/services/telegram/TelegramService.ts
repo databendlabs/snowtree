@@ -27,6 +27,17 @@ import {
 
 const CHANNEL_TYPE = 'telegram';
 
+// Streaming config
+const STREAM_CHUNK_SIZE = 200; // Send every N characters
+const STREAM_DEBOUNCE_MS = 1500; // Or after N ms of no updates
+
+interface StreamingState {
+  content: string;
+  sentLength: number;
+  messageIds: number[];
+  debounceTimer: NodeJS.Timeout | null;
+}
+
 interface TelegramServiceDeps {
   sessionManager: SessionManager;
   taskQueue: TaskQueue | null;
@@ -59,6 +70,7 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
   private api: SnowTreeAPI;
 
   private lastAssistantBySession = new Map<string, string>();
+  private streamingBySessionChat = new Map<string, StreamingState>();
 
   constructor(private deps: TelegramServiceDeps) {
     super();
@@ -329,23 +341,108 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
     const { sessionId, event } = data;
     if (event.kind !== 'chat.assistant') return;
 
-    // Only send when streaming is complete (is_streaming === 0 or undefined)
-    if (event.is_streaming) return;
-
     const content = (event.command || event.content || '').trim();
     if (!content) return;
-
-    // Deduplicate - check if we already sent this exact content
-    const last = this.lastAssistantBySession.get(sessionId);
-    if (last === content) return;
-    this.lastAssistantBySession.set(sessionId, content);
 
     // Find all chats watching this session
     const keys = this.contextStore.getKeysForSession(sessionId);
     for (const key of keys) {
       const parsed = this.contextStore.parseKey(key);
       if (parsed && parsed.channelType === CHANNEL_TYPE) {
-        await this.sendMessage(parsed.chatId, content);
+        const chatId = parsed.chatId;
+        const streamKey = `${sessionId}:${chatId}`;
+
+        if (event.is_streaming) {
+          // Streaming in progress - send incremental updates
+          await this.handleStreamingUpdate(streamKey, chatId, content);
+        } else {
+          // Streaming complete - send any remaining content
+          await this.finalizeStreaming(streamKey, chatId, content);
+        }
+      }
+    }
+  }
+
+  private async handleStreamingUpdate(streamKey: string, chatId: string | number, content: string) {
+    let state = this.streamingBySessionChat.get(streamKey);
+
+    if (!state) {
+      state = {
+        content: '',
+        sentLength: 0,
+        messageIds: [],
+        debounceTimer: null,
+      };
+      this.streamingBySessionChat.set(streamKey, state);
+    }
+
+    // Clear existing debounce timer
+    if (state.debounceTimer) {
+      clearTimeout(state.debounceTimer);
+      state.debounceTimer = null;
+    }
+
+    state.content = content;
+
+    // Check if we have enough new content to send
+    const newContent = content.slice(state.sentLength);
+    if (newContent.length >= STREAM_CHUNK_SIZE) {
+      await this.sendStreamChunk(streamKey, chatId, state);
+    } else {
+      // Set debounce timer to send after delay
+      state.debounceTimer = setTimeout(() => {
+        void this.sendStreamChunk(streamKey, chatId, state!);
+      }, STREAM_DEBOUNCE_MS);
+    }
+  }
+
+  private async sendStreamChunk(streamKey: string, chatId: string | number, state: StreamingState) {
+    if (!this.bot) return;
+
+    const newContent = state.content.slice(state.sentLength);
+    if (!newContent.trim()) return;
+
+    try {
+      // Find a good break point (newline or space)
+      let sendLength = newContent.length;
+      if (sendLength > STREAM_CHUNK_SIZE) {
+        const lastNewline = newContent.lastIndexOf('\n', STREAM_CHUNK_SIZE);
+        const lastSpace = newContent.lastIndexOf(' ', STREAM_CHUNK_SIZE);
+        sendLength = Math.max(lastNewline, lastSpace, STREAM_CHUNK_SIZE);
+      }
+
+      const chunk = newContent.slice(0, sendLength).trim();
+      if (chunk) {
+        const msg = await this.bot.api.sendMessage(chatId, chunk);
+        state.messageIds.push(msg.message_id);
+        state.sentLength += sendLength;
+      }
+    } catch (error) {
+      this.deps.logger.error('Failed to send stream chunk:', error as Error);
+    }
+  }
+
+  private async finalizeStreaming(streamKey: string, chatId: string | number, finalContent: string) {
+    const state = this.streamingBySessionChat.get(streamKey);
+
+    // Clear debounce timer
+    if (state?.debounceTimer) {
+      clearTimeout(state.debounceTimer);
+    }
+
+    // Send any remaining content
+    if (state) {
+      const remaining = finalContent.slice(state.sentLength).trim();
+      if (remaining) {
+        await this.sendMessage(chatId, remaining);
+      }
+      this.streamingBySessionChat.delete(streamKey);
+    } else {
+      // No streaming state - check deduplication and send full content
+      const last = this.lastAssistantBySession.get(streamKey.split(':')[0]);
+      if (last !== finalContent) {
+        this.lastAssistantBySession.set(streamKey.split(':')[0], finalContent);
+        await this.sendMessage(chatId, finalContent);
       }
     }
   }
