@@ -9,51 +9,50 @@ import type { SessionManager } from '../../features/session/SessionManager';
 import type { TaskQueue } from '../../features/queue/TaskQueue';
 import type { WorktreeManager } from '../../features/worktree/WorktreeManager';
 import type { Logger } from '../../infrastructure/logging/logger';
-import type { TelegramCommandRequest, TelegramCommandResponse, TelegramContext } from './types';
-import { TelegramContextStore } from './contextStore';
+import type {
+  SnowTreeCommandRequest,
+  SnowTreeCommandResponse,
+  ChannelContext,
+} from './types';
 
-interface TelegramCommandExecutorDeps {
+export interface SnowTreeAPIDeps {
   sessionManager: SessionManager;
   taskQueue: TaskQueue | null;
   worktreeManager: WorktreeManager;
   logger?: Logger;
-  contextStore: TelegramContextStore;
-  isAgentAvailable: () => boolean;
 }
 
-export class TelegramCommandExecutor {
-  constructor(private deps: TelegramCommandExecutorDeps) {}
+/**
+ * SnowTreeAPI - Channel-agnostic API for controlling Snowtree
+ *
+ * This class handles all Snowtree operations and can be used by any channel
+ * (Telegram, Slack, Discord, CLI, etc.)
+ */
+export class SnowTreeAPI {
+  constructor(private deps: SnowTreeAPIDeps) {}
 
-  async execute(command: TelegramCommandRequest, chatId: string | number): Promise<TelegramCommandResponse> {
-    const context = this.ensureContext(chatId);
-
+  async execute(command: SnowTreeCommandRequest, context: ChannelContext): Promise<SnowTreeCommandResponse> {
     switch (command.name) {
-      case 'get_chat_id':
-        return {
-          message: `Your Chat ID: \`${chatId}\``,
-          parseMode: 'Markdown'
-        };
-
       case 'list_projects':
-        return this.listProjects(context);
+        return this.listProjects();
 
       case 'open_project':
-        return this.openProject(command, chatId);
+        return this.openProject(command, context);
 
       case 'list_sessions':
         return this.listSessions(context);
 
       case 'select_session':
-        return this.selectSession(command, chatId);
+        return this.selectSession(command, context);
 
       case 'new_session':
-        return this.createSession(command, chatId);
+        return this.createSession(command, context);
 
       case 'status':
         return this.status(context);
 
       case 'send_message':
-        return this.sendMessage(command, context, chatId);
+        return this.sendMessage(command, context);
 
       case 'switch_executor':
         return this.switchExecutor(command, context);
@@ -62,7 +61,7 @@ export class TelegramCommandExecutor {
         return this.stopSession(context);
 
       case 'delete_session':
-        return this.deleteSession(command, chatId);
+        return this.deleteSession(command, context);
 
       case 'help':
         return this.help();
@@ -73,18 +72,11 @@ export class TelegramCommandExecutor {
     }
   }
 
-  private ensureContext(chatId: string | number): TelegramContext {
-    const context = this.deps.contextStore.get(chatId);
-    if (!context.activeProjectId) {
-      const activeProject = this.deps.sessionManager.getActiveProject();
-      if (activeProject) {
-        return this.deps.contextStore.update(chatId, { activeProjectId: activeProject.id });
-      }
-    }
-    return context;
-  }
+  // ===========================================================================
+  // Project Commands
+  // ===========================================================================
 
-  private listProjects(_context: TelegramContext): TelegramCommandResponse {
+  private listProjects(): SnowTreeCommandResponse {
     const projects = this.deps.sessionManager.db.getAllProjects();
     if (projects.length === 0) {
       return { message: 'No projects found.' };
@@ -99,7 +91,7 @@ export class TelegramCommandExecutor {
     return { message: msg, parseMode: 'Markdown' };
   }
 
-  private openProject(command: TelegramCommandRequest, chatId: string | number): TelegramCommandResponse {
+  private openProject(command: SnowTreeCommandRequest, context: ChannelContext): SnowTreeCommandResponse {
     const name = command.args?.name?.trim();
     if (!name) {
       return { message: 'Please specify a project name.' };
@@ -117,12 +109,19 @@ export class TelegramCommandExecutor {
 
     this.deps.sessionManager.db.setActiveProject(project.id);
     this.deps.sessionManager.setActiveProject(project);
-    this.deps.contextStore.update(chatId, { activeProjectId: project.id, activeSessionId: null });
+
+    // Update context (caller should persist this)
+    context.activeProjectId = project.id;
+    context.activeSessionId = null;
 
     return { message: `✅ Opened: *${project.name}*`, parseMode: 'Markdown' };
   }
 
-  private listSessions(context: TelegramContext): TelegramCommandResponse {
+  // ===========================================================================
+  // Session Commands
+  // ===========================================================================
+
+  private listSessions(context: ChannelContext): SnowTreeCommandResponse {
     if (!context.activeProjectId) {
       return { message: 'No project selected. Say "open <name>" first.' };
     }
@@ -148,13 +147,12 @@ export class TelegramCommandExecutor {
     return { message: msg, parseMode: 'Markdown' };
   }
 
-  private selectSession(command: TelegramCommandRequest, chatId: string | number): TelegramCommandResponse {
+  private selectSession(command: SnowTreeCommandRequest, context: ChannelContext): SnowTreeCommandResponse {
     const id = command.args?.id?.trim();
     if (!id) {
       return { message: 'Please specify a session ID.' };
     }
 
-    const context = this.deps.contextStore.get(chatId);
     const sessions = context.activeProjectId
       ? this.deps.sessionManager.getSessionsForProject(context.activeProjectId)
       : [];
@@ -164,76 +162,25 @@ export class TelegramCommandExecutor {
       return { message: `Session "${id}" not found.` };
     }
 
-    this.deps.contextStore.update(chatId, { activeSessionId: session.id });
+    context.activeSessionId = session.id;
 
     return { message: `✅ Selected: *${session.name}*`, parseMode: 'Markdown' };
   }
 
-  private async createSession(command: TelegramCommandRequest, chatId: string | number): Promise<TelegramCommandResponse> {
+  private async createSession(command: SnowTreeCommandRequest, context: ChannelContext): Promise<SnowTreeCommandResponse> {
     const prompt = command.args?.prompt?.trim();
     if (!prompt) {
       return { message: 'Please provide a prompt for the new session.' };
     }
 
-    return this.createSessionWithPrompt(prompt, chatId, '🚀 Creating new session');
-  }
-
-  private getDefaultToolType(): 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' {
-    const pref = this.deps.sessionManager.db.getUserPreference('defaultToolType');
-    if (pref === 'codex' || pref === 'gemini' || pref === 'kimi' || pref === 'none') {
-      return pref;
-    }
-    return 'claude';
-  }
-
-  private status(context: TelegramContext): TelegramCommandResponse {
-    const project = context.activeProjectId
-      ? this.deps.sessionManager.db.getProject(context.activeProjectId)
-      : null;
-    const session = context.activeSessionId
-      ? this.deps.sessionManager.getSession(context.activeSessionId)
-      : null;
-
-    let msg = '📊 *Status*\n\n';
-    msg += `Project: ${project ? project.name : '_none_'}\n`;
-    msg += `Session: ${session ? session.name : '_none_'}\n`;
-    if (session) {
-      msg += `Status: ${session.status}\n`;
-    }
-    msg += `\nAgent: ${this.deps.isAgentAvailable() ? '✅ AI' : '⚡ Fallback'}`;
-
-    return { message: msg, parseMode: 'Markdown' };
-  }
-
-  private async sendMessage(command: TelegramCommandRequest, context: TelegramContext, chatId: string | number): Promise<TelegramCommandResponse> {
-    const message = command.args?.message?.trim();
-    if (!message) {
-      return { message: 'Please provide a message to send.' };
-    }
-
-    if (!context.activeSessionId) {
-      return this.createSessionWithPrompt(message, chatId, '🚀 Starting agent');
-    }
-
-    const error = await this.dispatchToSession(
-      context.activeSessionId,
-      message,
-      command.attachments
-    );
-
-    if (error) {
-      return { message: error };
-    }
-
-    return { showTyping: true };
+    return this.createSessionWithPrompt(prompt, context, '🚀 Creating new session');
   }
 
   private async createSessionWithPrompt(
     prompt: string,
-    chatId: string | number,
+    context: ChannelContext,
     label: string
-  ): Promise<TelegramCommandResponse> {
-    const context = this.deps.contextStore.get(chatId);
+  ): Promise<SnowTreeCommandResponse> {
     if (!context.activeProjectId) {
       return { message: 'No project selected. Say "open <name>" first.' };
     }
@@ -256,7 +203,7 @@ export class TelegramCommandExecutor {
       toolType
     });
 
-    this.deps.contextStore.update(chatId, { activeSessionId: sessionId });
+    context.activeSessionId = sessionId;
 
     return {
       message: `${label}: \`${sessionId.slice(0, 6)}\``,
@@ -264,26 +211,30 @@ export class TelegramCommandExecutor {
     };
   }
 
-  private help(): TelegramCommandResponse {
-    const msg = [
-      'Try:',
-      '- list projects',
-      '- open <name>',
-      '- list sessions',
-      '- select <id>',
-      '- new <prompt>',
-      '- status',
-      '- send <message>',
-      '- switch to claude/codex/gemini/kimi',
-      '- stop session',
-      '- delete <id>',
-      '- chat id'
-    ].join('\n');
+  // ===========================================================================
+  // Status & Control Commands
+  // ===========================================================================
 
-    return { message: msg };
+  private status(context: ChannelContext): SnowTreeCommandResponse {
+    const project = context.activeProjectId
+      ? this.deps.sessionManager.db.getProject(context.activeProjectId)
+      : null;
+    const session = context.activeSessionId
+      ? this.deps.sessionManager.getSession(context.activeSessionId)
+      : null;
+
+    let msg = '📊 *Status*\n\n';
+    msg += `Project: ${project ? project.name : '_none_'}\n`;
+    msg += `Session: ${session ? session.name : '_none_'}\n`;
+    if (session) {
+      msg += `Status: ${session.status}\n`;
+      msg += `Executor: ${session.toolType || 'none'}\n`;
+    }
+
+    return { message: msg, parseMode: 'Markdown' };
   }
 
-  private switchExecutor(command: TelegramCommandRequest, context: TelegramContext): TelegramCommandResponse {
+  private switchExecutor(command: SnowTreeCommandRequest, context: ChannelContext): SnowTreeCommandResponse {
     const executor = command.args?.executor?.toLowerCase()?.trim();
     const validExecutors = ['claude', 'codex', 'gemini', 'kimi'];
 
@@ -321,7 +272,7 @@ export class TelegramCommandExecutor {
     };
   }
 
-  private async stopSession(context: TelegramContext): Promise<TelegramCommandResponse> {
+  private async stopSession(context: ChannelContext): Promise<SnowTreeCommandResponse> {
     if (!context.activeSessionId) {
       return { message: 'No session selected.' };
     }
@@ -350,13 +301,12 @@ export class TelegramCommandExecutor {
     };
   }
 
-  private async deleteSession(command: TelegramCommandRequest, chatId: string | number): Promise<TelegramCommandResponse> {
+  private async deleteSession(command: SnowTreeCommandRequest, context: ChannelContext): Promise<SnowTreeCommandResponse> {
     const id = command.args?.id?.trim();
     if (!id) {
       return { message: 'Please specify a session ID to delete.' };
     }
 
-    const context = this.deps.contextStore.get(chatId);
     const sessions = context.activeProjectId
       ? this.deps.sessionManager.getSessionsForProject(context.activeProjectId)
       : [];
@@ -382,13 +332,40 @@ export class TelegramCommandExecutor {
 
     // Clear from context if it was active
     if (context.activeSessionId === session.id) {
-      this.deps.contextStore.update(chatId, { activeSessionId: null });
+      context.activeSessionId = null;
     }
 
     return {
       message: `✅ Deleted session: *${session.name}*`,
       parseMode: 'Markdown'
     };
+  }
+
+  // ===========================================================================
+  // Message Handling
+  // ===========================================================================
+
+  private async sendMessage(command: SnowTreeCommandRequest, context: ChannelContext): Promise<SnowTreeCommandResponse> {
+    const message = command.args?.message?.trim();
+    if (!message) {
+      return { message: 'Please provide a message to send.' };
+    }
+
+    if (!context.activeSessionId) {
+      return this.createSessionWithPrompt(message, context, '🚀 Starting agent');
+    }
+
+    const error = await this.dispatchToSession(
+      context.activeSessionId,
+      message,
+      command.attachments
+    );
+
+    if (error) {
+      return { message: error };
+    }
+
+    return { showTyping: true };
   }
 
   private async dispatchToSession(sessionId: string, message: string, attachments?: string[]): Promise<string | null> {
@@ -444,6 +421,40 @@ export class TelegramCommandExecutor {
     return null;
   }
 
+  // ===========================================================================
+  // Help
+  // ===========================================================================
+
+  private help(): SnowTreeCommandResponse {
+    const msg = [
+      'Available commands:',
+      '- list projects',
+      '- open <name>',
+      '- list sessions',
+      '- select <id>',
+      '- new <prompt>',
+      '- status',
+      '- send <message>',
+      '- switch to claude/codex/gemini/kimi',
+      '- stop session',
+      '- delete <id>'
+    ].join('\n');
+
+    return { message: msg };
+  }
+
+  // ===========================================================================
+  // Helpers
+  // ===========================================================================
+
+  private getDefaultToolType(): 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' {
+    const pref = this.deps.sessionManager.db.getUserPreference('defaultToolType');
+    if (pref === 'codex' || pref === 'gemini' || pref === 'kimi' || pref === 'none') {
+      return pref;
+    }
+    return 'claude';
+  }
+
   private resolvePanel(session: Session): ToolPanel | null {
     const activePanel = this.deps.sessionManager.db.getActivePanel(session.id);
     if (activePanel && this.isAiPanel(activePanel)) {
@@ -491,8 +502,20 @@ export class TelegramCommandExecutor {
       this.deps.sessionManager.updateSession(sessionId, { worktreePath: matching.path });
       return matching.path;
     } catch (error) {
-      this.deps.logger?.warn?.(`[Telegram] Failed to recover worktree path: ${error instanceof Error ? error.message : String(error)}`);
+      this.deps.logger?.warn?.(`[SnowTreeAPI] Failed to recover worktree path: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
+  }
+
+  // ===========================================================================
+  // Public Helpers for Channels
+  // ===========================================================================
+
+  getActiveProject(): { id: number; name: string; path: string } | null {
+    return this.deps.sessionManager.getActiveProject();
+  }
+
+  getSession(sessionId: string): Session | undefined {
+    return this.deps.sessionManager.getSession(sessionId);
   }
 }

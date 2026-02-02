@@ -1,20 +1,26 @@
 import { spawn } from 'child_process';
-import type { TelegramCommandDefinition, TelegramCommandName, TelegramContext } from './types';
+import type { SnowTreeCommandDefinition, SnowTreeCommandName, SnowTreeCommandRequest, ChannelContext } from './types';
 import type { SessionManager } from '../../features/session/SessionManager';
 import type { Logger } from '../../infrastructure/logging';
 
-export interface TelegramAgentDecision {
-  command: TelegramCommandName;
+export interface CommandInterpreterDecision {
+  command: SnowTreeCommandName;
   args?: Record<string, string>;
 }
 
-export class TelegramAgent {
+/**
+ * CommandInterpreter - Interprets natural language into SnowTree commands
+ *
+ * Uses Claude CLI when available, falls back to pattern matching.
+ * Channel-agnostic - can be used by any channel adapter.
+ */
+export class CommandInterpreter {
   private claudePath: string | null = null;
 
   constructor(
     private sessionManager: SessionManager,
     private logger: Logger,
-    private commandDefinitions: TelegramCommandDefinition[]
+    private commandDefinitions: SnowTreeCommandDefinition[]
   ) {
     this.detectClaudeCli();
   }
@@ -29,24 +35,46 @@ export class TelegramAgent {
     }
   }
 
-  async processMessage(message: string, context: TelegramContext): Promise<TelegramAgentDecision> {
-    if (!this.claudePath) {
-      return this.fallbackProcess(message, context);
+  async interpret(message: string, context: ChannelContext): Promise<SnowTreeCommandRequest> {
+    const normalized = message.trim().replace(/^\//, '');
+    let decision: CommandInterpreterDecision;
+
+    // Try fallback first - it's fast and handles most common commands
+    decision = this.fallbackInterpret(normalized, context);
+
+    // Only use Claude CLI if fallback returns unknown and we have complex input
+    if (decision.command === 'unknown' && this.claudePath && normalized.length > 3) {
+      try {
+        const contextStr = this.buildContextString(context);
+        const systemPrompt = this.buildSystemPrompt(contextStr);
+        const result = await this.runClaude(systemPrompt, normalized);
+        const aiDecision = this.parseResponse(result);
+        if (aiDecision.command !== 'unknown') {
+          decision = aiDecision;
+        }
+      } catch (error) {
+        // Claude CLI failed, stick with fallback result
+        this.logger.warn('CommandInterpreter Claude CLI failed, using fallback');
+      }
     }
 
-    try {
-      const contextStr = this.buildContextString(context);
-      const systemPrompt = this.buildSystemPrompt(contextStr);
-
-      const result = await this.runClaude(systemPrompt, message);
-      return this.parseResponse(result);
-    } catch (error) {
-      this.logger.error('TelegramAgent error:', error as Error);
-      return this.fallbackProcess(message, context);
+    // Convert unknown to send_message if there's an active session
+    if (decision.command === 'unknown' && context.activeSessionId) {
+      return {
+        name: 'send_message',
+        args: { message: normalized },
+        rawText: message
+      };
     }
+
+    return {
+      name: decision.command,
+      args: decision.args,
+      rawText: message
+    };
   }
 
-  private buildContextString(context: TelegramContext): string {
+  private buildContextString(context: ChannelContext): string {
     const project = context.activeProjectId
       ? this.sessionManager.db.getProject(context.activeProjectId)
       : null;
@@ -55,6 +83,29 @@ export class TelegramAgent {
       : null;
 
     return `Active project: ${project?.name || 'none'}\nActive session: ${session?.name || 'none'}`;
+  }
+
+  private buildSystemPrompt(contextStr: string): string {
+    const commandList = this.commandDefinitions
+      .map(cmd => `- ${cmd.name}: ${cmd.description}${cmd.args ? ` Params: ${cmd.args}` : ''}`)
+      .join('\n');
+
+    return `You are a command interpreter for Snowtree.
+Your job: choose the best command for the user's message. Default to send_message for general questions or tasks.
+
+Available commands:
+${commandList}
+
+Current context:
+${contextStr}
+
+Return JSON only, no explanation:
+{ "command": "command_name", "args": { ... } }
+
+Rules:
+- Always pick a command from the list.
+- For general questions or tasks, use send_message with { message } even if there is no active session.
+- If nothing fits, use unknown.`;
   }
 
   private async runClaude(systemPrompt: string, userMessage: string): Promise<string> {
@@ -78,7 +129,7 @@ export class TelegramAgent {
   private runClaudeWithArgs(args: string[], env: Record<string, string | undefined>): Promise<string> {
     return new Promise((resolve, reject) => {
       const proc = spawn('claude', args, {
-        timeout: 30000,
+        timeout: 60000, // 60 seconds
         env,
       });
 
@@ -93,9 +144,12 @@ export class TelegramAgent {
         stderr += data.toString();
       });
 
-      proc.on('close', (code) => {
+      proc.on('close', (code, signal) => {
         if (code === 0) {
           resolve(stdout.trim());
+        } else if (signal === 'SIGTERM' || code === 143) {
+          // Timeout or killed - treat as fallback case
+          reject(new Error('Claude CLI timeout'));
         } else {
           reject(new Error(`Claude CLI exited with code ${code}: ${stderr}`));
         }
@@ -113,31 +167,7 @@ export class TelegramAgent {
     return message.includes('unknown option');
   }
 
-  private buildSystemPrompt(contextStr: string): string {
-    const commandList = this.commandDefinitions
-      .map(cmd => `- ${cmd.name}: ${cmd.description}${cmd.args ? ` Params: ${cmd.args}` : ''}`)
-      .join('\n');
-
-    return `You are a Telegram bot assistant for Snowtree.
-Your job: choose the best command for the user's message. Default to send_message for general questions or tasks.
-
-Available commands:
-${commandList}
-
-Current context:
-${contextStr}
-
-Return JSON only, no explanation:
-{ \"command\": \"command_name\", \"args\": { ... } }
-
-Rules:
-- Always pick a command from the list.
-- Use get_chat_id when the user asks for their chat id.
-- For general questions or tasks, use send_message with { message } even if there is no active session.
-- If nothing fits, use unknown.`;
-  }
-
-  private parseResponse(text: string): TelegramAgentDecision {
+  private parseResponse(text: string): CommandInterpreterDecision {
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -153,20 +183,15 @@ Rules:
     return { command: 'unknown' };
   }
 
-  private fallbackProcess(message: string, context: TelegramContext): TelegramAgentDecision {
-    const normalized = message.trim().replace(/^\//, '');
-    const lower = normalized.toLowerCase();
-
-    if (lower.includes('chat id') || lower.includes('chatid')) {
-      return { command: 'get_chat_id' };
-    }
+  private fallbackInterpret(message: string, context: ChannelContext): CommandInterpreterDecision {
+    const lower = message.toLowerCase();
 
     // Project commands
     if (lower.includes('project') && (lower.includes('list') || lower.includes('show') || lower.includes('all'))) {
       return { command: 'list_projects' };
     }
     if (lower.includes('open') || lower.includes('switch')) {
-      const match = normalized.match(/(?:open|switch)\s+(?:to\s+)?(.+?)(?:\s+project)?$/i);
+      const match = message.match(/(?:open|switch)\s+(?:to\s+)?(.+?)(?:\s+project)?$/i);
       if (match) {
         return { command: 'open_project', args: { name: match[1].trim() } };
       }
@@ -177,13 +202,13 @@ Rules:
       return { command: 'list_sessions' };
     }
     if (lower.includes('select') || lower.includes('choose')) {
-      const match = normalized.match(/(?:select|choose)\s+(\S+)/i);
+      const match = message.match(/(?:select|choose)\s+(\S+)/i);
       if (match) {
         return { command: 'select_session', args: { id: match[1] } };
       }
     }
     if (lower.includes('new') || lower.includes('create')) {
-      const match = normalized.match(/(?:new|create)\s+(?:session\s+)?(.+)/i);
+      const match = message.match(/(?:new|create)\s+(?:session\s+)?(.+)/i);
       if (match) {
         return { command: 'new_session', args: { prompt: match[1].trim() } };
       }
@@ -211,22 +236,28 @@ Rules:
 
     // Delete session
     if (lower.includes('delete') || lower.includes('remove')) {
-      const match = normalized.match(/(?:delete|remove)\s+(?:session\s+)?(\S+)/i);
+      const match = message.match(/(?:delete|remove)\s+(?:session\s+)?(\S+)/i);
       if (match) {
         return { command: 'delete_session', args: { id: match[1] } };
       }
     }
 
+    // Explicit send
     if (lower.startsWith('send ') || lower.startsWith('message ')) {
-      const payload = normalized.replace(/^(send|message)\s+/i, '').trim();
+      const payload = message.replace(/^(send|message)\s+/i, '').trim();
       if (payload) {
         return { command: 'send_message', args: { message: payload } };
       }
     }
 
+    // Help
+    if (lower === 'help' || lower.includes('help me') || lower.includes('commands')) {
+      return { command: 'help' };
+    }
+
     // Default: if there's an active session, send as message
     if (context.activeSessionId) {
-      return { command: 'send_message', args: { message: normalized } };
+      return { command: 'send_message', args: { message } };
     }
 
     return { command: 'unknown' };

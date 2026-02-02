@@ -1,10 +1,6 @@
-import type { TelegramCommandDefinition } from './types';
+import type { SnowTreeCommandDefinition } from './types';
 
-export const TELEGRAM_COMMANDS: TelegramCommandDefinition[] = [
-  {
-    name: 'get_chat_id',
-    description: 'Return the current chat ID for authorization setup.'
-  },
+export const SNOWTREE_COMMANDS: SnowTreeCommandDefinition[] = [
   {
     name: 'list_projects',
     description: 'List all available projects.'
