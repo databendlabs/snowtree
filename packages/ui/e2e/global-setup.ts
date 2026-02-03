@@ -15,6 +15,45 @@ async function globalSetup(config: FullConfig) {
   const browser = await chromium.launch();
   const page = await browser.newPage();
 
+  // Inject minimal mock electronAPI for global setup verification
+  await page.addInitScript(() => {
+    (window as any).electronAPI = {
+      projects: {
+        async getAll() {
+          return { success: true, data: [{ id: 1, name: 'Test', path: '/test', active: true }] };
+        },
+      },
+      sessions: {
+        async getAll() { return { success: true, data: [] }; },
+      },
+      settings: {
+        async load() { return { success: true, data: null }; },
+        async save() { return { success: true }; },
+      },
+      telegram: {
+        async start() { return { success: true }; },
+        async stop() { return { success: true }; },
+      },
+      events: {
+        onSessionsLoaded: () => () => {},
+        onSessionCreated: () => () => {},
+        onSessionUpdated: () => () => {},
+        onSessionDeleted: () => () => {},
+        onGitStatusUpdated: () => () => {},
+        onGitStatusLoading: () => () => {},
+        onUpdateAvailable: () => () => {},
+        onUpdateDownloaded: () => () => {},
+        onTimelineEvent: () => () => {},
+        onAssistantStream: () => () => {},
+        onTerminalOutput: () => () => {},
+        onTerminalExit: () => () => {},
+        onAgentCompleted: () => () => {},
+        onSessionTodosUpdate: () => () => {},
+        onTelegramStateChanged: () => () => {},
+      },
+    };
+  });
+
   console.log('[Global Setup] Waiting for app to load...');
   await page.goto('http://localhost:4521');
   await page.waitForLoadState('networkidle');
