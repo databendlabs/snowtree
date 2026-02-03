@@ -45,6 +45,7 @@
     "better-sqlite3": "^11.7.0",
     "bull": "^4.16.3",
     "electron-updater": "^6.6.2",
+    "grammy": "^1.21.1",
     "web-streams-polyfill": "^3.3.3"
   },
   "devDependencies": {
