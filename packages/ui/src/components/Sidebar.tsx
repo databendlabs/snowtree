@@ -222,7 +222,7 @@ export function Sidebar() {
 
   const handleNewWorkspace = useCallback(async (projectId: number) => {
     try {
-      const response = await API.sessions.create({ projectId, prompt: '', toolType: 'claude' });
+      const response = await API.sessions.create({ projectId, prompt: '', toolType: settings.defaultToolType });
       if (!response.success || !response.data?.id) {
         showError({ title: 'Failed to Create Workspace', error: response.error || 'Could not create workspace' });
         return;
@@ -258,7 +258,7 @@ export function Sidebar() {
     } catch (error) {
       showError({ title: 'Failed to Create Workspace', error: error instanceof Error ? error.message : 'Unknown error' });
     }
-  }, [setActiveSession, showError, projects, loadWorktrees, worktreesByProjectId]);
+  }, [setActiveSession, showError, projects, loadWorktrees, worktreesByProjectId, settings.defaultToolType]);
 
   const handleSelectWorktree = useCallback(async (project: Project, worktree: Worktree): Promise<string | null> => {
     try {

@@ -6,6 +6,7 @@ import { registerProjectHandlers } from './project';
 import { registerDialogHandlers } from './dialog';
 import { registerGitHandlers } from './git';
 import { registerPanelHandlers } from './panels';
+import { registerTelegramHandlers } from './telegram';
 
 export function registerIpcHandlers(services: AppServices): void {
   registerAppHandlers(ipcMain, services);
@@ -14,6 +15,7 @@ export function registerIpcHandlers(services: AppServices): void {
   registerDialogHandlers(ipcMain, services);
   registerGitHandlers(ipcMain, services);
   registerPanelHandlers(ipcMain);
+  registerTelegramHandlers(ipcMain, services);
 }
 
 // Re-export types

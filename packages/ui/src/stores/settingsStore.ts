@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 
-const STORAGE_KEY = 'snowtree-settings';
+export interface TelegramSettings {
+  enabled: boolean;
+  botToken: string;
+  allowedChatId: string;
+}
 
 export interface AppSettings {
   // Theme & Appearance
@@ -8,6 +12,7 @@ export interface AppSettings {
   fontSize: number;
 
   // AI Tool Settings
+  defaultToolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
   enabledProviders: {
     claude: boolean;
     codex: boolean;
@@ -21,11 +26,15 @@ export interface AppSettings {
 
   // Worktree
   autoDeleteBranchOnWorktreeRemove: boolean;
+
+  // Telegram Remote Control
+  telegram: TelegramSettings;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
   fontSize: 15,
+  defaultToolType: 'claude',
   enabledProviders: {
     claude: true,
     codex: true,
@@ -35,66 +44,116 @@ const DEFAULT_SETTINGS: AppSettings = {
   terminalFontSize: 13,
   terminalScrollback: 1000,
   autoDeleteBranchOnWorktreeRemove: false,
+  telegram: {
+    enabled: false,
+    botToken: '',
+    allowedChatId: '',
+  },
 };
 
 interface SettingsStore {
   settings: AppSettings;
   isOpen: boolean;
+  isLoaded: boolean;
   openSettings: () => void;
   closeSettings: () => void;
   updateSettings: (updates: Partial<AppSettings>) => void;
   resetSettings: () => void;
+  loadSettings: () => Promise<void>;
 }
 
-function loadSettings(): AppSettings {
-  if (typeof window === 'undefined') return DEFAULT_SETTINGS;
+function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
+  if (!stored) return DEFAULT_SETTINGS;
 
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as Partial<AppSettings>;
-      return {
-        ...DEFAULT_SETTINGS,
-        ...parsed,
-        enabledProviders: {
-          ...DEFAULT_SETTINGS.enabledProviders,
-          ...(parsed.enabledProviders || {}),
-        },
-      };
-    }
-  } catch (error) {
-    console.error('Failed to load settings:', error);
-  }
+  const resolvedDefaultToolType =
+    stored.defaultToolType === 'codex'
+    || stored.defaultToolType === 'gemini'
+    || stored.defaultToolType === 'kimi'
+    || stored.defaultToolType === 'none'
+    || stored.defaultToolType === 'claude'
+      ? stored.defaultToolType
+      : DEFAULT_SETTINGS.defaultToolType;
 
-  return DEFAULT_SETTINGS;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    defaultToolType: resolvedDefaultToolType,
+    enabledProviders: {
+      ...DEFAULT_SETTINGS.enabledProviders,
+      ...(stored.enabledProviders || {}),
+    },
+    telegram: {
+      ...DEFAULT_SETTINGS.telegram,
+      ...(stored.telegram || {}),
+    },
+  };
 }
 
-function saveSettings(settings: AppSettings) {
+async function saveSettingsToFile(settings: AppSettings): Promise<void> {
   if (typeof window === 'undefined') return;
 
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    const api = window.electronAPI?.settings;
+    if (api?.save) {
+      await api.save(settings);
+    }
   } catch (error) {
-    console.error('Failed to save settings:', error);
+    console.error('Failed to save settings to file:', error);
   }
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
-  settings: loadSettings(),
+  settings: DEFAULT_SETTINGS,
   isOpen: false,
+  isLoaded: false,
+
+  loadSettings: async () => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const api = window.electronAPI?.settings;
+      if (api?.load) {
+        const result = await api.load();
+        if (result.success && result.data) {
+          const merged = mergeSettings(result.data as Partial<AppSettings>);
+          set({ settings: merged, isLoaded: true });
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load settings from file:', error);
+    }
+
+    set({ isLoaded: true });
+  },
 
   openSettings: () => set({ isOpen: true }),
 
   closeSettings: () => set({ isOpen: false }),
 
   updateSettings: (updates) => {
-    const newSettings = { ...get().settings, ...updates };
-    saveSettings(newSettings);
+    const previousSettings = get().settings;
+    const newSettings = { ...previousSettings, ...updates };
+    void saveSettingsToFile(newSettings);
     set({ settings: newSettings });
+
+    if (previousSettings.defaultToolType !== newSettings.defaultToolType && typeof window !== 'undefined') {
+      const preferences = window.electronAPI?.preferences;
+      if (preferences?.set) {
+        void preferences.set('defaultToolType', newSettings.defaultToolType);
+      }
+    }
   },
 
   resetSettings: () => {
-    saveSettings(DEFAULT_SETTINGS);
+    void saveSettingsToFile(DEFAULT_SETTINGS);
     set({ settings: DEFAULT_SETTINGS });
+
+    if (typeof window !== 'undefined') {
+      const preferences = window.electronAPI?.preferences;
+      if (preferences?.set) {
+        void preferences.set('defaultToolType', DEFAULT_SETTINGS.defaultToolType);
+      }
+    }
   },
 }));

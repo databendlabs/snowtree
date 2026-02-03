@@ -33,6 +33,7 @@ import { GitExecutor } from './executors/git';
 import { setupConsoleWrapper } from './infrastructure/logging/consoleWrapper';
 import { panelManager } from './features/panels/PanelManager';
 import { UpdateManager, type UpdateAvailableInfo } from './features/updater/UpdateManager';
+import { TelegramService } from './services/telegram';
 import * as fs from 'fs';
 
 // Handle EPIPE errors gracefully - they occur when writing to a closed pipe
@@ -127,6 +128,7 @@ let executionTracker: ExecutionTracker;
 let worktreeNameGenerator: WorktreeNameGenerator;
 let databaseService: DatabaseService;
 let updateManager: UpdateManager | null = null;
+let telegramService: TelegramService;
 
 // Store app start time for session duration tracking
 let appStartTime: number;
@@ -666,6 +668,19 @@ async function initializeServices() {
     gitExecutor
   });
 
+  // Initialize Telegram service
+  telegramService = new TelegramService({
+    sessionManager,
+    taskQueue,
+    worktreeManager,
+    claudeExecutor,
+    codexExecutor,
+    geminiExecutor,
+    kimiExecutor,
+    logger,
+    configManager,
+  });
+
   const services: AppServices = {
     app,
     configManager,
@@ -686,6 +701,7 @@ async function initializeServices() {
     getMainWindow: () => mainWindow,
     logger,
     updateManager,
+    telegramService,
   };
 
   // Initialize IPC handlers first so managers (like ClaudePanelManager) are ready

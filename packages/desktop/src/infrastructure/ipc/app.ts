@@ -4,6 +4,16 @@ import * as os from 'os';
 import * as path from 'path';
 import type { AppServices } from './types';
 
+// Settings file path - use ~/.snowtree for dev persistence
+const SETTINGS_DIR = path.join(os.homedir(), '.snowtree');
+const SETTINGS_FILE = path.join(SETTINGS_DIR, 'settings.json');
+
+function ensureSettingsDir(): void {
+  if (!fs.existsSync(SETTINGS_DIR)) {
+    fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+  }
+}
+
 export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): void {
   const { app } = services;
   const { claudeExecutor, codexExecutor, geminiExecutor, kimiExecutor } = services;
@@ -134,6 +144,33 @@ export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): vo
     } catch (error) {
       console.error('Failed to get all preferences:', error);
       return { success: false, error: error instanceof Error ? error.message : 'Failed to get all preferences' };
+    }
+  });
+
+  // File-based settings handlers (persisted to ~/.snowtree/settings.json)
+  ipcMain.handle('settings:load', () => {
+    try {
+      ensureSettingsDir();
+      if (fs.existsSync(SETTINGS_FILE)) {
+        const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
+        const data = JSON.parse(raw);
+        return { success: true, data };
+      }
+      return { success: true, data: null };
+    } catch (error) {
+      console.error('Failed to load settings:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to load settings' };
+    }
+  });
+
+  ipcMain.handle('settings:save', (_event, settings: unknown) => {
+    try {
+      ensureSettingsDir();
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to save settings' };
     }
   });
 

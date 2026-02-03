@@ -22,8 +22,13 @@ export default function App() {
   useIPCEvents();
   useWorkspaceStageSync();
   const { currentError, clearError } = useErrorStore();
-  const { settings } = useSettingsStore();
+  const { settings, isLoaded, loadSettings } = useSettingsStore();
   const { setTheme } = useThemeStore();
+
+  // Load settings from file on mount
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
   // Initialize theme and font size on mount
   useEffect(() => {
@@ -49,6 +54,16 @@ export default function App() {
     document.body.style.fontSize = `${settings.fontSize}px`;
     document.documentElement.style.fontSize = `${settings.fontSize}px`;
   }, [settings.fontSize]);
+
+  // Manage Telegram bot based on settings (only after settings loaded)
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (settings.telegram.enabled && settings.telegram.botToken) {
+      window.electronAPI.telegram.start(settings.telegram);
+    } else {
+      window.electronAPI.telegram.stop();
+    }
+  }, [isLoaded, settings.telegram.enabled, settings.telegram.botToken, settings.telegram.allowedChatId]);
 
   return (
     <div

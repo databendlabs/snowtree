@@ -1113,7 +1113,6 @@ export class SessionManager extends EventEmitter {
     // Stop all AI panel processes (Claude, Codex, etc.) for this session
     try {
       // Get all panels for this session
-      const { panelManager } = require('./panelManager');
       const panels: ToolPanel[] = panelManager.getPanelsForSession(id);
       
       // Stop Claude panels

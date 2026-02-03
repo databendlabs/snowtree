@@ -69,6 +69,17 @@ export interface ElectronAPI {
     getSettings: () => Promise<IPCResponse<unknown>>;
   };
 
+  preferences: {
+    get: (key: string) => Promise<IPCResponse<string | null>>;
+    set: (key: string, value: string) => Promise<IPCResponse<unknown>>;
+    getAll: () => Promise<IPCResponse<Record<string, string>>>;
+  };
+
+  settings: {
+    load: () => Promise<IPCResponse<unknown>>;
+    save: (settings: unknown) => Promise<IPCResponse<unknown>>;
+  };
+
   dialog: {
     openDirectory: (options?: Electron.OpenDialogOptions) => Promise<IPCResponse<string | null>>;
   };
@@ -182,6 +193,13 @@ export interface ElectronAPI {
   updater: {
     download: () => Promise<IPCResponse<unknown>>;
     install: () => Promise<IPCResponse<unknown>>;
+  };
+
+  telegram: {
+    getStatus: () => Promise<IPCResponse<{ status: string; error?: string; botUsername?: string }>>;
+    start: (settings: { enabled: boolean; botToken: string; allowedChatId: string }) => Promise<IPCResponse<unknown>>;
+    stop: () => Promise<IPCResponse<unknown>>;
+    restart: (settings: { enabled: boolean; botToken: string; allowedChatId: string }) => Promise<IPCResponse<unknown>>;
   };
 
   events: {

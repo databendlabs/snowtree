@@ -2,18 +2,23 @@ import type { IpcMain } from 'electron';
 import * as fs from 'fs';
 import type { AppServices } from './types';
 import { panelManager } from '../../features/panels/PanelManager';
-import { ClaudePanelManager } from '../../features/panels/ai/ClaudePanelManager';
-import { CodexPanelManager } from '../../features/panels/ai/CodexPanelManager';
-import { GeminiPanelManager } from '../../features/panels/ai/GeminiPanelManager';
-import { KimiPanelManager } from '../../features/panels/ai/KimiPanelManager';
+import {
+  getClaudePanelManager,
+  getCodexPanelManager,
+  getGeminiPanelManager,
+  getKimiPanelManager,
+  initPanelManagerRegistry,
+} from '../../features/panels/ai/panelManagerRegistry';
 import type { AIPanelState } from '@snowtree/core/types/aiPanelConfig';
 import { randomUUID } from 'crypto';
 import { persistRendererImageAttachments } from '../utils/imageAttachments';
 
-export let claudePanelManager: ClaudePanelManager | null = null;
-export let codexPanelManager: CodexPanelManager | null = null;
-export let geminiPanelManager: GeminiPanelManager | null = null;
-export let kimiPanelManager: KimiPanelManager | null = null;
+export {
+  claudePanelManager,
+  codexPanelManager,
+  geminiPanelManager,
+  kimiPanelManager,
+} from '../../features/panels/ai/panelManagerRegistry';
 
 type MinimalCreateSessionRequest = {
   projectId: number;
@@ -38,32 +43,22 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
     gitExecutor
   } = services;
 
-  const ensureClaudePanelManager = () => {
-    if (!claudePanelManager) {
-      claudePanelManager = new ClaudePanelManager(claudeExecutor, sessionManager, logger, configManager);
-    }
-    return claudePanelManager;
-  };
+  initPanelManagerRegistry({
+    sessionManager,
+    claudeExecutor,
+    codexExecutor,
+    geminiExecutor,
+    kimiExecutor,
+    logger,
+    configManager,
+  });
 
-  const ensureCodexPanelManager = () => {
-    if (!codexPanelManager) {
-      codexPanelManager = new CodexPanelManager(codexExecutor, sessionManager, logger, configManager);
+  const resolveDefaultToolType = (): 'claude' | 'codex' | 'gemini' | 'kimi' | 'none' => {
+    const pref = databaseService.getUserPreference('defaultToolType');
+    if (pref === 'codex' || pref === 'gemini' || pref === 'kimi' || pref === 'none') {
+      return pref;
     }
-    return codexPanelManager;
-  };
-
-  const ensureGeminiPanelManager = () => {
-    if (!geminiPanelManager) {
-      geminiPanelManager = new GeminiPanelManager(geminiExecutor, sessionManager, logger, configManager);
-    }
-    return geminiPanelManager;
-  };
-
-  const ensureKimiPanelManager = () => {
-    if (!kimiPanelManager) {
-      kimiPanelManager = new KimiPanelManager(kimiExecutor, sessionManager, logger, configManager);
-    }
-    return kimiPanelManager;
+    return 'claude';
   };
 
   /**
@@ -144,7 +139,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         worktreeTemplate: '',
         projectId: request.projectId,
         baseBranch: request.baseBranch,
-        toolType: request.toolType ?? 'claude',
+        toolType: request.toolType ?? resolveDefaultToolType(),
       });
       void job;
       return { success: true, data: { id: sessionId } };
@@ -338,7 +333,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         : worktreePath;
 
       if (panel.type === 'claude') {
-        const manager = ensureClaudePanelManager();
+        const manager = getClaudePanelManager();
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
         if (typeof persistedAgentSessionId === 'string' && persistedAgentSessionId) {
           manager.setAgentSessionId(panelId, persistedAgentSessionId);
@@ -361,7 +356,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
       }
 
       if (panel.type === 'codex') {
-        const manager = ensureCodexPanelManager();
+        const manager = getCodexPanelManager();
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
         if (typeof persistedAgentSessionId === 'string' && persistedAgentSessionId) {
           manager.setAgentSessionId(panelId, persistedAgentSessionId);
@@ -384,7 +379,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
       }
 
       if (panel.type === 'gemini') {
-        const manager = ensureGeminiPanelManager();
+        const manager = getGeminiPanelManager();
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
         if (typeof persistedAgentSessionId === 'string' && persistedAgentSessionId) {
           manager.setAgentSessionId(panelId, persistedAgentSessionId);
@@ -407,7 +402,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
       }
 
       if (panel.type === 'kimi') {
-        const manager = ensureKimiPanelManager();
+        const manager = getKimiPanelManager();
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
         if (typeof persistedAgentSessionId === 'string' && persistedAgentSessionId) {
           manager.setAgentSessionId(panelId, persistedAgentSessionId);
@@ -454,7 +449,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         throw new Error(`Session ${panel.sessionId} not found`);
       }
 
-      const manager = ensureClaudePanelManager();
+      const manager = getClaudePanelManager();
       // Only register if not already registered (to preserve agentSessionId in memory)
       if (!manager.getPanelState(panelId)) {
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
@@ -488,7 +483,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         throw new Error(`Session ${panel.sessionId} not found`);
       }
 
-      const manager = ensureCodexPanelManager();
+      const manager = getCodexPanelManager();
       // Only register if not already registered (to preserve agentSessionId in memory)
       if (!manager.getPanelState(panelId)) {
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
@@ -522,7 +517,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         throw new Error(`Session ${panel.sessionId} not found`);
       }
 
-      const manager = ensureGeminiPanelManager();
+      const manager = getGeminiPanelManager();
       // Only register if not already registered (to preserve agentSessionId in memory)
       if (!manager.getPanelState(panelId)) {
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
@@ -556,7 +551,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         throw new Error(`Session ${panel.sessionId} not found`);
       }
 
-      const manager = ensureKimiPanelManager();
+      const manager = getKimiPanelManager();
       // Only register if not already registered (to preserve agentSessionId in memory)
       if (!manager.getPanelState(panelId)) {
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
