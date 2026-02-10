@@ -8,7 +8,7 @@ import { withTimeout } from '../../../utils/withTimeout';
 import type { TimelineEvent, UserQuestionEvent } from '../../../types/timeline';
 import type { Session } from '../../../types/session';
 import { formatDistanceToNow, parseTimestamp } from '../../../utils/timestampUtils';
-import { ThinkingMessage } from './ThinkingMessage';
+import { ThinkingMessage, setThinkingCollapseHook } from './ThinkingMessage';
 import { ToolCallMessage, getToolIcon, setToolCollapseHook } from './ToolCallMessage';
 import { UserQuestionDialog, type Question } from './UserQuestionDialog';
 import { InlineDiffViewer, setDiffCollapseHook } from './InlineDiffViewer';
@@ -675,6 +675,16 @@ const AgentResponse: React.FC<{
   const [expandedCommands, setExpandedCommands] = useState<Set<string>>(new Set());
   const agentLabel = useMemo(() => getAgentModelLabelFromCommands(commands), [commands]);
 
+  // Listen to global collapse all trigger
+  const toolCollapseContext = useContext(ToolCollapseContext);
+  useEffect(() => {
+    if (toolCollapseContext && toolCollapseContext.collapseAllTrigger > 0) {
+      setShowCommands(false);
+      setExpandedOutputs(new Set());
+      setExpandedCommands(new Set());
+    }
+  }, [toolCollapseContext?.collapseAllTrigger]);
+
   const handleCopy = useCallback(async (text: string, key: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -1020,10 +1030,11 @@ export const TimelineView: React.FC<{
     collapseAllTrigger: toolCollapseAllTrigger,
   }), [toolCollapseAllTrigger]);
 
-  // Set the hooks for InlineDiffViewer and ToolCallMessage to use
+  // Set the hooks for InlineDiffViewer, ToolCallMessage, and ThinkingMessage to use
   useEffect(() => {
     setDiffCollapseHook(useDiffCollapse);
     setToolCollapseHook(useToolCollapse);
+    setThinkingCollapseHook(useToolCollapse);
   }, []);
 
   const isAtBottom = useCallback((container: HTMLDivElement) => {
@@ -1219,10 +1230,10 @@ export const TimelineView: React.FC<{
           </button>
           <button
             type="button"
-            onClick={() => setToolCollapseAllTrigger(prev => prev + 1)}
+            onClick={() => { diffCollapseContextValue.triggerCollapseAll(); setToolCollapseAllTrigger(prev => prev + 1); }}
             className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition-all hover:bg-white/10 active:scale-95"
             style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.text.secondary }}
-            title="Collapse all tool calls"
+            title="Collapse all"
           >
             <ChevronsUp className="w-3 h-3" />
             <span>Collapse All</span>
