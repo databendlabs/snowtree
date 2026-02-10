@@ -48,12 +48,29 @@ export default function App() {
     }
   }, [settings.theme, setTheme]);
 
-  // Apply font size
+  // Apply font size and font family
   useEffect(() => {
-    // Apply to body and root elements to ensure it takes effect
     document.body.style.fontSize = `${settings.fontSize}px`;
     document.documentElement.style.fontSize = `${settings.fontSize}px`;
   }, [settings.fontSize]);
+
+  useEffect(() => {
+    const el = document.documentElement;
+    if (settings.fontFamily) {
+      el.style.setProperty('--st-font-sans', `'${settings.fontFamily}', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`);
+    } else {
+      el.style.removeProperty('--st-font-sans');
+    }
+  }, [settings.fontFamily]);
+
+  useEffect(() => {
+    const el = document.documentElement;
+    if (settings.terminalFontFamily) {
+      el.style.setProperty('--st-font-mono', `'${settings.terminalFontFamily}', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`);
+    } else {
+      el.style.removeProperty('--st-font-mono');
+    }
+  }, [settings.terminalFontFamily]);
 
   // Manage Telegram bot based on settings (only after settings loaded)
   useEffect(() => {
