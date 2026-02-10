@@ -1,4 +1,4 @@
-import { Bot, Context } from 'grammy';
+import { Bot, Context, InlineKeyboard } from 'grammy';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,6 +23,7 @@ import {
   type SnowTreeCommandResponse,
   type ChannelAdapter,
   type ChannelState,
+  type ChannelContext,
 } from '../channels';
 
 const CHANNEL_TYPE = 'telegram';
@@ -131,6 +132,10 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
     try {
       this.bot = new Bot(config.botToken);
 
+      // Register explicit slash commands (must be before message:text fallback)
+      this.registerCommands(this.bot);
+
+      // Fallback: plain text messages go through CommandInterpreter
       this.bot.on('message:text', async (ctx) => {
         await this.handleTextMessage(ctx);
       });
@@ -150,6 +155,25 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
         this.state = { status: 'error', error: err.message };
         this.emit('state-changed', this.state);
       });
+
+      // Register commands with Telegram's BotFather menu
+      try {
+        await this.bot.api.setMyCommands([
+          { command: 'status', description: 'Show active project/session status' },
+          { command: 'projects', description: 'List all projects' },
+          { command: 'sessions', description: 'List sessions in active project' },
+          { command: 'open', description: 'Open a project: /open <name>' },
+          { command: 'select', description: 'Select a session: /select <id>' },
+          { command: 'new', description: 'Create a session: /new <prompt>' },
+          { command: 'stop', description: 'Stop the active session' },
+          { command: 'delete', description: 'Delete a session: /delete <id>' },
+          { command: 'use', description: 'Switch executor: /use <claude|codex|gemini|kimi>' },
+          { command: 'help', description: 'Show available commands' },
+          { command: 'chatid', description: 'Show your chat ID (for setup)' },
+        ]);
+      } catch (err) {
+        this.deps.logger.warn('Failed to register Telegram command menu:', err as Error);
+      }
 
       await this.bot.start({
         onStart: (botInfo) => {
@@ -216,13 +240,447 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
   }
 
   // ===========================================================================
-  // Message Handling
+  // Slash Command Registration
+  // ===========================================================================
+
+  private registerCommands(bot: Bot): void {
+    // /chatid - available without authorization (for setup)
+    bot.command('chatid', async (ctx) => {
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      await ctx.reply(`Your Chat ID: \`${chatId}\``, { parse_mode: 'Markdown' });
+    });
+
+    // /start - welcome message
+    bot.command('start', async (ctx) => {
+      await this.handleCommand(ctx, { name: 'help' });
+    });
+
+    // /help
+    bot.command('help', async (ctx) => {
+      await this.handleCommand(ctx, { name: 'help' });
+    });
+
+    // /status - with action buttons
+    bot.command('status', async (ctx) => {
+      await this.handleStatusCommand(ctx);
+    });
+
+    // /projects and /workspaces - with inline keyboard
+    bot.command(['projects', 'workspaces'], async (ctx) => {
+      await this.handleProjectsCommand(ctx);
+    });
+
+    // /open <name>
+    bot.command('open', async (ctx) => {
+      const name = ctx.match?.trim();
+      if (!name) {
+        await ctx.reply('Usage: /open <project name>');
+        return;
+      }
+      await this.handleCommand(ctx, { name: 'open_project', args: { name } });
+    });
+
+    // /sessions - with inline keyboard
+    bot.command('sessions', async (ctx) => {
+      await this.handleSessionsCommand(ctx);
+    });
+
+    // /select <id>
+    bot.command('select', async (ctx) => {
+      const id = ctx.match?.trim();
+      if (!id) {
+        await ctx.reply('Usage: /select <session id>');
+        return;
+      }
+      await this.handleCommand(ctx, { name: 'select_session', args: { id } });
+    });
+
+    // /new <prompt>
+    bot.command('new', async (ctx) => {
+      const prompt = ctx.match?.trim();
+      if (!prompt) {
+        await ctx.reply('Usage: /new <prompt for the session>');
+        return;
+      }
+      await this.handleCommand(ctx, { name: 'new_session', args: { prompt } });
+    });
+
+    // /stop
+    bot.command('stop', async (ctx) => {
+      await this.handleCommand(ctx, { name: 'stop_session' });
+    });
+
+    // /delete <id>
+    bot.command('delete', async (ctx) => {
+      const id = ctx.match?.trim();
+      if (!id) {
+        await ctx.reply('Usage: /delete <session id>');
+        return;
+      }
+      await this.handleCommand(ctx, { name: 'delete_session', args: { id } });
+    });
+
+    // /use <executor> - with inline keyboard when no arg
+    bot.command('use', async (ctx) => {
+      const executor = ctx.match?.trim()?.toLowerCase();
+      if (!executor) {
+        await this.handleUseCommand(ctx);
+        return;
+      }
+      await this.handleCommand(ctx, { name: 'switch_executor', args: { executor } });
+    });
+
+    // Handle inline keyboard button presses
+    this.registerCallbackHandlers(bot);
+  }
+
+  private registerCallbackHandlers(bot: Bot): void {
+    bot.on('callback_query:data', async (ctx) => {
+      const chatId = ctx.chat?.id;
+      if (!chatId || !this.isAuthorized(chatId)) {
+        await ctx.answerCallbackQuery('Unauthorized.');
+        return;
+      }
+
+      const data = ctx.callbackQuery.data;
+      const context = this.contextStore.get(CHANNEL_TYPE, chatId);
+
+      try {
+        if (data.startsWith('open:')) {
+          const projectId = parseInt(data.slice(5), 10);
+          const projects = this.deps.sessionManager.db.getAllProjects();
+          const project = projects.find(p => p.id === projectId);
+          if (!project) {
+            await ctx.answerCallbackQuery('Project not found.');
+            return;
+          }
+          const response = await this.api.execute(
+            { name: 'open_project', args: { name: project.name } },
+            context
+          );
+          this.contextStore.update(CHANNEL_TYPE, chatId, context);
+          await ctx.editMessageText(response.message || 'Done.', {
+            parse_mode: response.parseMode,
+          });
+          await ctx.answerCallbackQuery(`Opened: ${project.name}`);
+
+        } else if (data.startsWith('select:')) {
+          const sessionId = data.slice(7);
+          const response = await this.api.execute(
+            { name: 'select_session', args: { id: sessionId } },
+            context
+          );
+          this.contextStore.update(CHANNEL_TYPE, chatId, context);
+          await ctx.editMessageText(response.message || 'Done.', {
+            parse_mode: response.parseMode,
+          });
+          await ctx.answerCallbackQuery('Session selected');
+
+        } else if (data.startsWith('use:')) {
+          const executor = data.slice(4);
+          const response = await this.api.execute(
+            { name: 'switch_executor', args: { executor } },
+            context
+          );
+          this.contextStore.update(CHANNEL_TYPE, chatId, context);
+          await ctx.editMessageText(response.message || 'Done.', {
+            parse_mode: response.parseMode,
+          });
+          await ctx.answerCallbackQuery(`Switched to ${executor}`);
+
+        } else if (data === 'cmd:sessions') {
+          this.contextStore.update(CHANNEL_TYPE, chatId, context);
+          await ctx.answerCallbackQuery();
+          await this.handleSessionsCommandEdit(ctx, context);
+
+        } else if (data === 'cmd:stop') {
+          const response = await this.api.execute({ name: 'stop_session' }, context);
+          this.contextStore.update(CHANNEL_TYPE, chatId, context);
+          await ctx.editMessageText(response.message || 'Done.', {
+            parse_mode: response.parseMode,
+          });
+          await ctx.answerCallbackQuery('Session stopped');
+
+        } else if (data === 'cmd:projects') {
+          await ctx.answerCallbackQuery();
+          await this.handleProjectsCommandEdit(ctx, context);
+
+        } else {
+          await ctx.answerCallbackQuery('Unknown action.');
+        }
+      } catch (error) {
+        this.deps.logger.error('Callback query failed:', error as Error);
+        await ctx.answerCallbackQuery('Failed to handle that action.');
+      }
+    });
+  }
+
+  // ===========================================================================
+  // Interactive Command Handlers
+  // ===========================================================================
+
+  private async handleProjectsCommand(ctx: Context): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId || !this.isAuthorized(chatId)) {
+      await ctx.reply('Unauthorized.');
+      return;
+    }
+
+    const context = this.contextStore.get(CHANNEL_TYPE, chatId);
+    const projects = this.deps.sessionManager.db.getAllProjects();
+    if (projects.length === 0) {
+      await ctx.reply('No projects found.');
+      return;
+    }
+
+    const keyboard = new InlineKeyboard();
+    projects.forEach((project, index) => {
+      const label = context.activeProjectId === project.id
+        ? `→ ${project.name}`
+        : project.name;
+      keyboard.text(label, `open:${project.id}`);
+      if ((index + 1) % 2 === 0) keyboard.row();
+    });
+
+    await ctx.reply('📁 *Projects*\n\nSelect a project:', {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  }
+
+  private async handleProjectsCommandEdit(ctx: Context, context: ChannelContext): Promise<void> {
+    const projects = this.deps.sessionManager.db.getAllProjects();
+    if (projects.length === 0) {
+      await ctx.editMessageText('No projects found.');
+      return;
+    }
+
+    const keyboard = new InlineKeyboard();
+    projects.forEach((project, index) => {
+      const label = context.activeProjectId === project.id
+        ? `→ ${project.name}`
+        : project.name;
+      keyboard.text(label, `open:${project.id}`);
+      if ((index + 1) % 2 === 0) keyboard.row();
+    });
+
+    await ctx.editMessageText('📁 *Projects*\n\nSelect a project:', {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  }
+
+  private async handleSessionsCommand(ctx: Context): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId || !this.isAuthorized(chatId)) {
+      await ctx.reply('Unauthorized.');
+      return;
+    }
+
+    const context = this.contextStore.get(CHANNEL_TYPE, chatId);
+    if (!context.activeProjectId) {
+      const activeProject = this.api.getActiveProject();
+      if (activeProject) {
+        this.contextStore.update(CHANNEL_TYPE, chatId, { activeProjectId: activeProject.id });
+        context.activeProjectId = activeProject.id;
+      }
+    }
+
+    if (!context.activeProjectId) {
+      await ctx.reply('No project selected. Use /projects first.');
+      return;
+    }
+
+    const sessions = this.deps.sessionManager.getSessionsForProject(context.activeProjectId);
+    if (sessions.length === 0) {
+      await ctx.reply('No sessions. Use /new <prompt> to create one.');
+      return;
+    }
+
+    const { msg, keyboard } = this.buildSessionList(sessions, context);
+
+    await ctx.reply(msg, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  }
+
+  private async handleSessionsCommandEdit(ctx: Context, context: ChannelContext): Promise<void> {
+    if (!context.activeProjectId) {
+      await ctx.editMessageText('No project selected. Use /projects first.');
+      return;
+    }
+
+    const sessions = this.deps.sessionManager.getSessionsForProject(context.activeProjectId);
+    if (sessions.length === 0) {
+      await ctx.editMessageText('No sessions. Use /new <prompt> to create one.');
+      return;
+    }
+
+    const { msg, keyboard } = this.buildSessionList(sessions, context);
+
+    await ctx.editMessageText(msg, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  }
+
+  private async handleStatusCommand(ctx: Context): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId || !this.isAuthorized(chatId)) {
+      await ctx.reply('Unauthorized.');
+      return;
+    }
+
+    const context = this.contextStore.get(CHANNEL_TYPE, chatId);
+    if (!context.activeProjectId) {
+      const activeProject = this.api.getActiveProject();
+      if (activeProject) {
+        this.contextStore.update(CHANNEL_TYPE, chatId, { activeProjectId: activeProject.id });
+        context.activeProjectId = activeProject.id;
+      }
+    }
+
+    const project = context.activeProjectId
+      ? this.deps.sessionManager.db.getProject(context.activeProjectId)
+      : null;
+    const session = context.activeSessionId
+      ? this.deps.sessionManager.getSession(context.activeSessionId)
+      : null;
+
+    let msg = '📊 *Status*\n\n';
+    msg += `Project: ${project ? project.name : '_none_'}\n`;
+    msg += `Session: ${session ? session.name : '_none_'}\n`;
+    if (session) {
+      msg += `Status: ${session.status}\n`;
+      msg += `Executor: ${session.toolType || 'none'}\n`;
+    }
+
+    const keyboard = new InlineKeyboard();
+    keyboard.text('📁 Projects', 'cmd:projects').text('📋 Sessions', 'cmd:sessions');
+    if (session && (session.status === 'running' || session.status === 'waiting')) {
+      keyboard.row().text('⏹ Stop', 'cmd:stop');
+    }
+
+    await ctx.reply(msg, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  }
+
+  private async handleUseCommand(ctx: Context): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId || !this.isAuthorized(chatId)) {
+      await ctx.reply('Unauthorized.');
+      return;
+    }
+
+    const keyboard = new InlineKeyboard()
+      .text('Claude', 'use:claude').text('Codex', 'use:codex').row()
+      .text('Gemini', 'use:gemini').text('Kimi', 'use:kimi');
+
+    await ctx.reply('Select an executor:', { reply_markup: keyboard });
+  }
+
+  private getStatusIcon(status: string): string {
+    switch (status) {
+      case 'running': return '🟢';
+      case 'waiting': case 'ready': return '🟡';
+      case 'completed': case 'completed_unviewed': return '✅';
+      case 'stopped': return '⏹';
+      case 'error': case 'failed': return '❌';
+      default: return '⚪';
+    }
+  }
+
+  private buildSessionList(sessions: { id: string; name: string; status: string; updatedAt?: Date; lastActivity?: Date }[], context: ChannelContext): { msg: string; keyboard: InlineKeyboard } {
+    const displayed = sessions.slice(0, 10);
+    let msg = '📋 *Sessions*\n\n';
+    displayed.forEach((session, index) => {
+      const shortId = session.id.slice(0, 6);
+      const marker = session.id === context.activeSessionId ? '→ ' : '  ';
+      const statusIcon = this.getStatusIcon(session.status);
+      const time = session.updatedAt || session.lastActivity;
+      const timeStr = time ? ` · ${this.formatRelativeTime(time)}` : '';
+      msg += `${marker}${index + 1}. ${statusIcon} ${session.name} \`${shortId}\`${timeStr}\n`;
+    });
+
+    if (sessions.length > 10) {
+      msg += `\n_(showing 10 of ${sessions.length})_`;
+    }
+
+    const keyboard = new InlineKeyboard();
+    displayed.forEach((session) => {
+      const shortId = session.id.slice(0, 6);
+      const statusIcon = this.getStatusIcon(session.status);
+      keyboard.text(`${statusIcon} ${session.name} [${shortId}]`, `select:${session.id}`).row();
+    });
+
+    return { msg, keyboard };
+  }
+
+  private formatRelativeTime(date: Date): string {
+    const now = Date.now();
+    const ts = date instanceof Date ? date.getTime() : new Date(date).getTime();
+    const diffMs = now - ts;
+    if (diffMs < 0) return 'just now';
+
+    const seconds = Math.floor(diffMs / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    return `${months}mo ago`;
+  }
+
+  private async handleCommand(ctx: Context, command: SnowTreeCommandRequest): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+
+    if (!this.isAuthorized(chatId)) {
+      await ctx.reply('Unauthorized.');
+      return;
+    }
+
+    const context = this.contextStore.get(CHANNEL_TYPE, chatId);
+    if (!context.activeProjectId) {
+      const activeProject = this.api.getActiveProject();
+      if (activeProject) {
+        this.contextStore.update(CHANNEL_TYPE, chatId, { activeProjectId: activeProject.id });
+      }
+    }
+
+    command.rawText = ctx.message?.text || '';
+
+    try {
+      const response = await this.api.execute(command, context);
+      this.contextStore.update(CHANNEL_TYPE, chatId, context);
+      await this.respond(ctx, response, command);
+    } catch (error) {
+      this.deps.logger.error('Telegram command failed:', error as Error);
+      await ctx.reply('Failed to handle that request.');
+    }
+  }
+
+  // ===========================================================================
+  // Message Handling (fallback for plain text)
   // ===========================================================================
 
   private async handleTextMessage(ctx: Context) {
     const text = ctx.message?.text || '';
     const chatId = ctx.chat?.id;
     if (!chatId) return;
+
+    // Check authorization
+    if (!this.isAuthorized(chatId)) {
+      await ctx.reply('Unauthorized.');
+      return;
+    }
 
     // Get context for this chat
     const context = this.contextStore.get(CHANNEL_TYPE, chatId);
@@ -235,30 +693,13 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
       }
     }
 
-    // Handle /chatid command without authorization (for setup)
-    const isChatIdRequest = text.toLowerCase().includes('chatid') || text.toLowerCase().includes('chat id');
-    if (isChatIdRequest && !this.isAuthorized(chatId)) {
-      await ctx.reply(`Your Chat ID: \`${chatId}\``, { parse_mode: 'Markdown' });
-      return;
-    }
-
-    // Check authorization for other commands
-    if (!this.isAuthorized(chatId)) {
-      await ctx.reply('Unauthorized.');
-      return;
-    }
-
-    // Interpret the message
+    // Interpret the message (still supports natural language patterns)
     const command = await this.interpreter.interpret(text, context);
 
     // Execute the command
     try {
       const response = await this.api.execute(command, context);
-
-      // Persist context changes
       this.contextStore.update(CHANNEL_TYPE, chatId, context);
-
-      // Send response
       await this.respond(ctx, response, command);
     } catch (error) {
       this.deps.logger.error('Telegram command failed:', error as Error);
