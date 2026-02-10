@@ -440,20 +440,23 @@ export class SnowTreeAPI {
 
   private help(): SnowTreeCommandResponse {
     const msg = [
-      'Available commands:',
-      '- list projects',
-      '- open <name>',
-      '- list sessions',
-      '- select <id>',
-      '- new <prompt>',
-      '- status',
-      '- send <message>',
-      '- switch to claude/codex/gemini/kimi',
-      '- stop session',
-      '- delete <id>'
+      '*Available commands:*',
+      '',
+      '/status - Show active project/session',
+      '/projects - List all projects',
+      '/open <name> - Open a project',
+      '/sessions - List sessions',
+      '/select <id> - Select a session',
+      '/new <prompt> - Create a new session',
+      '/stop - Stop the active session',
+      '/delete <id> - Delete a session',
+      '/use <executor> - Switch to claude/codex/gemini/kimi',
+      '/help - Show this help',
+      '',
+      'Or just type a message to send to the active session.',
     ].join('\n');
 
-    return { message: msg };
+    return { message: msg, parseMode: 'Markdown' };
   }
 
   // ===========================================================================

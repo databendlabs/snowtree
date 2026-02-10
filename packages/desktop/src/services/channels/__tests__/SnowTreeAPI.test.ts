@@ -211,8 +211,8 @@ describe('SnowTreeAPI', () => {
     it('should return help message', async () => {
       const command: SnowTreeCommandRequest = { name: 'help', rawText: 'help' };
       const result = await api.execute(command, context);
-      expect(result.message).toContain('list projects');
-      expect(result.message).toContain('switch');
+      expect(result.message).toContain('/projects');
+      expect(result.message).toContain('/use');
     });
   });
 });
