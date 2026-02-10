@@ -1,5 +1,7 @@
 import type { IpcMain } from 'electron';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { AppServices } from './types';
 import { panelManager } from '../../features/panels/PanelManager';
 import {
@@ -26,6 +28,23 @@ type MinimalCreateSessionRequest = {
   toolType?: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
   baseBranch?: string;
 };
+
+const SETTINGS_FILE = path.join(os.homedir(), '.snowtree', 'settings.json');
+
+function readProviderConfig(toolType: string): { envVars?: Record<string, string>; extraArgs?: string } | undefined {
+  try {
+    if (!fs.existsSync(SETTINGS_FILE)) return undefined;
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    const cfg = settings?.providerConfigs?.[toolType];
+    if (!cfg) return undefined;
+    const hasEnvVars = cfg.envVars && typeof cfg.envVars === 'object' && Object.keys(cfg.envVars).length > 0;
+    const hasExtraArgs = typeof cfg.extraArgs === 'string' && cfg.extraArgs.trim().length > 0;
+    if (!hasEnvVars && !hasExtraArgs) return undefined;
+    return cfg;
+  } catch {
+    return undefined;
+  }
+}
 
 export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices): void {
   const {
@@ -332,6 +351,8 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         ? persistedAgentCwd
         : worktreePath;
 
+      const providerConfig = readProviderConfig(panel.type);
+
       if (panel.type === 'claude') {
         const manager = getClaudePanelManager();
         manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
@@ -350,6 +371,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
             conversationHistory: history,
             planMode,
             imagePaths,
+            providerConfig,
           });
         }
         return { success: true };
@@ -373,6 +395,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
             conversationHistory: history,
             planMode,
             imagePaths,
+            providerConfig,
           });
         }
         return { success: true };
@@ -396,6 +419,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
             conversationHistory: history,
             planMode,
             imagePaths,
+            providerConfig,
           });
         }
         return { success: true };
@@ -419,6 +443,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
             conversationHistory: history,
             planMode,
             imagePaths,
+            providerConfig,
           });
         }
         return { success: true };

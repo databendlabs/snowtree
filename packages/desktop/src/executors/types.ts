@@ -33,6 +33,11 @@ export interface ExecutorSpawnOptions {
   approvalMode?: string;
   // Plan mode: only plan, don't execute code modifications
   planMode?: boolean;
+  // Per-provider custom configuration (env vars, extra CLI args from settings)
+  providerConfig?: {
+    envVars?: Record<string, string>;
+    extraArgs?: string;
+  };
 }
 
 export interface ExecutorProcess {
