@@ -498,18 +498,7 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
       return;
     }
 
-    const keyboard = new InlineKeyboard();
-    sessions.slice(0, 10).forEach((session) => {
-      const shortId = session.id.slice(0, 6);
-      const marker = session.id === context.activeSessionId ? '→ ' : '';
-      const statusIcon = this.getStatusIcon(session.status);
-      keyboard.text(`${marker}${statusIcon} ${session.name} [${shortId}]`, `select:${session.id}`).row();
-    });
-
-    let msg = '📋 *Sessions*\n\nSelect a session:';
-    if (sessions.length > 10) {
-      msg += `\n_(showing 10 of ${sessions.length})_`;
-    }
+    const { msg, keyboard } = this.buildSessionList(sessions, context);
 
     await ctx.reply(msg, {
       parse_mode: 'Markdown',
@@ -529,18 +518,7 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
       return;
     }
 
-    const keyboard = new InlineKeyboard();
-    sessions.slice(0, 10).forEach((session) => {
-      const shortId = session.id.slice(0, 6);
-      const marker = session.id === context.activeSessionId ? '→ ' : '';
-      const statusIcon = this.getStatusIcon(session.status);
-      keyboard.text(`${marker}${statusIcon} ${session.name} [${shortId}]`, `select:${session.id}`).row();
-    });
-
-    let msg = '📋 *Sessions*\n\nSelect a session:';
-    if (sessions.length > 10) {
-      msg += `\n_(showing 10 of ${sessions.length})_`;
-    }
+    const { msg, keyboard } = this.buildSessionList(sessions, context);
 
     await ctx.editMessageText(msg, {
       parse_mode: 'Markdown',
@@ -614,6 +592,50 @@ export class TelegramService extends EventEmitter implements ChannelAdapter {
       case 'error': case 'failed': return '❌';
       default: return '⚪';
     }
+  }
+
+  private buildSessionList(sessions: { id: string; name: string; status: string; updatedAt?: Date; lastActivity?: Date }[], context: ChannelContext): { msg: string; keyboard: InlineKeyboard } {
+    const displayed = sessions.slice(0, 10);
+    let msg = '📋 *Sessions*\n\n';
+    displayed.forEach((session, index) => {
+      const shortId = session.id.slice(0, 6);
+      const marker = session.id === context.activeSessionId ? '→ ' : '  ';
+      const statusIcon = this.getStatusIcon(session.status);
+      const time = session.updatedAt || session.lastActivity;
+      const timeStr = time ? ` · ${this.formatRelativeTime(time)}` : '';
+      msg += `${marker}${index + 1}. ${statusIcon} ${session.name} \`${shortId}\`${timeStr}\n`;
+    });
+
+    if (sessions.length > 10) {
+      msg += `\n_(showing 10 of ${sessions.length})_`;
+    }
+
+    const keyboard = new InlineKeyboard();
+    displayed.forEach((session) => {
+      const shortId = session.id.slice(0, 6);
+      const statusIcon = this.getStatusIcon(session.status);
+      keyboard.text(`${statusIcon} ${session.name} [${shortId}]`, `select:${session.id}`).row();
+    });
+
+    return { msg, keyboard };
+  }
+
+  private formatRelativeTime(date: Date): string {
+    const now = Date.now();
+    const ts = date instanceof Date ? date.getTime() : new Date(date).getTime();
+    const diffMs = now - ts;
+    if (diffMs < 0) return 'just now';
+
+    const seconds = Math.floor(diffMs / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    return `${months}mo ago`;
   }
 
   private async handleCommand(ctx: Context, command: SnowTreeCommandRequest): Promise<void> {
