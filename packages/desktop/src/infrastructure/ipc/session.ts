@@ -31,7 +31,7 @@ type MinimalCreateSessionRequest = {
 
 const SETTINGS_FILE = path.join(os.homedir(), '.snowtree', 'settings.json');
 
-function readProviderConfig(toolType: string): { envVars?: Record<string, string>; extraArgs?: string } | undefined {
+export function readProviderConfig(toolType: string): { envVars?: Record<string, string>; extraArgs?: string } | undefined {
   try {
     if (!fs.existsSync(SETTINGS_FILE)) return undefined;
     const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
