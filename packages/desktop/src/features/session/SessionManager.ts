@@ -43,6 +43,7 @@ interface PanelStateWithCustomData extends ToolPanelState {
   [key: string]: unknown;
 }
 import { withLock } from '../../infrastructure/utils/mutex';
+import * as fs from 'fs';
 import * as os from 'os';
 import { panelManager } from '../panels/PanelManager';
 
@@ -370,6 +371,25 @@ export class SessionManager extends EventEmitter {
     // Load all sessions from database
     const dbSessions = this.db.getAllSessions();
     this.emit('sessions-loaded', dbSessions.map(this.convertDbSessionToSession.bind(this)));
+  }
+
+  cleanupOrphanedSessions(): void {
+    const allSessions = this.db.getAllSessionsIncludingArchived();
+    let cleaned = 0;
+    for (const session of allSessions) {
+      if (session.is_main_repo) continue;
+      if (!session.worktree_path) continue;
+      if (fs.existsSync(session.worktree_path)) continue;
+      try {
+        this.deleteSessionPermanently(session.id);
+        cleaned++;
+      } catch {
+        // best-effort
+      }
+    }
+    if (cleaned > 0) {
+      console.log(`[SessionManager] Cleaned up ${cleaned} orphaned session(s) with missing worktree paths`);
+    }
   }
 
   private convertDbSessionToSession(dbSession: DbSession): Session {
