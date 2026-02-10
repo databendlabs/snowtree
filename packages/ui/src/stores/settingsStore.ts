@@ -15,6 +15,7 @@ export interface AppSettings {
   // Theme & Appearance
   theme: 'light' | 'dark' | 'system';
   fontSize: number;
+  fontFamily: string;
 
   // AI Tool Settings
   defaultToolType: 'claude' | 'codex' | 'gemini' | 'kimi' | 'none';
@@ -27,6 +28,7 @@ export interface AppSettings {
 
   // Terminal
   terminalFontSize: number;
+  terminalFontFamily: string;
   terminalScrollback: number;
 
   // Worktree
@@ -47,6 +49,7 @@ export interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
   fontSize: 15,
+  fontFamily: '',
   defaultToolType: 'claude',
   enabledProviders: {
     claude: true,
@@ -55,6 +58,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     kimi: true,
   },
   terminalFontSize: 13,
+  terminalFontFamily: '',
   terminalScrollback: 1000,
   autoDeleteBranchOnWorktreeRemove: false,
   telegram: {
