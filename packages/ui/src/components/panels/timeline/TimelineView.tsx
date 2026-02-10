@@ -9,7 +9,7 @@ import type { TimelineEvent, UserQuestionEvent } from '../../../types/timeline';
 import type { Session } from '../../../types/session';
 import { formatDistanceToNow, parseTimestamp } from '../../../utils/timestampUtils';
 import { ThinkingMessage } from './ThinkingMessage';
-import { ToolCallMessage, getToolIcon } from './ToolCallMessage';
+import { ToolCallMessage, getToolIcon, setToolCollapseHook } from './ToolCallMessage';
 import { UserQuestionDialog, type Question } from './UserQuestionDialog';
 import { InlineDiffViewer, setDiffCollapseHook } from './InlineDiffViewer';
 import { ClaudeIcon, CodexIcon, GeminiIcon, KimiIcon } from '../../icons/ProviderIcons';
@@ -51,6 +51,18 @@ const DiffCollapseContext = createContext<DiffCollapseContextType | null>(null);
 
 export const useDiffCollapse = () => {
   const context = useContext(DiffCollapseContext);
+  return context;
+};
+
+// Context for managing global tool call collapse state
+interface ToolCollapseContextType {
+  collapseAllTrigger: number;
+}
+
+const ToolCollapseContext = createContext<ToolCollapseContextType | null>(null);
+
+export const useToolCollapse = () => {
+  const context = useContext(ToolCollapseContext);
   return context;
 };
 
@@ -1001,9 +1013,17 @@ export const TimelineView: React.FC<{
     triggerCollapseAll: () => setCollapseAllTrigger(prev => prev + 1)
   }), [collapseAllTrigger]);
 
-  // Set the hook for InlineDiffViewer to use
+  // State for global tool call collapse
+  const [toolCollapseAllTrigger, setToolCollapseAllTrigger] = useState(0);
+
+  const toolCollapseContextValue = useMemo(() => ({
+    collapseAllTrigger: toolCollapseAllTrigger,
+  }), [toolCollapseAllTrigger]);
+
+  // Set the hooks for InlineDiffViewer and ToolCallMessage to use
   useEffect(() => {
     setDiffCollapseHook(useDiffCollapse);
+    setToolCollapseHook(useToolCollapse);
   }, []);
 
   const isAtBottom = useCallback((container: HTMLDivElement) => {
@@ -1183,15 +1203,26 @@ export const TimelineView: React.FC<{
 
   return (
     <DiffCollapseContext.Provider value={diffCollapseContextValue}>
+    <ToolCollapseContext.Provider value={toolCollapseContextValue}>
       <div className="flex-1 flex flex-col h-full overflow-hidden relative" style={{ backgroundColor: colors.bg }}>
-        {/* Collapse all diffs button - fixed to top-right corner */}
-        <div className="absolute top-3 right-3 z-10">
+        {/* Collapse buttons - fixed to top-right corner */}
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => diffCollapseContextValue.triggerCollapseAll()}
             className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition-all hover:bg-white/10 active:scale-95"
             style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.text.secondary }}
             title="Collapse all diffs"
+          >
+            <ChevronsUp className="w-3 h-3" />
+            <span>Collapse Diff</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setToolCollapseAllTrigger(prev => prev + 1)}
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition-all hover:bg-white/10 active:scale-95"
+            style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.text.secondary }}
+            title="Collapse all tool calls"
           >
             <ChevronsUp className="w-3 h-3" />
             <span>Collapse All</span>
@@ -1403,6 +1434,7 @@ export const TimelineView: React.FC<{
         </div>
       )}
     </div>
+    </ToolCollapseContext.Provider>
     </DiffCollapseContext.Provider>
   );
 };
