@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react';
 import { Brain, ChevronDown, ChevronRight, Circle, Square } from 'lucide-react';
 import './ThinkingMessage.css';
 
+// Module-level hook for collapse all - will be provided by TimelineView
+let useThinkingCollapseHook: (() => { collapseAllTrigger: number } | null) | null = null;
+
+export const setThinkingCollapseHook = (hook: () => { collapseAllTrigger: number } | null) => {
+  useThinkingCollapseHook = hook;
+};
+
 export interface ThinkingMessageProps {
   content: string;
   timestamp: string;
@@ -18,6 +25,14 @@ export function ThinkingMessage({ content, timestamp, isStreaming }: ThinkingMes
     if (isStreaming) setExpanded(true);
     else setExpanded(false);
   }, [isStreaming, userToggled]);
+
+  // Listen to global collapse all trigger
+  const collapseContext = useThinkingCollapseHook?.();
+  useEffect(() => {
+    if (collapseContext && collapseContext.collapseAllTrigger > 0) {
+      setExpanded(false);
+    }
+  }, [collapseContext?.collapseAllTrigger]);
 
   const formatTime = (isoString: string) => {
     const date = new Date(isoString);
