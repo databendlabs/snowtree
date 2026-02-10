@@ -22,6 +22,13 @@ import { ClaudeIcon, CodexIcon, GeminiIcon, KimiIcon } from '../../icons/Provide
 import './ToolCallMessage.css';
 import { InlineDiffViewer } from './InlineDiffViewer';
 
+// Module-level hook for tool collapse - will be provided by TimelineView
+let useToolCollapseHook: (() => { collapseAllTrigger: number } | null) | null = null;
+
+export const setToolCollapseHook = (hook: () => { collapseAllTrigger: number } | null) => {
+  useToolCollapseHook = hook;
+};
+
 export interface ToolCallMessageProps {
   toolName: string;
   toolInput?: string; // JSON string
@@ -114,6 +121,14 @@ export function ToolCallMessage({
   toolCallSeq
 }: ToolCallMessageProps) {
   const [expanded, setExpanded] = useState(false);
+
+  // Listen to global tool collapse trigger
+  const toolCollapseContext = useToolCollapseHook?.();
+  useEffect(() => {
+    if (toolCollapseContext && toolCollapseContext.collapseAllTrigger > 0) {
+      setExpanded(false);
+    }
+  }, [toolCollapseContext?.collapseAllTrigger]);
 
   // Load params expanded state from localStorage
   const paramsStorageKey = `tool-params-expanded-${sessionId}-${toolCallSeq}`;
