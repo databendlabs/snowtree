@@ -635,6 +635,7 @@ async function initializeServices() {
 
   sessionManager = new SessionManager(databaseService);
   sessionManager.initializeFromDatabase();
+  sessionManager.cleanupOrphanedSessions();
 
   gitExecutor = new GitExecutor(sessionManager);
   worktreeManager = new WorktreeManager(gitExecutor);
