@@ -18,6 +18,7 @@ import type { ToolPanel } from '@snowtree/core/types/panels';
 import type { Database as DatabaseService } from '../../infrastructure/database';
 import type { Project } from '../../infrastructure/database';
 import { fetchAndCacheRepoInfo } from '../../infrastructure/ipc/git';
+import { readProviderConfig } from '../../infrastructure/ipc/session';
 import { getPanelManagerForType } from '../panels/ai/panelManagerRegistry';
 
 interface TaskQueueOptions {
@@ -418,7 +419,8 @@ export class TaskQueue {
                 approvalPolicy: codexConfig?.approvalPolicy,
                 sandboxMode: codexConfig?.sandboxMode,
                 webSearch: codexConfig?.webSearch,
-                thinkingLevel: codexConfig?.thinkingLevel
+                thinkingLevel: codexConfig?.thinkingLevel,
+                providerConfig: readProviderConfig('codex'),
               });
             } catch (error) {
               console.error('[TaskQueue] Failed to start Codex via panel manager:', error);
@@ -447,7 +449,8 @@ export class TaskQueue {
                 worktreePath: session.worktreePath,
                 prompt,
                 permissionMode,
-                model: modelToUse
+                model: modelToUse,
+                providerConfig: readProviderConfig('claude'),
               });
             } catch (error) {
               console.error(`[TaskQueue] Failed to start Claude via panel manager:`, error);
@@ -473,6 +476,7 @@ export class TaskQueue {
                 prompt,
                 model: geminiConfig?.model,
                 approvalMode: geminiConfig?.approvalMode,
+                providerConfig: readProviderConfig('gemini'),
               });
             } catch (error) {
               console.error('[TaskQueue] Failed to start Gemini via panel manager:', error);
@@ -498,6 +502,7 @@ export class TaskQueue {
                 prompt,
                 model: kimiConfig?.model,
                 approvalMode: kimiConfig?.approvalMode,
+                providerConfig: readProviderConfig('kimi'),
               });
             } catch (error) {
               console.error('[TaskQueue] Failed to start Kimi via panel manager:', error);
