@@ -23,9 +23,15 @@ export interface AIPanelConfig {
 
   // Gemini/Kimi-specific (Kimi supports 'default' | 'yolo')
   approvalMode?: 'default' | 'auto_edit' | 'yolo' | 'plan';
-  
+
+  // Per-provider custom configuration (env vars, extra CLI args)
+  providerConfig?: {
+    envVars?: Record<string, string>;
+    extraArgs?: string;
+  };
+
   // Future extensibility - specific config values can be added here
-  [key: string]: string | number | boolean | Array<unknown> | undefined;
+  [key: string]: string | number | boolean | Array<unknown> | Record<string, unknown> | undefined;
 }
 
 /**

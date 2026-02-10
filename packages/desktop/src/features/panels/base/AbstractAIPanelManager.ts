@@ -264,7 +264,8 @@ export abstract class AbstractAIPanelManager {
       worktreePath,
       prompt,
       imagePaths,
-      ...this.extractSpawnOptions(config, mapping)
+      ...this.extractSpawnOptions(config, mapping),
+      providerConfig: config.providerConfig,
     };
 
     await this.executor.spawn(spawnOptions);
@@ -311,7 +312,8 @@ export abstract class AbstractAIPanelManager {
       imagePaths,
       isResume: hasResumeToken,
       agentSessionId: hasResumeToken ? mapping.agentSessionId : undefined,
-      ...this.extractSpawnOptions(config, mapping)
+      ...this.extractSpawnOptions(config, mapping),
+      providerConfig: config.providerConfig,
     };
 
     await this.executor.spawn(spawnOptions);
@@ -400,7 +402,8 @@ export abstract class AbstractAIPanelManager {
         prompt: answerText,
         isResume: hasValidAgentSessionId,
         agentSessionId: hasValidAgentSessionId ? mapping.agentSessionId : undefined,
-        ...this.extractSpawnOptions(config, mapping)
+        ...this.extractSpawnOptions(config, mapping),
+        providerConfig: config.providerConfig,
       };
 
       await this.executor.spawn(spawnOptions);

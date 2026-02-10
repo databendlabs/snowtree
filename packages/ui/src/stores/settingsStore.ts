@@ -6,6 +6,11 @@ export interface TelegramSettings {
   allowedChatId: string;
 }
 
+export interface ProviderConfig {
+  envVars: Record<string, string>;
+  extraArgs: string;
+}
+
 export interface AppSettings {
   // Theme & Appearance
   theme: 'light' | 'dark' | 'system';
@@ -29,6 +34,14 @@ export interface AppSettings {
 
   // Telegram Remote Control
   telegram: TelegramSettings;
+
+  // Per-provider custom configuration
+  providerConfigs: {
+    claude: ProviderConfig;
+    codex: ProviderConfig;
+    gemini: ProviderConfig;
+    kimi: ProviderConfig;
+  };
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -48,6 +61,12 @@ const DEFAULT_SETTINGS: AppSettings = {
     enabled: false,
     botToken: '',
     allowedChatId: '',
+  },
+  providerConfigs: {
+    claude: { envVars: {}, extraArgs: '' },
+    codex: { envVars: {}, extraArgs: '' },
+    gemini: { envVars: {}, extraArgs: '' },
+    kimi: { envVars: {}, extraArgs: '' },
   },
 };
 
@@ -74,6 +93,14 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
       ? stored.defaultToolType
       : DEFAULT_SETTINGS.defaultToolType;
 
+  const storedPC = stored.providerConfigs as Partial<AppSettings['providerConfigs']> | undefined;
+  const mergedProviderConfigs = {
+    claude: { ...DEFAULT_SETTINGS.providerConfigs.claude, ...storedPC?.claude },
+    codex: { ...DEFAULT_SETTINGS.providerConfigs.codex, ...storedPC?.codex },
+    gemini: { ...DEFAULT_SETTINGS.providerConfigs.gemini, ...storedPC?.gemini },
+    kimi: { ...DEFAULT_SETTINGS.providerConfigs.kimi, ...storedPC?.kimi },
+  };
+
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
@@ -86,6 +113,7 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
       ...DEFAULT_SETTINGS.telegram,
       ...(stored.telegram || {}),
     },
+    providerConfigs: mergedProviderConfigs,
   };
 }
 

@@ -189,7 +189,15 @@ export abstract class AbstractExecutor extends EventEmitter {
       const args = this.buildCommandArgs(options);
       const cliEnv = await this.initializeEnvironment(options);
       const systemEnv = await this.getSystemEnvironment();
-      const env = { ...systemEnv, ...cliEnv };
+      const providerEnv = options.providerConfig?.envVars || {};
+      const env = { ...systemEnv, ...cliEnv, ...providerEnv };
+
+      // Prepend extra CLI args from provider config
+      if (options.providerConfig?.extraArgs?.trim()) {
+        const extra = AbstractExecutor.parseShellArgs(options.providerConfig.extraArgs);
+        args.unshift(...extra);
+      }
+
       const command = await this.getExecutablePath();
 
       const operationId = randomUUID();
@@ -940,6 +948,34 @@ export abstract class AbstractExecutor extends EventEmitter {
       displayArgs.push(current.includes(' ') ? `"${current}"` : current);
     }
     return `${command} ${displayArgs.join(' ')}`.trim();
+  }
+
+  /** Parse a shell-like argument string into an array, respecting quoted strings */
+  static parseShellArgs(input: string): string[] {
+    const args: string[] = [];
+    let current = '';
+    let inSingle = false;
+    let inDouble = false;
+
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+      if (ch === "'" && !inDouble) {
+        inSingle = !inSingle;
+      } else if (ch === '"' && !inSingle) {
+        inDouble = !inDouble;
+      } else if ((ch === ' ' || ch === '\t') && !inSingle && !inDouble) {
+        if (current.length > 0) {
+          args.push(current);
+          current = '';
+        }
+      } else {
+        current += ch;
+      }
+    }
+    if (current.length > 0) {
+      args.push(current);
+    }
+    return args;
   }
 
   /** Handle CLI not available */
