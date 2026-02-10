@@ -1,16 +1,18 @@
-import { Settings, X, Palette, Bot, TerminalSquare, Cog } from 'lucide-react';
+import { Settings, X, Palette, Bot, TerminalSquare, GitBranch, Send } from 'lucide-react';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useState } from 'react';
 import { AppearanceTab } from './settings/AppearanceTab';
 import { ProvidersTab } from './settings/ProvidersTab';
 import { TerminalTab } from './settings/TerminalTab';
-import { GeneralTab } from './settings/GeneralTab';
+import { WorktreeTab } from './settings/WorktreeTab';
+import { TelegramTab } from './settings/TelegramTab';
 
 const tabs = [
   { key: 'appearance', label: 'Appearance', Icon: Palette },
   { key: 'providers', label: 'AI Providers', Icon: Bot },
   { key: 'terminal', label: 'Terminal', Icon: TerminalSquare },
-  { key: 'general', label: 'General', Icon: Cog },
+  { key: 'worktree', label: 'Worktree', Icon: GitBranch },
+  { key: 'telegram', label: 'Telegram', Icon: Send },
 ] as const;
 
 type TabKey = (typeof tabs)[number]['key'];
@@ -89,7 +91,8 @@ export function SettingsDialog() {
           {activeTab === 'appearance' && <AppearanceTab />}
           {activeTab === 'providers' && <ProvidersTab />}
           {activeTab === 'terminal' && <TerminalTab />}
-          {activeTab === 'general' && <GeneralTab />}
+          {activeTab === 'worktree' && <WorktreeTab />}
+          {activeTab === 'telegram' && <TelegramTab />}
         </div>
 
         {/* Footer */}
