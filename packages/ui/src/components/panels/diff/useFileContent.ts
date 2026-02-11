@@ -18,7 +18,7 @@ interface UseFileContentResult {
 
 /**
  * Hook to load file content from the file system.
- * Used by both InlineDiffViewer and ZedDiffViewer for markdown/image preview.
+ * Used by InlineDiffViewer for markdown/image preview.
  */
 export function useFileContent({
   sessionId,

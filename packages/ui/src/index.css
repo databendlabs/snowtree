@@ -1,6 +1,5 @@
 /* Import modular stylesheets first */
 @import './styles/themes.css';
-@import './styles/diff.css';
 
 @tailwind base;
 @tailwind components;
