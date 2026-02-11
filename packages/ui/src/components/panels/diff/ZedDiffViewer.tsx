@@ -34,6 +34,11 @@ export interface ZedDiffViewerProps {
   currentScope?: Scope;
   stagedDiff?: string;
   unstagedDiff?: string;
+  // File contents used for previews (markdown/images). If omitted, `fileSources` is used.
+  previewFileSources?: Record<string, string>;
+  // File contents used to expand hunks into full-file context. If omitted, `fileSources` is used.
+  contextFileSources?: Record<string, string>;
+  // Back-compat: when only one set of sources is available, use this for both preview + context expansion.
   fileSources?: Record<string, string>;
   expandFileContext?: boolean;
   scrollToFilePath?: string;
@@ -51,6 +56,8 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
   currentScope: _currentScope,
   stagedDiff,
   unstagedDiff,
+  previewFileSources,
+  contextFileSources,
   fileSources,
   expandFileContext = false,
   scrollToFilePath,
@@ -60,6 +67,8 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
   onHunkInfo,
   onVisibleFileChange,
 }, ref) => {
+  const previewSources = previewFileSources ?? fileSources;
+  const contextSources = contextFileSources ?? fileSources;
   const fileHeaderRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [pendingHunkKeys, setPendingHunkKeys] = useState<Set<string>>(() => new Set());
 
@@ -143,8 +152,8 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
 
     return ordered.map((f) => {
       const path = toFilePath(f);
-      const hasSource = Boolean(fileSources && Object.prototype.hasOwnProperty.call(fileSources, path));
-      const source = hasSource ? (fileSources as Record<string, string>)[path] : undefined;
+      const hasSource = Boolean(contextSources && Object.prototype.hasOwnProperty.call(contextSources, path));
+      const source = hasSource ? (contextSources as Record<string, string>)[path] : undefined;
       const expandedHunks = (expandFileContext && hasSource) ? expandToFullFile(f.hunks || [], source || '') : normalizeHunks(f.hunks || []);
 
       const hunks = expandedHunks.map((hunk, idx) => {
@@ -163,7 +172,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
         hunks,
       };
     });
-  }, [diff, fileSources, expandFileContext, fileOrder]);
+  }, [diff, contextSources, expandFileContext, fileOrder]);
 
   const autoPreviewPaths = useMemo(
     () => files.filter((file) => isImageFile(file.path)).map((file) => file.path),
@@ -928,7 +937,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           style={{ paddingBottom: 12 }}
         >
           {files.map((file) => {
-            const previewContent = fileSources?.[file.path];
+            const previewContent = previewSources?.[file.path];
             const canPreview = Boolean(previewContent) && isPreviewableFile(file.path);
             const isPreviewing = canPreview && previewFiles.has(file.path);
 

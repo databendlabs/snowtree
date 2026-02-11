@@ -423,8 +423,8 @@ describe('RightPanel - Zed-style Changes list', () => {
 
     const trackedOrder = trackedEls.map((el) => el.getAttribute('data-testid'));
     expect(trackedOrder).toEqual([
-      'right-panel-file-tracked-.github/workflows/pages.yml',
       'right-panel-file-tracked-_config.yml',
+      'right-panel-file-tracked-.github/workflows/pages.yml',
       'right-panel-file-tracked-package.json',
       'right-panel-file-tracked-source/about/index.md',
     ]);

@@ -132,9 +132,17 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
     );
 
     const workingFilesForDiffOverlay = useMemo(() => {
-      const tracked = trackedList.map((x) => x.file);
+      const trackedStaged = trackedList
+        .filter((x) => x.stageState === 'checked')
+        .map((x) => x.file);
+      const trackedPartial = trackedList
+        .filter((x) => x.stageState === 'indeterminate')
+        .map((x) => x.file);
+      const trackedUnstaged = trackedList
+        .filter((x) => x.stageState === 'unchecked')
+        .map((x) => x.file);
       const untracked = untrackedList.map((x) => x.file);
-      return [...tracked, ...untracked];
+      return [...trackedStaged, ...trackedPartial, ...trackedUnstaged, ...untracked];
     }, [trackedList, untrackedList]);
 
     const totalHunksByPath = useMemo(
