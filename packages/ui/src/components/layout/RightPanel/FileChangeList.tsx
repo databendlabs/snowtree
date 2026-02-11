@@ -130,30 +130,51 @@ export const FileChangeList: React.FC<FileChangeListProps> = React.memo(
                 Tracked
               </div>
               <div>
-                {trackedList.map(({ file, stageState }) => (
-                  <WorkingFileRow
-                    key={`tracked:${file.path}`}
-                    file={file}
-                    stageState={stageState}
-                    disabled={isDisabled}
-                    onToggleStage={() =>
-                      onStageFile(file.path, stageState !== 'checked')
-                    }
-                    onClick={() =>
-                      onWorkingFileClick('all', file, workingFilesForDiffOverlay)
-                    }
-                    isSelected={
-                      selectedFile === file.path && selectedFileScope === 'all'
-                    }
-                    hunkText={(() => {
-                      const total = hunkCounts?.totalByPath[file.path] || 0;
-                      if (total <= 0) return undefined;
-                      const staged = hunkCounts?.stagedByPath[file.path] || 0;
-                      return `(${staged}/${total} hunks)`;
-                    })()}
-                    testId={`right-panel-file-tracked-${file.path}`}
-                  />
-                ))}
+                {(
+                  [
+                    { label: 'Staged', key: 'staged', items: trackedList.filter((x) => x.stageState === 'checked') },
+                    { label: 'Partially staged', key: 'partial', items: trackedList.filter((x) => x.stageState === 'indeterminate') },
+                    { label: 'Unstaged', key: 'unstaged', items: trackedList.filter((x) => x.stageState === 'unchecked') },
+                  ] as const
+                )
+                  .filter((g) => g.items.length > 0)
+                  .map((group) => (
+                    <div key={group.key} className="mb-1">
+                      <div
+                        className="px-3 pt-2 pb-1 text-[10px] font-medium flex items-center justify-between"
+                        style={{ color: colors.text.muted }}
+                      >
+                        <span>{group.label}</span>
+                        <span className="font-mono text-[10px]">{group.items.length}</span>
+                      </div>
+                      <div>
+                        {group.items.map(({ file, stageState }) => (
+                          <WorkingFileRow
+                            key={`tracked:${group.key}:${file.path}`}
+                            file={file}
+                            stageState={stageState}
+                            disabled={isDisabled}
+                            onToggleStage={() =>
+                              onStageFile(file.path, stageState !== 'checked')
+                            }
+                            onClick={() =>
+                              onWorkingFileClick('all', file, workingFilesForDiffOverlay)
+                            }
+                            isSelected={
+                              selectedFile === file.path && selectedFileScope === 'all'
+                            }
+                            hunkText={(() => {
+                              const total = hunkCounts?.totalByPath[file.path] || 0;
+                              if (total <= 0) return undefined;
+                              const staged = hunkCounts?.stagedByPath[file.path] || 0;
+                              return `(${staged}/${total} hunks)`;
+                            })()}
+                            testId={`right-panel-file-tracked-${file.path}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
               </div>
             </div>
           )}

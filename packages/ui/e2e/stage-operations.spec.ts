@@ -6,13 +6,15 @@ test.describe('Stage Operations (Diff Overlay)', () => {
     await openFirstWorktree(page);
   });
 
-  async function getActiveHunkOverlayFor(firstEditHunk: any, page: any) {
-    const anchor = firstEditHunk.locator('[data-hunk-anchor="true"][data-hunk-key]').first();
-    const hunkKey = await anchor.getAttribute('data-hunk-key');
-    expect(hunkKey).toBeTruthy();
-    const overlay = page.getByTestId('diff-hunk-actions-overlay');
-    await expect(overlay).toBeVisible();
-    return overlay.locator(`[data-hunk-key="${hunkKey}"]`).first();
+  async function hoverFirstChangedLineInFile(page: any, filePath: string) {
+    const fileRoot = page.locator(`[data-testid="diff-file"][data-diff-file-path="${filePath}"]`);
+    await expect(fileRoot).toBeVisible();
+    const firstChangedLine = fileRoot
+      .locator('diffs-container [data-line-type="change-addition"], diffs-container [data-line-type="change-deletion"]')
+      .first();
+    await expect(firstChangedLine).toBeVisible();
+    await firstChangedLine.hover();
+    return fileRoot;
   }
 
   test('stages a hunk via per-hunk controls (Zed-style)', async ({ page }) => {
@@ -21,15 +23,9 @@ test.describe('Stage Operations (Diff Overlay)', () => {
     await file.click();
 
     await expect(page.getByTestId('diff-overlay')).toBeVisible();
-    await expect(page.getByTestId('diff-viewer-zed')).toBeVisible();
 
-    const firstEditHunk = page
-      .locator(`[data-testid="diff-file"][data-diff-file-path="src/components/Example.tsx"] .diff-hunk`)
-      .filter({ has: page.locator('.diff-code-insert, .diff-code-delete') })
-      .first();
-    await firstEditHunk.hover();
-    const overlayInner = await getActiveHunkOverlayFor(firstEditHunk, page);
-    const stage = overlayInner.getByTestId('diff-hunk-stage');
+    const fileRoot = await hoverFirstChangedLineInFile(page, 'src/components/Example.tsx');
+    const stage = fileRoot.locator('[data-testid="diff-hunk-stage"]').first();
     await expect(stage).toBeVisible();
     await stage.click();
 
@@ -46,15 +42,9 @@ test.describe('Stage Operations (Diff Overlay)', () => {
     await file.click();
 
     await expect(page.getByTestId('diff-overlay')).toBeVisible();
-    await expect(page.getByTestId('diff-viewer-zed')).toBeVisible();
 
-    const firstEditHunk = page
-      .locator(`[data-testid="diff-file"][data-diff-file-path="src/components/Example.tsx"] .diff-hunk`)
-      .filter({ has: page.locator('.diff-code-insert, .diff-code-delete') })
-      .first();
-    await firstEditHunk.hover();
-    const overlayInner = await getActiveHunkOverlayFor(firstEditHunk, page);
-    const restore = overlayInner.getByTestId('diff-hunk-restore');
+    const fileRoot = await hoverFirstChangedLineInFile(page, 'src/components/Example.tsx');
+    const restore = fileRoot.locator('[data-testid="diff-hunk-restore"]').first();
     await expect(restore).toBeVisible();
     await restore.click();
 

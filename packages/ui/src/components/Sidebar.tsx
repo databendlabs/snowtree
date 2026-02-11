@@ -81,12 +81,22 @@ export function Sidebar() {
   } = useUpdateStatus();
   const sidebarPollingTimerRef = useRef<number | null>(null);
   const worktreePollInFlightRef = useRef<Set<number>>(new Set());
+  const sessionWorktreePathByIdRef = useRef<Map<string, string>>(new Map());
+  const lastWorktreeGitSignatureByPathRef = useRef<Map<string, string>>(new Map());
 
   const getWorktreeDisplayName = useCallback((worktree: Worktree): string => {
     const branch = typeof worktree.branch === 'string' ? worktree.branch.trim() : '';
     if (branch) return branch;
     return worktree.path.split('/').filter(Boolean).pop() || worktree.path;
   }, []);
+
+  useEffect(() => {
+    const map = new Map<string, string>();
+    for (const s of sessions) {
+      if (s.worktreePath) map.set(s.id, s.worktreePath);
+    }
+    sessionWorktreePathByIdRef.current = map;
+  }, [sessions]);
 
   const loadProjects = useCallback(async () => {
     const res = await API.projects.getAll();
@@ -417,34 +427,68 @@ export function Sidebar() {
     if (!window.electronAPI?.events?.onGitStatusUpdated) return;
 
     const unsubscribe = window.electronAPI.events.onGitStatusUpdated((data) => {
-      const { sessionId, gitStatus } = data;
-      const session = sessions.find((s) => s.id === sessionId);
-      if (!session?.worktreePath) return;
+      const sessionId = typeof (data as any)?.sessionId === 'string' ? String((data as any).sessionId) : '';
+      const gitStatus = (data as any)?.gitStatus as any;
+      if (!sessionId || !gitStatus) return;
+      const worktreePath = sessionWorktreePathByIdRef.current.get(sessionId);
+      if (!worktreePath) return;
+
+      const hasTrackedChanges = Boolean(gitStatus.hasUncommittedChanges);
+      const hasChanges = Boolean(gitStatus.hasUncommittedChanges || gitStatus.hasUntrackedFiles);
+
+      // Avoid showing flapping line counts caused by untracked files that change in the background.
+      const additions = hasTrackedChanges ? (gitStatus.additions ?? 0) : 0;
+      const deletions = hasTrackedChanges ? (gitStatus.deletions ?? 0) : 0;
+      const filesChanged = hasTrackedChanges ? (gitStatus.filesChanged ?? 0) : 0;
+
+      const signature = `${hasChanges ? 1 : 0}:${additions}:${deletions}:${filesChanged}`;
+      const last = lastWorktreeGitSignatureByPathRef.current.get(worktreePath);
+      if (last === signature) return;
 
       setWorktreesByProjectId((prev) => {
-        const updated: Record<number, Worktree[]> = {};
-        for (const [projectIdStr, worktrees] of Object.entries(prev)) {
-          const projectId = Number(projectIdStr);
-          updated[projectId] = worktrees.map((w) => {
-            if (w.path === session.worktreePath) {
-              const hasChanges = gitStatus.hasUncommittedChanges || gitStatus.hasUntrackedFiles || false;
-              return {
-                ...w,
-                hasChanges,
-                additions: gitStatus.additions ?? 0,
-                deletions: gitStatus.deletions ?? 0,
-                filesChanged: gitStatus.filesChanged ?? 0,
-              };
-            }
-            return w;
-          });
+        let projectId: number | null = null;
+        let idx = -1;
+        let currentList: Worktree[] | null = null;
+
+        for (const [pidStr, list] of Object.entries(prev)) {
+          const foundIndex = list.findIndex((w) => w.path === worktreePath);
+          if (foundIndex === -1) continue;
+          projectId = Number(pidStr);
+          idx = foundIndex;
+          currentList = list;
+          break;
         }
-        return updated;
+
+        if (!currentList || projectId == null || idx < 0) return prev;
+
+        const current = currentList[idx];
+        if (
+          current &&
+          current.hasChanges === hasChanges &&
+          current.additions === additions &&
+          current.deletions === deletions &&
+          current.filesChanged === filesChanged
+        ) {
+          lastWorktreeGitSignatureByPathRef.current.set(worktreePath, signature);
+          return prev;
+        }
+
+        const nextList = currentList.slice();
+        nextList[idx] = {
+          ...current,
+          hasChanges,
+          additions,
+          deletions,
+          filesChanged,
+        };
+
+        lastWorktreeGitSignatureByPathRef.current.set(worktreePath, signature);
+        return { ...prev, [projectId]: nextList };
       });
     });
 
     return unsubscribe;
-  }, [sessions]);
+  }, []);
 
   const beginRenameWorktree = useCallback((worktree: Worktree, sessionId: string | null) => {
     const displayName = getWorktreeDisplayName(worktree);

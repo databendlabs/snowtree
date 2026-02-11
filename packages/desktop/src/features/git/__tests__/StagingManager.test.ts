@@ -690,6 +690,113 @@ Binary files differ`;
         argv: expect.arrayContaining(['git', 'apply', '-R']),
       }));
     });
+
+    it('should fallback to unified=3 hunk lookup when unified=0 header does not match', async () => {
+      const diffUnified0 = `diff --git a/test.txt b/test.txt
+--- a/test.txt
++++ b/test.txt
+@@ -2 +2 @@
+-old line
++new line`;
+
+      const diffUnified3 = `diff --git a/test.txt b/test.txt
+--- a/test.txt
++++ b/test.txt
+@@ -1,3 +1,3 @@
+ context-before
+-old line
++new line
+ context-after`;
+
+      vi.mocked(mockGitExecutor.run)
+        .mockResolvedValueOnce({
+          // First lookup: --unified=0
+          exitCode: 0,
+          stdout: diffUnified0,
+          stderr: '',
+          commandDisplay: 'git diff --unified=0',
+        } as any)
+        .mockResolvedValueOnce({
+          // Fallback lookup: --unified=3
+          exitCode: 0,
+          stdout: diffUnified3,
+          stderr: '',
+          commandDisplay: 'git diff --unified=3',
+        } as any)
+        .mockResolvedValueOnce({
+          // Apply selected hunk patch
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          commandDisplay: 'git apply --cached',
+        } as any);
+
+      const result = await stagingManager.stageHunk({
+        worktreePath: '/tmp/project',
+        sessionId: 'test-session',
+        filePath: 'test.txt',
+        isStaging: true,
+        hunkHeader: '@@ -1,3 +1,3 @@',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockGitExecutor.run).toHaveBeenCalledTimes(3);
+
+      expect(mockGitExecutor.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        argv: expect.arrayContaining(['git', 'diff', '--unified=0']),
+      }));
+
+      expect(mockGitExecutor.run).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        argv: expect.arrayContaining(['git', 'diff', '--unified=3']),
+      }));
+
+      const [, patchText] = (fs.promises.writeFile as any).mock.calls[0] as [string, string, string];
+      expect(patchText).toContain('@@ -1,3 +1,3 @@');
+      expect(patchText).toContain('context-before');
+      expect(patchText).toContain('context-after');
+    });
+
+    it('should not treat source lines containing "Binary files differ" as binary diff metadata', async () => {
+      const mockDiff = `diff --git a/test.txt b/test.txt
+--- a/test.txt
++++ b/test.txt
+@@ -1,1 +1,1 @@
+-if (fullDiff.includes('Binary files differ')) {
++if (this.isBinaryDiffOutput(fullDiff)) {`;
+
+      vi.mocked(mockGitExecutor.run)
+        .mockResolvedValueOnce({
+          // First call: get diff
+          exitCode: 0,
+          stdout: mockDiff,
+          stderr: '',
+          commandDisplay: 'git diff',
+        } as any)
+        .mockResolvedValueOnce({
+          // Second call: apply patch
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          commandDisplay: 'git apply',
+        } as any);
+
+      const result = await stagingManager.stageHunk({
+        worktreePath: '/tmp/project',
+        sessionId: 'test-session',
+        filePath: 'test.txt',
+        isStaging: true,
+        hunkHeader: '@@ -1,1 +1,1 @@',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockGitExecutor.run).toHaveBeenCalledTimes(2);
+      expect(mockGitExecutor.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        argv: expect.arrayContaining(['git', 'diff', '--unified=0']),
+      }));
+      expect(mockGitExecutor.run).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        argv: expect.arrayContaining(['git', 'apply', '--cached']),
+      }));
+    });
   });
 
   describe('restoreHunk', () => {
@@ -786,6 +893,73 @@ Binary files differ`;
       }));
       expect(mockGitExecutor.run).toHaveBeenNthCalledWith(3, expect.objectContaining({
         argv: expect.arrayContaining(['git', 'apply', '-R']),
+      }));
+    });
+
+    it('should fallback to unified=3 hunk lookup when restoring unstaged hunk', async () => {
+      const diffUnified0 = `diff --git a/test.txt b/test.txt
+--- a/test.txt
++++ b/test.txt
+@@ -2 +2 @@
+-old line
++new line`;
+
+      const diffUnified3 = `diff --git a/test.txt b/test.txt
+--- a/test.txt
++++ b/test.txt
+@@ -1,3 +1,3 @@
+ context-before
+-old line
++new line
+ context-after`;
+
+      vi.mocked(mockGitExecutor.run)
+        .mockResolvedValueOnce({
+          // First lookup: --unified=0
+          exitCode: 0,
+          stdout: diffUnified0,
+          stderr: '',
+          commandDisplay: 'git diff --unified=0',
+        } as any)
+        .mockResolvedValueOnce({
+          // Fallback lookup: --unified=3
+          exitCode: 0,
+          stdout: diffUnified3,
+          stderr: '',
+          commandDisplay: 'git diff --unified=3',
+        } as any)
+        .mockResolvedValueOnce({
+          // Restore in worktree
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          commandDisplay: 'git apply -R',
+        } as any);
+
+      const result = await stagingManager.restoreHunk({
+        worktreePath: '/tmp/project',
+        sessionId: 'test-session',
+        filePath: 'test.txt',
+        scope: 'unstaged',
+        hunkHeader: '@@ -1,3 +1,3 @@',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockGitExecutor.run).toHaveBeenCalledTimes(3);
+
+      expect(mockGitExecutor.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        argv: expect.arrayContaining(['git', 'diff', '--unified=0']),
+      }));
+
+      expect(mockGitExecutor.run).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        argv: expect.arrayContaining(['git', 'diff', '--unified=3']),
+      }));
+
+      expect(mockGitExecutor.run).toHaveBeenNthCalledWith(3, expect.objectContaining({
+        argv: expect.arrayContaining(['git', 'apply', '-R']),
+      }));
+      expect(mockGitExecutor.run).toHaveBeenNthCalledWith(3, expect.not.objectContaining({
+        argv: expect.arrayContaining(['--cached']),
       }));
     });
   });

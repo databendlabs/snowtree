@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { X, ArrowLeft, RefreshCw, Copy, Check, ChevronUp, ChevronDown } from 'lucide-react';
-import { ZedDiffViewer, type ZedDiffViewerHandle } from '../panels/diff/ZedDiffViewer';
+import { X, ArrowLeft, RefreshCw, Copy, Check } from 'lucide-react';
+import { PierreDiffViewer } from '../panels/diff/PierreDiffViewer';
 import { isPreviewableFile } from '../panels/diff/utils/fileUtils';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
@@ -90,33 +90,6 @@ async function fetchFileSources(
   return results;
 }
 
-const ToolbarButton: React.FC<{
-  onClick: () => void;
-  disabled?: boolean;
-  title: string;
-  children: React.ReactNode;
-  variant?: 'default' | 'primary' | 'icon';
-}> = ({ onClick, disabled, title, children, variant = 'default' }) => {
-  const baseStyles = 'flex items-center gap-1.5 rounded st-focus-ring transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
-  const variantStyles = {
-    default: 'px-2.5 py-1 text-xs font-medium text-[color:var(--st-text-muted)] hover:text-[color:var(--st-text)] hover:bg-[color:var(--st-hover)]',
-    primary: 'px-3 py-1.5 text-xs font-medium bg-[color:var(--st-accent)] text-black hover:brightness-110',
-    icon: 'p-1.5 text-[color:var(--st-text-faint)] hover:text-[color:var(--st-text)] hover:bg-[color:var(--st-hover)]',
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`${baseStyles} ${variantStyles[variant]}`}
-      title={title}
-    >
-      {children}
-    </button>
-  );
-};
-
 const IconButton: React.FC<{
   onClick: () => void;
   disabled?: boolean;
@@ -158,10 +131,9 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const overlayRefreshTimerRef = useRef<number | null>(null);
-  
-  const [currentHunkIndex, setCurrentHunkIndex] = useState(0);
-  const [totalHunks, setTotalHunks] = useState(0);
-  const diffViewerRef = useRef<ZedDiffViewerHandle | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
+  const lastGitStatusSignatureRef = useRef<string | null>(null);
 
   const derivedFiles = useMemo(() => {
     if (!diff) return [];
@@ -191,10 +163,20 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
   }, [diff]);
 
   const viewerFiles = files.length > 0 ? files : derivedFiles;
+  const viewerFileOrder = useMemo(() => {
+    if (!viewerFiles || viewerFiles.length === 0) return undefined;
+    return viewerFiles.map((f) => f.path);
+  }, [viewerFiles]);
+
+  const previewSources = useMemo(() => {
+    if (filePath && fileSource != null) return { [filePath]: fileSource };
+    if (!filePath) return fileSources ?? undefined;
+    return undefined;
+  }, [filePath, fileSource, fileSources]);
 
   // Shared diff loading logic used by both initial load and refresh
   const loadDiffData = useCallback(async (): Promise<void> => {
-    if (!sessionId || !target) return;
+    if (!isOpen || !sessionId || !target) return;
 
     setLoading(true);
     setError(null);
@@ -257,21 +239,36 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
         setDiff(diffText);
         setStagedDiff(null);
         setUnstagedDiff(null);
-        setFileSource(null);
         setFileSources(null);
 
-        // For commit views, load previewable file content to enable previews.
-        if (target.kind === 'commit' && diffText) {
+        if (target.kind === 'commit') {
           const commitHash = target.hash;
-          const previewableFiles = extractPreviewablePathsFromDiff(diffText);
-          if (previewableFiles.length > 0) {
-            const results = await fetchFileSources(sessionId, previewableFiles, {
-              refs: [commitHash],
-              maxBytes: FILE_CONTENT_MAX_BYTES,
-              concurrency: FILE_CONTENT_CONCURRENCY,
-            });
-            setFileSources(Object.keys(results).length > 0 ? results : null);
+          // Single-file view: load the file content at the selected commit for previews.
+          if (filePath) {
+            const content = await requestFileContentWithFallback(
+              sessionId,
+              filePath,
+              [commitHash, `${commitHash}^`],
+              FILE_CONTENT_MAX_BYTES
+            );
+            setFileSource(content);
+          } else {
+            setFileSource(null);
+            // Project diff view: load previewable file content to enable previews.
+            if (diffText) {
+              const previewableFiles = extractPreviewablePathsFromDiff(diffText);
+              if (previewableFiles.length > 0) {
+                const results = await fetchFileSources(sessionId, previewableFiles, {
+                  refs: [commitHash],
+                  maxBytes: FILE_CONTENT_MAX_BYTES,
+                  concurrency: FILE_CONTENT_CONCURRENCY,
+                });
+                setFileSources(Object.keys(results).length > 0 ? results : null);
+              }
+            }
           }
+        } else {
+          setFileSource(null);
         }
       } else {
         const message = response.error || 'Failed to load diff';
@@ -289,7 +286,45 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
     } finally {
       setLoading(false);
     }
-  }, [sessionId, target, filePath, onClose]);
+  }, [filePath, isOpen, onClose, sessionId, target]);
+
+  const loadDiffDataRef = useRef(loadDiffData);
+  useEffect(() => {
+    loadDiffDataRef.current = loadDiffData;
+  }, [loadDiffData]);
+
+  const refreshNow = useCallback(() => {
+    if (refreshInFlightRef.current) {
+      refreshQueuedRef.current = true;
+      return;
+    }
+
+    refreshInFlightRef.current = true;
+    refreshQueuedRef.current = false;
+
+    void loadDiffDataRef
+      .current()
+      .catch(() => {
+        // errors are surfaced via local state
+      })
+      .finally(() => {
+        refreshInFlightRef.current = false;
+        if (refreshQueuedRef.current) {
+          refreshQueuedRef.current = false;
+          refreshNow();
+        }
+      });
+  }, []);
+
+  const scheduleRefresh = useCallback(() => {
+    if (overlayRefreshTimerRef.current) {
+      window.clearTimeout(overlayRefreshTimerRef.current);
+    }
+    overlayRefreshTimerRef.current = window.setTimeout(() => {
+      overlayRefreshTimerRef.current = null;
+      refreshNow();
+    }, 150);
+  }, [refreshNow]);
 
   // Load diff
   useEffect(() => {
@@ -299,15 +334,12 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
       setUnstagedDiff(null);
       setFileSource(null);
       setFileSources(null);
+      lastGitStatusSignatureRef.current = null;
       return;
     }
 
-    loadDiffData();
-  }, [isOpen, sessionId, target, filePath, loadDiffData]);
-
-  const handleRefresh = useCallback(() => {
-    loadDiffData();
-  }, [loadDiffData]);
+    refreshNow();
+  }, [filePath, isOpen, refreshNow, sessionId, target]);
 
   const handleCopyPath = useCallback(async () => {
     if (!filePath) return;
@@ -327,13 +359,28 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
     if (target.kind !== 'working') return;
     const unsub = window.electronAPI?.events?.onGitStatusUpdated?.((data) => {
       if (!data || data.sessionId !== sessionId) return;
-      if (overlayRefreshTimerRef.current) {
-        window.clearTimeout(overlayRefreshTimerRef.current);
-      }
-      overlayRefreshTimerRef.current = window.setTimeout(() => {
-        overlayRefreshTimerRef.current = null;
-        void handleRefresh();
-      }, 80);
+      const status = (data as { gitStatus?: unknown }).gitStatus as Record<string, unknown> | undefined;
+      const signature = status ? JSON.stringify({
+        state: status.state,
+        staged: status.staged,
+        modified: status.modified,
+        untracked: status.untracked,
+        conflicted: status.conflicted,
+        ahead: status.ahead,
+        behind: status.behind,
+        additions: status.additions,
+        deletions: status.deletions,
+        filesChanged: status.filesChanged,
+        hasUncommittedChanges: status.hasUncommittedChanges,
+        hasUntrackedFiles: status.hasUntrackedFiles,
+        isReadyToMerge: status.isReadyToMerge,
+        detached: status.detached,
+        clean: status.clean,
+        secondaryStates: status.secondaryStates,
+      }) : null;
+      if (signature && lastGitStatusSignatureRef.current === signature) return;
+      lastGitStatusSignatureRef.current = signature;
+      scheduleRefresh();
     });
     return () => {
       if (overlayRefreshTimerRef.current) {
@@ -342,7 +389,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
       }
       if (unsub) unsub();
     };
-  }, [isOpen, sessionId, target, filePath, handleRefresh]);
+  }, [isOpen, scheduleRefresh, sessionId, target]);
 
   // Fallback: staging operations always record a timeline event, while status updates can be throttled/skipped.
   // This keeps the overlay in sync when users stage/unstage via the RightPanel checkboxes.
@@ -357,34 +404,16 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
       const meta = (e.meta || {}) as Record<string, unknown>;
       const source = typeof meta.source === 'string' ? meta.source : '';
       if (source !== 'gitStaging') return;
-
-      if (overlayRefreshTimerRef.current) {
-        window.clearTimeout(overlayRefreshTimerRef.current);
-      }
-      overlayRefreshTimerRef.current = window.setTimeout(() => {
-        overlayRefreshTimerRef.current = null;
-        void handleRefresh();
-      }, 80);
+      scheduleRefresh();
     });
     return () => {
       if (unsub) unsub();
     };
-  }, [isOpen, sessionId, target, filePath, handleRefresh]);
-
-  const handleHunkNavigation = useCallback((direction: 'prev' | 'next') => {
-    diffViewerRef.current?.navigateToHunk(direction);
-  }, []);
-
-  const handleHunkInfo = useCallback((current: number, total: number) => {
-    setCurrentHunkIndex(current);
-    setTotalHunks(total);
-  }, []);
+  }, [isOpen, scheduleRefresh, sessionId, target]);
 
   if (!isOpen) return null;
 
   const workingScope = target?.kind === 'working' ? (target.scope || 'all') : null;
-  const isWorkingTree = target?.kind === 'working';
-  const hasHunks = totalHunks > 0;
 
   function getWorkingTitle(scope: string | null): string {
     switch (scope) {
@@ -475,7 +504,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
         <div className="flex items-center gap-0.5">
           {/* Refresh button */}
           <IconButton
-            onClick={handleRefresh}
+            onClick={refreshNow}
             disabled={loading}
             title="Refresh"
           >
@@ -491,37 +520,6 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
           </IconButton>
         </div>
       </div>
-
-      {isWorkingTree && hasHunks && (
-        <div
-          className="flex items-center justify-center gap-1 px-3 py-1.5"
-          style={{ backgroundColor: 'var(--st-surface)', borderBottom: `1px solid ${border}` }}
-          data-testid="diff-toolbar"
-        >
-          <ToolbarButton
-            onClick={() => handleHunkNavigation('prev')}
-            disabled={!hasHunks}
-            title="Previous hunk"
-            variant="icon"
-          >
-            <ChevronUp className="w-4 h-4" />
-          </ToolbarButton>
-          <span
-            className="text-[11px] font-mono px-1.5 min-w-[40px] text-center"
-            style={{ color: 'var(--st-text-faint)' }}
-          >
-            {currentHunkIndex}/{totalHunks}
-          </span>
-          <ToolbarButton
-            onClick={() => handleHunkNavigation('next')}
-            disabled={!hasHunks}
-            title="Next hunk"
-            variant="icon"
-          >
-            <ChevronDown className="w-4 h-4" />
-          </ToolbarButton>
-        </div>
-      )}
 
       {banner && (
         <div
@@ -578,7 +576,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
             <span className="text-xs">{error}</span>
             <button
               type="button"
-              onClick={handleRefresh}
+              onClick={refreshNow}
               className="text-xs px-3 py-1.5 rounded st-hoverable st-focus-ring"
               style={{
                 backgroundColor: hoverBg,
@@ -589,21 +587,17 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
             </button>
           </div>
         ) : diff ? (
-          <ZedDiffViewer
-            ref={diffViewerRef}
+          <PierreDiffViewer
             diff={diff}
             scrollToFilePath={filePath || undefined}
             className="h-full"
             sessionId={sessionId}
-            currentScope={target?.kind === 'working' ? (target.scope as any) : undefined}
+            target={target ?? undefined}
             stagedDiff={stagedDiff ?? undefined}
             unstagedDiff={unstagedDiff ?? undefined}
-            fileSources={filePath && fileSource != null ? { [filePath]: fileSource } : (fileSources ?? undefined)}
-            expandFileContext={false}
-            fileOrder={viewerFiles.length > 0 ? viewerFiles.map((f) => f.path) : undefined}
-            isCommitView={target?.kind === 'commit'}
-            onChanged={handleRefresh}
-            onHunkInfo={handleHunkInfo}
+            previewFileSources={previewSources}
+            fileOrder={viewerFileOrder}
+            onChanged={refreshNow}
           />
         ) : (
           <div

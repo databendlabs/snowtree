@@ -69,6 +69,9 @@ export interface StageLinesResult {
 }
 
 export class GitStagingManager {
+  // Keep in sync with UI working-tree diff context (DiffManager.WORKING_DIFF_CONTEXT_LINES).
+  private readonly UI_WORKING_DIFF_CONTEXT_LINES = 3;
+
   constructor(
     private gitExecutor: GitExecutor,
     private statusManager: GitStatusManager
@@ -93,7 +96,7 @@ export class GitStagingManager {
       console.debug('[GitStagingManager] Got diff, length:', fullDiff.length);
 
       // Check for binary files
-      if (fullDiff.includes('Binary files differ')) {
+      if (this.isBinaryDiffOutput(fullDiff)) {
         return {
           success: false,
           error: 'Cannot stage individual lines of binary files',
@@ -151,23 +154,18 @@ export class GitStagingManager {
   async stageHunk(options: StageHunkOptions): Promise<StageLinesResult> {
     try {
       const scope = options.isStaging ? 'unstaged' : 'staged';
-      // Keep hunk operations aligned with the UI diff (unified=0), so the hunk header matches.
-      const fullDiff = await this.getFileDiff(options.worktreePath, options.filePath, scope, options.sessionId, 0);
-
-      if (fullDiff.includes('Binary files differ')) {
-        return { success: false, error: 'Cannot stage hunks of binary files' };
+      const resolved = await this.resolveTargetHunkByHeader({
+        worktreePath: options.worktreePath,
+        filePath: options.filePath,
+        scope,
+        sessionId: options.sessionId,
+        hunkHeader: options.hunkHeader,
+        binaryError: 'Cannot stage hunks of binary files',
+      });
+      if ('error' in resolved) {
+        return { success: false, error: resolved.error };
       }
-
-      const hunks = this.parseDiffIntoHunks(fullDiff);
-      if (hunks.length === 0) {
-        return { success: false, error: 'No changes found in diff' };
-      }
-
-      const normalizedHeader = options.hunkHeader.trim();
-      const targetHunk = hunks.find((h) => h.header.trim() === normalizedHeader);
-      if (!targetHunk) {
-        return { success: false, error: 'Target hunk not found in diff' };
-      }
+      const targetHunk = resolved.hunk;
 
       const patch = this.generateHunkPatch(targetHunk, options.filePath);
       return await this.applyPatch(options.worktreePath, patch, options.isStaging, options.sessionId, {
@@ -190,23 +188,18 @@ export class GitStagingManager {
   async restoreHunk(options: RestoreHunkOptions): Promise<StageLinesResult> {
     try {
       const fullDiffScope = options.scope === 'staged' ? 'staged' : 'unstaged';
-      // Keep hunk operations aligned with the UI diff (unified=0), so the hunk header matches.
-      const fullDiff = await this.getFileDiff(options.worktreePath, options.filePath, fullDiffScope, options.sessionId, 0);
-
-      if (fullDiff.includes('Binary files differ')) {
-        return { success: false, error: 'Cannot restore hunks of binary files' };
+      const resolved = await this.resolveTargetHunkByHeader({
+        worktreePath: options.worktreePath,
+        filePath: options.filePath,
+        scope: fullDiffScope,
+        sessionId: options.sessionId,
+        hunkHeader: options.hunkHeader,
+        binaryError: 'Cannot restore hunks of binary files',
+      });
+      if ('error' in resolved) {
+        return { success: false, error: resolved.error };
       }
-
-      const hunks = this.parseDiffIntoHunks(fullDiff);
-      if (hunks.length === 0) {
-        return { success: false, error: 'No changes found in diff' };
-      }
-
-      const normalizedHeader = options.hunkHeader.trim();
-      const targetHunk = hunks.find((h) => h.header.trim() === normalizedHeader);
-      if (!targetHunk) {
-        return { success: false, error: 'Target hunk not found in diff' };
-      }
+      const targetHunk = resolved.hunk;
 
       const patch = this.generateHunkPatch(targetHunk, options.filePath);
 
@@ -331,6 +324,51 @@ export class GitStagingManager {
     }
   }
 
+  private async resolveTargetHunkByHeader(options: {
+    worktreePath: string;
+    filePath: string;
+    scope: 'staged' | 'unstaged';
+    sessionId: string;
+    hunkHeader: string;
+    binaryError: string;
+  }): Promise<{ hunk: Hunk } | { error: string }> {
+    const normalizedHeader = options.hunkHeader.trim();
+    if (!normalizedHeader) {
+      return { error: 'Invalid hunk header' };
+    }
+
+    let sawAnyHunks = false;
+    const unifiedCandidates = [0, this.UI_WORKING_DIFF_CONTEXT_LINES];
+    const attemptedUnified = new Set<number>();
+
+    for (const unified of unifiedCandidates) {
+      if (attemptedUnified.has(unified)) continue;
+      attemptedUnified.add(unified);
+
+      const fullDiff = await this.getFileDiff(
+        options.worktreePath,
+        options.filePath,
+        options.scope,
+        options.sessionId,
+        unified
+      );
+
+      if (this.isBinaryDiffOutput(fullDiff)) {
+        return { error: options.binaryError };
+      }
+
+      const hunks = this.parseDiffIntoHunks(fullDiff);
+      if (hunks.length === 0) continue;
+      sawAnyHunks = true;
+
+      const target = hunks.find((h) => h.header.trim() === normalizedHeader);
+      if (target) return { hunk: target };
+    }
+
+    if (!sawAnyHunks) return { error: 'No changes found in diff' };
+    return { error: 'Target hunk not found in diff' };
+  }
+
   private async getFileDiff(
     worktreePath: string,
     filePath: string,
@@ -358,6 +396,15 @@ export class GitStagingManager {
     }
 
     return result.stdout;
+  }
+
+  private isBinaryDiffOutput(diffText: string): boolean {
+    for (const rawLine of diffText.split('\n')) {
+      const line = rawLine.trimEnd();
+      if (line === 'GIT binary patch') return true;
+      if (line.startsWith('Binary files ') && line.endsWith(' differ')) return true;
+    }
+    return false;
   }
 
   /**
