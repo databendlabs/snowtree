@@ -78,6 +78,12 @@
     transform: scale(0.96);
   }
 
+  @keyframes st-btn-flash {
+    0% { filter: brightness(1); box-shadow: none; }
+    20% { filter: brightness(1.4); box-shadow: 0 0 6px 2px color-mix(in srgb, var(--st-accent) 40%, transparent); }
+    100% { filter: brightness(1); box-shadow: none; }
+  }
+
   /* Sidebar tree (repo + workspaces) */
   .st-tree-card {
     border-radius: var(--st-radius);

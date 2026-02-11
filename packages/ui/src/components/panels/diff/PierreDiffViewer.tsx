@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, EyeOff, Minus, Plus, RotateCcw, UnfoldVertical } from 'lucide-react';
+import { Check, ChevronRight, Eye, EyeOff, Minus, Plus, RotateCcw, UnfoldVertical } from 'lucide-react';
 import { FileDiff, WorkerPoolContextProvider } from '@pierre/diffs/react';
 import { parsePatchFiles, type DiffLineAnnotation, type FileDiffMetadata, type Hunk } from '@pierre/diffs';
 
@@ -267,6 +267,10 @@ const FileCard = memo(function FileCard({
   isPreviewing,
   onTogglePreview,
   themeType,
+  isReviewed,
+  onToggleReviewed,
+  isCollapsed,
+  onToggleCollapsed,
 }: {
   fileDiff: FileDiffMetadata;
   stagedEntries: HunkHeaderEntry[] | undefined;
@@ -281,6 +285,10 @@ const FileCard = memo(function FileCard({
   isPreviewing: boolean;
   onTogglePreview: () => void;
   themeType: 'light' | 'dark';
+  isReviewed: boolean;
+  onToggleReviewed: () => void;
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
 }) {
   const headerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -297,6 +305,16 @@ const FileCard = memo(function FileCard({
       return next;
     });
   }, []);
+
+  // Flash feedback: tracks which button key just completed an action
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  const flashTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const triggerFlash = useCallback((key: string) => {
+    setFlashKey(key);
+    clearTimeout(flashTimeout.current);
+    flashTimeout.current = setTimeout(() => setFlashKey(null), 600);
+  }, []);
+  useEffect(() => () => clearTimeout(flashTimeout.current), []);
 
   const hunksMeta = useMemo<HunkMeta[]>(() => {
     return fileDiff.hunks.map((hunk, idx) => {
@@ -392,6 +410,7 @@ const FileCard = memo(function FileCard({
       try {
         setPending(key, true);
         await API.sessions.changeFileStage(sessionId, { filePath: fileDiff.name, stage });
+        triggerFlash(stage ? 'file-stage' : 'file-unstage');
         onChanged?.();
       } catch (err) {
         console.error(`[Diffs] Failed to ${stage ? 'stage' : 'unstage'} file`, { filePath: fileDiff.name, err });
@@ -400,7 +419,7 @@ const FileCard = memo(function FileCard({
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
     },
-    [fileDiff.name, onChanged, sessionId, setPending]
+    [fileDiff.name, onChanged, sessionId, setPending, triggerFlash]
   );
 
   const restoreFile = useCallback(async () => {
@@ -409,6 +428,7 @@ const FileCard = memo(function FileCard({
     try {
       setPending(key, true);
       await API.sessions.restoreFile(sessionId, { filePath: fileDiff.name });
+      triggerFlash('file-restore');
       onChanged?.();
     } catch (err) {
       console.error('[Diffs] Failed to restore file', { filePath: fileDiff.name, err });
@@ -416,7 +436,7 @@ const FileCard = memo(function FileCard({
       setPending(key, false);
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     }
-  }, [fileDiff.name, onChanged, sessionId, setPending]);
+  }, [fileDiff.name, onChanged, sessionId, setPending, triggerFlash]);
 
   const stageHunk = useCallback(
     async (hunk: HunkMeta, stage: boolean) => {
@@ -425,6 +445,7 @@ const FileCard = memo(function FileCard({
       try {
         setPending(key, true);
         await API.sessions.stageHunk(sessionId, { filePath: fileDiff.name, isStaging: stage, hunkHeader: hunk.stagedHeader || hunk.unstagedHeader || hunk.header });
+        triggerFlash(`hunk-${stage ? 'stage' : 'unstage'}-${hunk.index}`);
         onChanged?.();
       } catch (err) {
         console.error(`[Diffs] Failed to ${stage ? 'stage' : 'unstage'} hunk`, { filePath: fileDiff.name, hunkHeader: hunk.header, err });
@@ -433,7 +454,7 @@ const FileCard = memo(function FileCard({
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
     },
-    [fileDiff.name, onChanged, sessionId, setPending]
+    [fileDiff.name, onChanged, sessionId, setPending, triggerFlash]
   );
 
   const restoreHunk = useCallback(
@@ -444,6 +465,7 @@ const FileCard = memo(function FileCard({
       try {
         setPending(key, true);
         await API.sessions.restoreHunk(sessionId, { filePath: fileDiff.name, scope: hunk.status, hunkHeader: hunk.stagedHeader || hunk.unstagedHeader || hunk.header });
+        triggerFlash(`hunk-restore-${hunk.index}`);
         onChanged?.();
       } catch (err) {
         console.error('[Diffs] Failed to restore hunk', { filePath: fileDiff.name, hunkHeader: hunk.header, err });
@@ -452,7 +474,7 @@ const FileCard = memo(function FileCard({
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
     },
-    [fileDiff.name, onChanged, sessionId, setPending]
+    [fileDiff.name, onChanged, sessionId, setPending, triggerFlash]
   );
 
   const [hoveredHunk, setHoveredHunk] = useState<HunkMeta | null>(null);
@@ -641,6 +663,14 @@ const FileCard = memo(function FileCard({
       fileDiff.hunks.length > 0
   );
 
+  const flashStyle = useCallback(
+    (key: string): React.CSSProperties =>
+      flashKey === key
+        ? { animation: 'st-btn-flash 0.6s ease-out' }
+        : {},
+    [flashKey]
+  );
+
   return (
     <div className="st-diff-file" data-testid="diff-file" data-diff-file-path={fileDiff.name}>
       <div
@@ -649,17 +679,53 @@ const FileCard = memo(function FileCard({
         className="sticky top-0 z-20 px-3 py-2 text-xs font-semibold flex items-center justify-between gap-2"
         style={{ backgroundColor: 'var(--st-surface)', borderBottom: '1px solid var(--st-border-variant)' }}
       >
-        <div className="min-w-0 flex-1">
-          <div className="font-mono truncate" title={fileDiff.name}>
-            {fileDiff.name}
-          </div>
-          {fileDiff.prevName && fileDiff.prevName !== fileDiff.name && (
-            <div className="text-[11px] font-mono truncate mt-0.5" style={{ color: 'var(--st-text-faint)' }} title={fileDiff.prevName}>
-              {fileDiff.prevName}
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <button
+            type="button"
+            className="st-icon-button st-focus-ring !w-5 !h-5 flex-shrink-0"
+            onClick={onToggleCollapsed}
+            title={isCollapsed ? 'Expand file' : 'Collapse file'}
+          >
+            <ChevronRight
+              className="w-3.5 h-3.5 transition-transform duration-150"
+              style={{ transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}
+            />
+          </button>
+          <div className="min-w-0 flex-1 cursor-pointer" onClick={onToggleCollapsed}>
+            <div className="font-mono truncate" title={fileDiff.name}>
+              {fileDiff.name}
+              {isReviewed && (
+                <span
+                  className="ml-2 inline-flex items-center gap-0.5 rounded border px-1 py-[1px] text-[10px] font-medium leading-none select-none align-middle"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--st-success) 12%, transparent)',
+                    borderColor: 'color-mix(in srgb, var(--st-success) 30%, transparent)',
+                    color: 'var(--st-text-faint)',
+                  }}
+                >
+                  Viewed
+                </span>
+              )}
             </div>
-          )}
+            {fileDiff.prevName && fileDiff.prevName !== fileDiff.name && (
+              <div className="text-[11px] font-mono truncate mt-0.5" style={{ color: 'var(--st-text-faint)' }} title={fileDiff.prevName}>
+                {fileDiff.prevName}
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {!isCommitView && (
+            <button
+              type="button"
+              className="st-icon-button st-focus-ring !w-5 !h-5"
+              onClick={onToggleReviewed}
+              title={isReviewed ? 'Mark as not reviewed' : 'Mark as reviewed'}
+              style={isReviewed ? { color: 'var(--st-success)' } : { color: 'var(--st-text-faint)' }}
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+          )}
           {canLoadContext && !contextLines && (
             <button
               type="button"
@@ -690,7 +756,7 @@ const FileCard = memo(function FileCard({
                 <button
                   type="button"
                   className="px-2 py-1 rounded text-[11px] font-medium st-focus-ring disabled:opacity-40"
-                  style={{ backgroundColor: 'color-mix(in srgb, var(--st-success) 14%, transparent)', color: 'var(--st-text)' }}
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--st-success) 14%, transparent)', color: 'var(--st-text)', ...flashStyle('file-stage') }}
                   disabled={!sessionId || pendingKeys.has(`file:${fileDiff.name}`)}
                   onClick={() => stageFile(true)}
                   title="Stage file"
@@ -702,7 +768,7 @@ const FileCard = memo(function FileCard({
                 <button
                   type="button"
                   className="px-2 py-1 rounded text-[11px] font-medium st-focus-ring disabled:opacity-40"
-                  style={{ backgroundColor: 'color-mix(in srgb, var(--st-warning) 14%, transparent)', color: 'var(--st-text)' }}
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--st-warning) 14%, transparent)', color: 'var(--st-text)', ...flashStyle('file-unstage') }}
                   disabled={!sessionId || pendingKeys.has(`file:${fileDiff.name}`)}
                   onClick={() => stageFile(false)}
                   title="Unstage file"
@@ -710,10 +776,11 @@ const FileCard = memo(function FileCard({
                   Unstage
                 </button>
               )}
+              <span className="w-px h-4 mx-0.5" style={{ backgroundColor: 'var(--st-border-variant)' }} />
               <button
                 type="button"
                 className="px-2 py-1 rounded text-[11px] font-medium st-focus-ring disabled:opacity-40"
-                style={{ backgroundColor: 'color-mix(in srgb, var(--st-danger) 10%, transparent)', color: 'var(--st-text)' }}
+                style={{ backgroundColor: 'color-mix(in srgb, var(--st-danger) 10%, transparent)', color: 'var(--st-text)', ...flashStyle('file-restore') }}
                 disabled={!sessionId || pendingKeys.has(`file:${fileDiff.name}:restore`)}
                 onClick={() => restoreFile()}
                 title="Restore file"
@@ -725,28 +792,30 @@ const FileCard = memo(function FileCard({
         </div>
       </div>
 
-      <div style={containerStyle}>
-        {isPreviewing && previewContent ? (
-          isImageFile(fileDiff.name) ? (
-            <ImagePreview content={previewContent} filePath={fileDiff.name} />
+      {!isCollapsed && (
+        <div style={containerStyle}>
+          {isPreviewing && previewContent ? (
+            isImageFile(fileDiff.name) ? (
+              <ImagePreview content={previewContent} filePath={fileDiff.name} />
+            ) : (
+              <MarkdownPreview content={previewContent} />
+            )
+          ) : fileDiff.hunks.length === 0 ? (
+            <div className="px-3 py-6 text-xs" style={{ color: 'var(--st-text-faint)' }}>
+              {isImageFile(fileDiff.name) ? 'Binary file (image)' : isBinaryFile(fileDiff.name) ? 'Binary file' : 'Diff unavailable.'}
+            </div>
           ) : (
-            <MarkdownPreview content={previewContent} />
-          )
-        ) : fileDiff.hunks.length === 0 ? (
-          <div className="px-3 py-6 text-xs" style={{ color: 'var(--st-text-faint)' }}>
-            {isImageFile(fileDiff.name) ? 'Binary file (image)' : isBinaryFile(fileDiff.name) ? 'Binary file' : 'Diff unavailable.'}
-          </div>
-        ) : (
-          <FileDiff<HunkStatusAnnotation>
-            fileDiff={fileDiffForRender}
-            options={diffOptions as any}
-            lineAnnotations={hunkStatusAnnotations}
-            renderAnnotation={renderHunkStatusAnnotation}
-            renderHoverUtility={() => hoverUtility}
-            style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
-          />
-        )}
-      </div>
+            <FileDiff<HunkStatusAnnotation>
+              fileDiff={fileDiffForRender}
+              options={diffOptions as any}
+              lineAnnotations={hunkStatusAnnotations}
+              renderAnnotation={renderHunkStatusAnnotation}
+              renderHoverUtility={() => hoverUtility}
+              style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 });
@@ -774,6 +843,78 @@ export const PierreDiffViewer: React.FC<PierreDiffViewerProps> = memo(function P
 
   const stagedEntriesByFile = useMemo(() => buildHunkHeaderEntries(stagedDiff), [stagedDiff]);
   const unstagedEntriesByFile = useMemo(() => buildHunkHeaderEntries(unstagedDiff), [unstagedDiff]);
+
+  // --- Reviewed / collapsed file tracking ---
+  // reviewedFiles: Map<filePath, diffSignature> — stores the diff signature at the time of marking reviewed
+  const [reviewedFiles, setReviewedFiles] = useState<Map<string, string>>(() => new Map());
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(() => new Set());
+
+  // Compute a simple signature per file for change detection
+  const fileDiffSignatures = useMemo(() => {
+    const sigs = new Map<string, string>();
+    for (const file of parsedFiles) {
+      const parts = file.hunks.map((h) => hunkSignature(h));
+      sigs.set(file.name, parts.join('\n---\n'));
+    }
+    return sigs;
+  }, [parsedFiles]);
+
+  // When diff changes, check if any reviewed file's signature changed — if so, un-collapse and un-review it
+  useEffect(() => {
+    setReviewedFiles((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const [path, oldSig] of prev) {
+        const currentSig = fileDiffSignatures.get(path);
+        if (currentSig === undefined || currentSig !== oldSig) {
+          next.delete(path);
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      // Also un-collapse those files
+      setCollapsedFiles((prevCollapsed) => {
+        const nextCollapsed = new Set(prevCollapsed);
+        for (const [path] of prev) {
+          const currentSig = fileDiffSignatures.get(path);
+          if (currentSig === undefined || currentSig !== prev.get(path)) {
+            nextCollapsed.delete(path);
+          }
+        }
+        return nextCollapsed;
+      });
+      return next;
+    });
+  }, [fileDiffSignatures]);
+
+  const toggleReviewed = useCallback((filePath: string) => {
+    setReviewedFiles((prev) => {
+      const next = new Map(prev);
+      if (next.has(filePath)) {
+        next.delete(filePath);
+        // Un-collapse when un-reviewing
+        setCollapsedFiles((c) => {
+          const nc = new Set(c);
+          nc.delete(filePath);
+          return nc;
+        });
+      } else {
+        // Mark reviewed with current signature, and collapse
+        next.set(filePath, fileDiffSignatures.get(filePath) ?? '');
+        setCollapsedFiles((c) => new Set(c).add(filePath));
+      }
+      return next;
+    });
+  }, [fileDiffSignatures]);
+
+  const toggleCollapsed = useCallback((filePath: string) => {
+    setCollapsedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(filePath)) next.delete(filePath);
+      else next.add(filePath);
+      return next;
+    });
+  }, []);
 
   const autoPreviewPaths = useMemo(() => {
     return parsedFiles.map((f) => f.name).filter((p) => isImageFile(p));
@@ -811,6 +952,10 @@ export const PierreDiffViewer: React.FC<PierreDiffViewerProps> = memo(function P
               isPreviewing={previewFiles.has(file.name)}
               onTogglePreview={() => togglePreview(file.name)}
               themeType={themeType}
+              isReviewed={reviewedFiles.has(file.name)}
+              onToggleReviewed={() => toggleReviewed(file.name)}
+              isCollapsed={collapsedFiles.has(file.name)}
+              onToggleCollapsed={() => toggleCollapsed(file.name)}
             />
           ))
         )}
