@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
 import './InlineDiffViewer.css';
 import { MarkdownPreview } from '../diff/MarkdownPreview';
@@ -201,10 +201,11 @@ export function InlineDiffViewer({
     }
   }, [storageKey, hasBeenViewed]);
 
-  // Listen to global collapse all trigger
+  // Listen to global collapse all trigger (only react to triggers after mount)
   const collapseContext = useDiffCollapseHook?.();
+  const initialCollapseTrigger = useRef(collapseContext?.collapseAllTrigger ?? 0);
   useEffect(() => {
-    if (collapseContext && collapseContext.collapseAllTrigger > 0) {
+    if (collapseContext && collapseContext.collapseAllTrigger > initialCollapseTrigger.current) {
       setIsExpanded(false);
     }
   }, [collapseContext?.collapseAllTrigger]);

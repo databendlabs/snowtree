@@ -675,10 +675,11 @@ const AgentResponse: React.FC<{
   const [expandedCommands, setExpandedCommands] = useState<Set<string>>(new Set());
   const agentLabel = useMemo(() => getAgentModelLabelFromCommands(commands), [commands]);
 
-  // Listen to global collapse all trigger
+  // Listen to global collapse all trigger (only react to triggers after mount)
   const toolCollapseContext = useContext(ToolCollapseContext);
+  const initialToolCollapseTrigger = useRef(toolCollapseContext?.collapseAllTrigger ?? 0);
   useEffect(() => {
-    if (toolCollapseContext && toolCollapseContext.collapseAllTrigger > 0) {
+    if (toolCollapseContext && toolCollapseContext.collapseAllTrigger > initialToolCollapseTrigger.current) {
       setShowCommands(false);
       setExpandedOutputs(new Set());
       setExpandedCommands(new Set());
