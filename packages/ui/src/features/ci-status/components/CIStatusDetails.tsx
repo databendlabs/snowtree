@@ -212,6 +212,8 @@ export const CIStatusDetails: React.FC<CIStatusDetailsProps> = ({
   checks,
   onCheckClick,
 }) => {
+  const [failedCollapsed, setFailedCollapsed] = useState(false);
+  const [pendingCollapsed, setPendingCollapsed] = useState(false);
   const [successCollapsed, setSuccessCollapsed] = useState(true);
 
   if (checks.length === 0) {
@@ -242,15 +244,15 @@ export const CIStatusDetails: React.FC<CIStatusDetailsProps> = ({
         title="Failed"
         checks={failedChecks}
         onCheckClick={onCheckClick}
-        collapsed={false}
-        onToggle={() => {}}
+        collapsed={failedCollapsed}
+        onToggle={() => setFailedCollapsed(!failedCollapsed)}
       />
       <CheckGroup
         title="Pending"
         checks={pendingChecks}
         onCheckClick={onCheckClick}
-        collapsed={false}
-        onToggle={() => {}}
+        collapsed={pendingCollapsed}
+        onToggle={() => setPendingCollapsed(!pendingCollapsed)}
       />
       <CheckGroup
         title="Success"
