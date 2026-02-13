@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -122,10 +122,11 @@ export function ToolCallMessage({
 }: ToolCallMessageProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Listen to global tool collapse trigger
+  // Listen to global tool collapse trigger (only react to triggers after mount)
   const toolCollapseContext = useToolCollapseHook?.();
+  const initialToolCollapseTrigger = useRef(toolCollapseContext?.collapseAllTrigger ?? 0);
   useEffect(() => {
-    if (toolCollapseContext && toolCollapseContext.collapseAllTrigger > 0) {
+    if (toolCollapseContext && toolCollapseContext.collapseAllTrigger > initialToolCollapseTrigger.current) {
       setExpanded(false);
     }
   }, [toolCollapseContext?.collapseAllTrigger]);

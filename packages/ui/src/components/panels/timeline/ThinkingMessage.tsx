@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Brain, ChevronDown, ChevronRight, Circle, Square } from 'lucide-react';
 import './ThinkingMessage.css';
 
@@ -26,10 +26,11 @@ export function ThinkingMessage({ content, timestamp, isStreaming }: ThinkingMes
     else setExpanded(false);
   }, [isStreaming, userToggled]);
 
-  // Listen to global collapse all trigger
+  // Listen to global collapse all trigger (only react to triggers after mount)
   const collapseContext = useThinkingCollapseHook?.();
+  const initialCollapseTrigger = useRef(collapseContext?.collapseAllTrigger ?? 0);
   useEffect(() => {
-    if (collapseContext && collapseContext.collapseAllTrigger > 0) {
+    if (collapseContext && collapseContext.collapseAllTrigger > initialCollapseTrigger.current) {
       setExpanded(false);
     }
   }, [collapseContext?.collapseAllTrigger]);
