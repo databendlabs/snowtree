@@ -553,6 +553,7 @@ const FileCard = memo(function FileCard({
     const base = {
       diffStyle: 'unified' as const,
       hunkSeparators: 'line-info' as const,
+      expansionLineCount: 20,
       overflow: 'scroll' as const,
       themeType: themeType as 'light' | 'dark',
       disableFileHeader: true,
@@ -570,6 +571,7 @@ const FileCard = memo(function FileCard({
       return {
         diffStyle: base.diffStyle,
         hunkSeparators: base.hunkSeparators,
+        expansionLineCount: base.expansionLineCount,
         overflow: base.overflow,
         themeType: base.themeType,
         disableFileHeader: true,
