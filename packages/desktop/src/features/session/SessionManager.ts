@@ -1700,11 +1700,14 @@ export class SessionManager extends EventEmitter {
   private getAllDescendantPids(parentPid: number): number[] {
     const descendants: number[] = [];
     const platform = os.platform();
-    
+    // Validate parentPid is a safe integer to prevent command injection
+    const safePid = Math.floor(parentPid);
+    if (!Number.isInteger(safePid) || safePid <= 0) return descendants;
+
     try {
       if (platform === 'win32') {
         // On Windows, use wmic to get process tree
-        const output = execSync(`wmic process where (ParentProcessId=${parentPid}) get ProcessId`, { encoding: 'utf8' });
+        const output = execSync(`wmic process where (ParentProcessId=${safePid}) get ProcessId`, { encoding: 'utf8' });
         const lines = output.split('\n').filter(line => line.trim());
         for (let i = 1; i < lines.length; i++) { // Skip header
           const pid = parseInt(lines[i].trim());
@@ -1716,7 +1719,7 @@ export class SessionManager extends EventEmitter {
         }
       } else {
         // On Unix-like systems, use ps to get children
-        const output = execSync(`ps -o pid= --ppid ${parentPid}`, { encoding: 'utf8' });
+        const output = execSync(`ps -o pid= --ppid ${safePid}`, { encoding: 'utf8' });
         const pids = output.split('\n')
           .map(line => parseInt(line.trim()))
           .filter(pid => !isNaN(pid));

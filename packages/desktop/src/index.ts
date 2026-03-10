@@ -47,6 +47,10 @@ process.on('uncaughtException', (error: NodeJS.ErrnoException) => {
   console.error('Uncaught Exception:', error);
 });
 
+process.on('unhandledRejection', (reason: unknown) => {
+  console.error('Unhandled Promise Rejection:', reason);
+});
+
 export let mainWindow: BrowserWindow | null = null;
 let aboutWindow: BrowserWindow | null = null;
 

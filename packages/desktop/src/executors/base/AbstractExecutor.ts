@@ -1238,9 +1238,12 @@ export abstract class AbstractExecutor extends EventEmitter {
 
   /** Kill process tree */
   protected async killProcessTree(pid: number): Promise<boolean> {
+    // Validate pid is a safe positive integer to prevent command injection
+    const safePid = Math.floor(pid);
+    if (!Number.isInteger(safePid) || safePid <= 0) return false;
     try {
       if (process.platform === 'win32') {
-        await execAsync(`taskkill /pid ${pid} /T /F`);
+        await execAsync(`taskkill /pid ${safePid} /T /F`);
       } else {
         // Kill process group
         try {
