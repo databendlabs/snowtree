@@ -56,6 +56,8 @@ export class DatabaseService {
     mkdirSync(dir, { recursive: true });
     
     this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
   }
 
   /**
@@ -70,26 +72,6 @@ export class DatabaseService {
     });
     
     return transaction();
-  }
-
-  /**
-   * Execute an async function within a database transaction with automatic rollback on error
-   * @param fn Async function to execute within the transaction
-   * @returns Promise with result of the function
-   * @throws Error if transaction fails
-   */
-  private async transactionAsync<T>(fn: () => Promise<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction(() => {
-        fn().then(resolve).catch(reject);
-      });
-      
-      try {
-        transaction();
-      } catch (error) {
-        reject(error);
-      }
-    });
   }
 
   initialize(): void {

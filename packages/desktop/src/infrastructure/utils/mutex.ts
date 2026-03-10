@@ -11,50 +11,43 @@ const logger = {
  * in critical sections of code. Supports named locks and timeouts.
  */
 export class Mutex {
-  private locks = new Map<string, Promise<void>>();
-  private lockCounts = new Map<string, number>();
+  private queue = new Map<string, Array<() => void>>();
+  private locked = new Set<string>();
   private defaultTimeout = 30000; // 30 seconds
 
-  /**
-   * Acquire a lock for the given resource name
-   * @param resourceName - Unique name for the resource to lock
-   * @param timeout - Optional timeout in milliseconds (default: 30 seconds)
-   * @returns Promise<() => void> - Release function to unlock the resource
-   */
   async acquire(resourceName: string, timeout: number = this.defaultTimeout): Promise<() => void> {
-    const startTime = Date.now();
-    
-    // If there's already a lock for this resource, wait for it
-    while (this.locks.has(resourceName)) {
-      if (Date.now() - startTime > timeout) {
-        throw new Error(`Mutex timeout after ${timeout}ms waiting for lock: ${resourceName}`);
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        // Remove from queue on timeout
+        const waiters = this.queue.get(resourceName);
+        if (waiters) {
+          const idx = waiters.indexOf(tryAcquire);
+          if (idx !== -1) waiters.splice(idx, 1);
+        }
+        reject(new Error(`Mutex timeout after ${timeout}ms waiting for lock: ${resourceName}`));
+      }, timeout);
 
-    // Create a new lock promise
-    let releaseLock: (() => void) | null = null;
-    const lockPromise = new Promise<void>(resolve => {
-      releaseLock = resolve;
+      const tryAcquire = () => {
+        clearTimeout(timer);
+        this.locked.add(resourceName);
+        resolve(() => {
+          this.locked.delete(resourceName);
+          const waiters = this.queue.get(resourceName);
+          if (waiters && waiters.length > 0) {
+            const next = waiters.shift()!;
+            if (waiters.length === 0) this.queue.delete(resourceName);
+            next();
+          }
+        });
+      };
+
+      if (!this.locked.has(resourceName)) {
+        tryAcquire();
+      } else {
+        if (!this.queue.has(resourceName)) this.queue.set(resourceName, []);
+        this.queue.get(resourceName)!.push(tryAcquire);
+      }
     });
-
-    // Store the lock
-    this.locks.set(resourceName, lockPromise);
-    this.lockCounts.set(resourceName, (this.lockCounts.get(resourceName) || 0) + 1);
-    
-    const lockId = this.lockCounts.get(resourceName);
-
-    // Return the release function
-    return () => {
-      if (this.locks.get(resourceName) === lockPromise) {
-        this.locks.delete(resourceName);
-      }
-      
-      if (releaseLock) {
-        releaseLock();
-      }
-    };
   }
 
   /**
@@ -84,32 +77,21 @@ export class Mutex {
    * @returns boolean - True if the resource is locked
    */
   isLocked(resourceName: string): boolean {
-    return this.locks.has(resourceName);
+    return this.locked.has(resourceName);
   }
 
-  /**
-   * Get the current number of active locks
-   * @returns number - Number of active locks
-   */
   getActiveLockCount(): number {
-    return this.locks.size;
+    return this.locked.size;
   }
 
-  /**
-   * Get all currently locked resource names
-   * @returns string[] - Array of locked resource names
-   */
   getLockedResources(): string[] {
-    return Array.from(this.locks.keys());
+    return Array.from(this.locked);
   }
 
-  /**
-   * Force release all locks (use with caution)
-   */
   releaseAll(): void {
-    logger.warn(`[Mutex] Force releasing all locks (${this.locks.size} active locks)`);
-    this.locks.clear();
-    this.lockCounts.clear();
+    logger.warn(`[Mutex] Force releasing all locks (${this.locked.size} active locks)`);
+    this.locked.clear();
+    this.queue.clear();
   }
 }
 
